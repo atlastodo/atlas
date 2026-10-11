@@ -62,6 +62,7 @@ import { setServerUrlOverride } from "./serverUrl";
 import { readCachedSalt, writeCachedSalt } from "./saltCache";
 import { cancelAllAppNotifications } from "../lib/notify";
 import { detectDeviceName } from "../lib/deviceName";
+import { getInstallKey } from "./installKey";
 
 /**
  * Authentication state and a token-bound `ApiClient`.
@@ -582,8 +583,9 @@ export function AuthProvider({
 
       const credential = await resolveLoginCredential(client, normalizedEmail, password);
       const deviceName = await detectDeviceName().catch(() => undefined);
+      const installKey = await getInstallKey();
 
-      const auth = await client.login(normalizedEmail, credential.authHash, deviceName);
+      const auth = await client.login(normalizedEmail, credential.authHash, deviceName, installKey);
 
       // The salt and KDF that produced the credential we just logged in with — safe to cache.
       void writeCachedSalt(normalizedEmail, { salt: credential.salt, kdf: credential.kdf });
@@ -637,6 +639,7 @@ export function AuthProvider({
       const recoveryEncryptedPrivateKey = wrapKey(keypair.secretKey, recovery.wrapKey);
 
       const deviceName = await detectDeviceName().catch(() => undefined);
+      const installKey = await getInstallKey();
 
       const auth = await client.signup({
         email: normalizedEmail,
@@ -644,6 +647,7 @@ export function AuthProvider({
         displayName,
         invite,
         deviceName,
+        installKey,
         salt,
         publicKey: keypair.publicKey,
         recoveryPublicKey: recovery.auth.publicKey,
@@ -878,6 +882,7 @@ export function AuthProvider({
       const auth = await client.cancelAccountDeletion({
         email: normalizedEmail,
         password: authHash,
+        install_key: await getInstallKey(),
       });
       if (!auth.encrypted_dek || !auth.encrypted_private_key) throw legacyAccountError();
       const dek = unwrapKey(auth.encrypted_dek, mek);

@@ -663,6 +663,8 @@ export class ApiClient {
     displayName?: string;
     invite?: string;
     deviceName?: string;
+    /** Survives a reinstall; the server replaces this install's older sessions. */
+    installKey?: string;
     salt: string;
     publicKey: string;
     recoveryPublicKey: string;
@@ -680,6 +682,7 @@ export class ApiClient {
       display_name: req.displayName ?? "",
       invite: req.invite,
       device_name: req.deviceName,
+      install_key: req.installKey,
       salt: req.salt,
       public_key: req.publicKey,
       recovery_public_key: req.recoveryPublicKey,
@@ -692,8 +695,19 @@ export class ApiClient {
       encrypted_signing_key: req.encryptedSigningKey,
     });
   }
-  login(email: string, password: string, deviceName?: string): Promise<AuthResponse> {
-    return this.request("POST", "/auth/login", { email, password, device_name: deviceName });
+  /** `installKey` survives a reinstall; the server replaces this install's older sessions. */
+  login(
+    email: string,
+    password: string,
+    deviceName?: string,
+    installKey?: string,
+  ): Promise<AuthResponse> {
+    return this.request("POST", "/auth/login", {
+      email,
+      password,
+      device_name: deviceName,
+      install_key: installKey,
+    });
   }
   getSalt(email: string): Promise<SaltResponse> {
     return this.request("GET", `/auth/salt?email=${encodeURIComponent(email)}`);
@@ -734,7 +748,11 @@ export class ApiClient {
   deleteAccount(password: string): Promise<void> {
     return this.request("DELETE", "/auth/account", { password });
   }
-  cancelAccountDeletion(payload: { email: string; password: string }): Promise<AuthResponse> {
+  cancelAccountDeletion(payload: {
+    email: string;
+    password: string;
+    install_key?: string;
+  }): Promise<AuthResponse> {
     return this.request("POST", "/auth/account/cancel-deletion", payload);
   }
   me(): Promise<AuthUser> {

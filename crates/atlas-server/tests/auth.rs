@@ -2537,6 +2537,88 @@ async fn sessions_lists_devices_and_marks_the_current_one() {
 }
 
 #[tokio::test]
+async fn signing_in_again_from_the_same_install_replaces_its_old_session() {
+    let router = setup().await;
+    let (email, signup) = signup_account(&router).await;
+    let login = |install_key: Value| {
+        let router = router.clone();
+        let email = email.clone();
+        async move {
+            let (status, body) = send(
+                &router,
+                "POST",
+                "/auth/login",
+                None,
+                json!({ "email": email, "password": PASSWORD, "install_key": install_key }),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body:?}");
+            body
+        }
+    };
+    let live_devices = |access: String| {
+        let router = router.clone();
+        async move {
+            let (_, sessions) =
+                send(&router, "GET", "/auth/sessions", Some(&access), Value::Null).await;
+            sessions
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| s["device_id"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+
+    // The phone, then the same phone after a reinstall: one row, the new one.
+    let first = login(json!("phone-install-key")).await;
+    let reinstalled = login(json!("phone-install-key")).await;
+    let devices = live_devices(reinstalled["access_token"].as_str().unwrap().into()).await;
+    assert_eq!(
+        devices.len(),
+        2,
+        "the signup's session and the reinstalled phone: {devices:?}"
+    );
+    assert!(devices.contains(&reinstalled["device_id"].as_str().unwrap().to_string()));
+    assert!(!devices.contains(&first["device_id"].as_str().unwrap().to_string()));
+    let (status, _) = send(
+        &router,
+        "POST",
+        "/auth/refresh",
+        None,
+        json!({ "refresh_token": first["refresh_token"] }),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the replaced family is dead"
+    );
+
+    // The key rides the rotation: a refreshed session is still replaced by the next sign-in.
+    let (status, rotated) = send(
+        &router,
+        "POST",
+        "/auth/refresh",
+        None,
+        json!({ "refresh_token": reinstalled["refresh_token"] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{rotated:?}");
+    let again = login(json!("phone-install-key")).await;
+    let devices = live_devices(again["access_token"].as_str().unwrap().into()).await;
+    assert_eq!(devices.len(), 2, "{devices:?}");
+    assert!(!devices.contains(&reinstalled["device_id"].as_str().unwrap().to_string()));
+
+    // Another key, or none (web, desktop), is another device.
+    login(json!("tablet-install-key")).await;
+    let browser = login(Value::Null).await;
+    let devices = live_devices(browser["access_token"].as_str().unwrap().into()).await;
+    assert_eq!(devices.len(), 4, "{devices:?}");
+    assert!(devices.contains(&signup["device_id"].as_str().unwrap().to_string()));
+}
+
+#[tokio::test]
 async fn session_revocation_signs_the_other_device_out_but_refuses_the_current_one() {
     let router = setup().await;
     let (access_a, _, device_a, device_b) = two_devices(&router).await;
