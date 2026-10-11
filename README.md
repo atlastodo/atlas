@@ -2,25 +2,19 @@
 
 [![CI](https://github.com/atlastodo/atlas-todo/actions/workflows/ci.yml/badge.svg)](https://github.com/atlastodo/atlas-todo/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/atlastodo/atlas-todo)](https://github.com/atlastodo/atlas-todo/releases/latest)
+![Status: pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange.svg)
 
-Atlas Todo is a self-hostable to-do app with end-to-end encryption. You run one small server
-(Rust + PostgreSQL). The same app runs in the browser, on Android and on the Linux desktop. It
-works offline and syncs when it is back online. The server stores your tasks, but it cannot
-read them.
+Atlas Todo is a self-hostable, end-to-end-encrypted to-do app. Your tasks, notes and attachments
+are encrypted on your device, and the server you run (Rust + PostgreSQL) stores and
+relays them without being able to read them. The same app runs in the browser, on Android and on
+the Linux desktop, works fully offline, merges edits per field when it reconnects, and lets you
+share encrypted projects with other people on your server.
 
-> Status: pre-1.0. Releases are tagged `vX.Y.Z`, and only the latest one gets fixes.
-
-**Help test it on Android.** Google Play only opens the app to the public after a closed test, so
-testers are welcome:
-
-1. Join the [atlas-todo-testers](https://groups.google.com/g/atlas-todo-testers) Google Group with
-   the Google account you use on your phone.
-2. Opt in at [play.google.com/apps/testing/dev.sejder.atlastodo](https://play.google.com/apps/testing/dev.sejder.atlastodo)
-   and install Atlas Todo from Google Play.
-3. Report bugs in [Issues](https://github.com/atlastodo/atlas-todo/issues).
-
-The test builds sign in to the test server at [app.atlastodo.dev](https://app.atlastodo.dev),
-which may be reset; see the [privacy notice](https://atlastodo.dev/privacy.html).
+> **Status: pre-1.0.** Only the latest release gets fixes, and the sync protocol still changes:
+> keep clients and server on recent versions. The encryption has not been independently audited;
+> [SECURITY.md](./SECURITY.md) says what it protects against and what it does not. Keep a JSON
+> export of anything you cannot afford to lose.
 
 <p>
   <img src="docs/screenshots/task-detail.png" alt="The task detail: notes, subtasks, attachments and comments next to a properties panel with due date, priority, labels, repeat and reminders">
@@ -42,6 +36,27 @@ which may be reset; see the [privacy notice](https://atlastodo.dev/privacy.html)
   <img src="docs/screenshots/phone-task-detail.png" alt="The task detail on a phone" width="32%">
   <img src="docs/screenshots/phone-habits-dark.png" alt="Habits on a phone in dark mode" width="32%">
 </p>
+
+## Why Atlas Todo
+
+Hosted to-do apps can read your tasks, and self-hosted ones usually can too: the server is where
+the data is decrypted, if it is encrypted at all. Atlas Todo puts the keys on your devices
+instead, and still gives you sharing, offline use and live sync across them.
+
+|                                      | Atlas Todo | Todoist, TickTick | Vikunja |
+| ------------------------------------ | :--------: | :---------------: | :-----: |
+| Run it on your own server            |    yes     |        no         |   yes   |
+| Server cannot read your tasks (E2EE) |    yes     |        no         |   no    |
+| Shared projects                      |    yes     |        yes        |   yes   |
+| Open source                          | yes (AGPL) |        no         |   yes   |
+
+Not there yet:
+
+- No iOS build is published, and the desktop app is Linux only (Electron).
+- No CalDAV: the server cannot read tasks, so it cannot serve them to calendar apps.
+- No Todoist import yet (TickTick CSV import exists).
+- Two devices editing the same note offline keep the later edit whole, not a merge of both.
+- One server instance only; it does not scale out.
 
 ## Features
 
@@ -130,10 +145,26 @@ Signing up never makes anyone an admin. Create your account, then promote it:
 docker compose exec server atlas-server promote you@example.com
 ```
 
-The admin panel is at `/admin`.
+The admin panel is the Admin section of Settings, shown to admins only.
 
 [docs/self-hosting.md](./docs/self-hosting.md) has the full settings reference, reverse-proxy
 examples, backups, upgrades and closing registration.
+
+Docker (with compose) and the Android app are the supported ways to run Atlas Todo. The NixOS
+module, the Linux desktop tarball and self-built iOS apps are maintained on a best-effort basis.
+
+## Help test it on Android
+
+Google Play only opens the app to the public after a closed test, so testers are welcome:
+
+1. Join the [atlas-todo-testers](https://groups.google.com/g/atlas-todo-testers) Google Group with
+   the Google account you use on your phone.
+2. Opt in at [play.google.com/apps/testing/dev.sejder.atlastodo](https://play.google.com/apps/testing/dev.sejder.atlastodo)
+   and install Atlas Todo from Google Play.
+3. Report bugs in [Issues](https://github.com/atlastodo/atlas-todo/issues).
+
+The test builds sign in to the test server at [app.atlastodo.dev](https://app.atlastodo.dev),
+which may be reset; see the [privacy notice](https://atlastodo.dev/privacy.html).
 
 ## Client apps
 
@@ -141,7 +172,7 @@ Release builds start out pointed at the test server, app.atlastodo.dev. To use y
 change the _Server URL_ field on the sign-in screen.
 
 - Web: your server serves the web app at its root URL. There is nothing to configure.
-- Android: join the closed test on Google Play (see the top of this page), or download
+- Android: join the closed test on Google Play ([above](#help-test-it-on-android)), or download
   `atlas-todo-X.Y.Z.apk` from [GitHub Releases](https://github.com/atlastodo/atlas-todo/releases)
   and install it. [docs/android-permissions.md](./docs/android-permissions.md) lists the
   permissions it asks for, and why.
@@ -193,7 +224,7 @@ packages/client-core  TS: local store, sync client, E2EE
 packages/shared       TS: portable pure logic (recurrence, filters, habits, stats, i18n, …)
 test-vectors/         JSON fixtures shared by the Rust and TypeScript tests
 docker/               Dockerfile and the compose stack (included by compose.yaml)
-nix/                  The desktop flake shipped inside the desktop tarball
+nix/                  Nix packages, the NixOS and Home Manager modules, the desktop tarball's flake
 docs/                 Self-hosting and architecture guides
 ```
 
