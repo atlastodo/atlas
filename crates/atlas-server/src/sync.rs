@@ -9,7 +9,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use atlas_core::hlc::MAX_COUNTER;
@@ -131,7 +131,7 @@ impl SyncHub {
         token_expires_at: i64,
         now: Instant,
     ) -> Option<String> {
-        let mut tickets = self.tickets.lock().expect("hub mutex");
+        let mut tickets = self.tickets.lock().unwrap_or_else(PoisonError::into_inner);
         let oldest = tickets
             .by_user
             .get(&user)
@@ -168,7 +168,11 @@ impl SyncHub {
 
     /// Redeem a ticket; it is removed whether or not valid, so it opens one socket at most.
     fn redeem_ticket(&self, ticket: &str, now: Instant) -> Option<WsTicket> {
-        let found = self.tickets.lock().expect("hub mutex").remove(ticket)?;
+        let found = self
+            .tickets
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(ticket)?;
         (now.duration_since(found.issued) < WS_TICKET_TTL).then_some(found)
     }
 
@@ -185,7 +189,7 @@ impl SyncHub {
     }
 
     fn close_sockets(&self, user: Uuid, matches: impl Fn(&SocketEntry) -> bool) -> usize {
-        let sockets = self.sockets.lock().expect("hub mutex");
+        let sockets = self.sockets.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(entries) = sockets.get(&user) else {
             return 0;
         };
@@ -203,7 +207,7 @@ impl SyncHub {
         let close = Arc::new(Notify::new());
         self.sockets
             .lock()
-            .expect("hub mutex")
+            .unwrap_or_else(PoisonError::into_inner)
             .entry(user)
             .or_default()
             .push(SocketEntry {
@@ -220,13 +224,13 @@ impl SyncHub {
     }
 
     pub fn subscribe(&self, user: Uuid) -> broadcast::Receiver<String> {
-        let mut map = self.channels.lock().expect("hub mutex");
+        let mut map = self.channels.lock().unwrap_or_else(PoisonError::into_inner);
         let tx = map.entry(user).or_insert_with(|| broadcast::channel(256).0);
         tx.subscribe()
     }
 
     pub fn publish(&self, user: Uuid, payload: String) {
-        let map = self.channels.lock().expect("hub mutex");
+        let map = self.channels.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(tx) = map.get(&user) {
             let _ = tx.send(payload);
         }
@@ -235,7 +239,7 @@ impl SyncHub {
     /// Drop a user's channel once their last subscriber is gone. Receiver liveness is checked
     /// under the lock so a concurrent re-subscribe is not lost.
     pub fn unsubscribe(&self, user: Uuid) {
-        let mut map = self.channels.lock().expect("hub mutex");
+        let mut map = self.channels.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(tx) = map.get(&user) {
             if tx.receiver_count() == 0 {
                 map.remove(&user);
@@ -253,7 +257,11 @@ struct SocketHandle {
 
 impl Drop for SocketHandle {
     fn drop(&mut self) {
-        let mut sockets = self.hub.sockets.lock().expect("hub mutex");
+        let mut sockets = self
+            .hub
+            .sockets
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         if let Some(entries) = sockets.get_mut(&self.user) {
             entries.retain(|e| e.id != self.id);
             if entries.is_empty() {
@@ -1307,7 +1315,7 @@ async fn push(
         let ts = state
             .clock
             .lock()
-            .expect("server clock poisoned")
+            .unwrap_or_else(PoisonError::into_inner)
             .update(cap_future_skew(floor, now), now)
             .max(successor_hlc(floor));
         revoke_ops.push((
@@ -1375,7 +1383,7 @@ pub(crate) fn server_ts(state: &AppState) -> Hlc {
     state
         .clock
         .lock()
-        .expect("server clock poisoned")
+        .unwrap_or_else(PoisonError::into_inner)
         .now(physical_now_ms())
 }
 
@@ -1397,7 +1405,7 @@ fn observe_client_ts(state: &AppState, ts: Hlc) {
     state
         .clock
         .lock()
-        .expect("server clock poisoned")
+        .unwrap_or_else(PoisonError::into_inner)
         .update(ts, physical_now_ms());
 }
 
@@ -1690,7 +1698,7 @@ pub(crate) async fn revoke_project_ops(
                 state
                     .clock
                     .lock()
-                    .expect("server clock poisoned")
+                    .unwrap_or_else(PoisonError::into_inner)
                     .update(cap_future_skew(floor, now), now)
                     .max(successor_hlc(floor))
             }
@@ -2519,7 +2527,10 @@ async fn handle_socket(
 impl SyncHub {
     /// Test-only peek into the channel map.
     fn has_channel(&self, user: Uuid) -> bool {
-        self.channels.lock().expect("hub mutex").contains_key(&user)
+        self.channels
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains_key(&user)
     }
 }
 

@@ -29,6 +29,8 @@ use axum::http::{HeaderName, HeaderValue};
 use axum::{routing::get, Json, Router};
 use serde_json::json;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
+use tower_http::trace::{DefaultOnFailure, DefaultOnResponse, TraceLayer};
 
 use state::AppState;
 
@@ -149,6 +151,26 @@ pub fn app(state: AppState) -> Router {
         ))
         .with_state(state)
         .layer(cors_layer())
+        .layer(PropagateRequestIdLayer::x_request_id())
+        // One `request` span per request, carrying its `x-request-id` (made up when the client
+        // sent none, and echoed in the response), so an error logged while serving it names the
+        // request. Responses log at debug, server errors (5xx) at error. The path is logged
+        // without its query: a socket ticket travels there.
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|req: &axum::http::Request<axum::body::Body>| {
+                    let id = req
+                        .headers()
+                        .get("x-request-id")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("");
+                    tracing::info_span!("request", id, method = %req.method(), path = req.uri().path())
+                })
+                .on_request(())
+                .on_response(DefaultOnResponse::new().level(tracing::Level::DEBUG))
+                .on_failure(DefaultOnFailure::new().level(tracing::Level::ERROR)),
+        )
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
 }
 
 /// The admin API shares `/admin/*` with what used to be the web app's admin pages (now a Settings

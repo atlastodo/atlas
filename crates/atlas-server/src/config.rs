@@ -21,6 +21,15 @@ pub const DEFAULT_BLOB_DIR: &str = "/app/data/blobs";
 /// Transfers stream in small chunks, so it bounds open files and disk bandwidth, not memory.
 pub const DEFAULT_MAX_BLOB_TRANSFERS: usize = 16;
 
+/// The default size of the PostgreSQL connection pool (`DB_MAX_CONNECTIONS`).
+pub const DEFAULT_DB_MAX_CONNECTIONS: u32 = 10;
+
+/// `DB_MAX_CONNECTIONS`, at least 1. Read apart from [`Config`] (only the server's own pool uses
+/// it), but checked by [`Config::from_env`] like every other number.
+pub fn db_max_connections() -> Result<u32, String> {
+    Ok(env_number("DB_MAX_CONNECTIONS", DEFAULT_DB_MAX_CONNECTIONS)?.max(1))
+}
+
 /// Placeholder JWT secrets that must never reach production (they make access tokens forgeable).
 const KNOWN_WEAK_JWT_SECRETS: &[&str] = &[
     "change-me-please-32-bytes-minimum",
@@ -126,6 +135,7 @@ impl Config {
         let database_url = std::env::var("DATABASE_URL").map_err(|_| "DATABASE_URL is required")?;
         let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| "JWT_SECRET is required")?;
         validate_jwt_secret(&jwt_secret)?;
+        db_max_connections()?;
         crate::ratelimit::validate_env(
             std::env::vars_os()
                 .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?))),
