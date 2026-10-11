@@ -1,6 +1,6 @@
 {
   "name": "@atlas/shared",
-  "version": "0.1.9",
+  "version": "0.1.10-rc.1",
   "private": true,
   "license": "AGPL-3.0-only",
   "repository": {

@@ -1,7 +1,7 @@
 {
   "name": "atlas-todo",
   "private": true,
-  "version": "0.1.9",
+  "version": "0.1.10-rc.1",
   "license": "AGPL-3.0-only",
   "homepage": "https://github.com/atlastodo/atlas-todo",
   "repository": {
