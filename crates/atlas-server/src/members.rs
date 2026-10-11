@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
+use crate::ratelimit::{self, UserRateLimitState};
 use crate::state::AppState;
 
 /// A member's capability level; declaration order is the authorization order, so
@@ -181,13 +182,16 @@ async fn ensure_can_manage(pool: &PgPool, project_id: Uuid, caller: Uuid) -> App
     }
 }
 
-pub fn routes() -> Router<AppState> {
+/// The membership routes. Invites have a per-user budget (`invite_rl`): each one tells the
+/// caller whether an email has an account, and lands in that account's invite list.
+pub fn routes(invite_rl: UserRateLimitState) -> Router<AppState> {
+    let invite = post(invite_member).layer(axum::middleware::from_fn_with_state(
+        invite_rl,
+        ratelimit::enforce_per_user,
+    ));
     Router::new()
         .route("/invites", get(list_invites))
-        .route(
-            "/projects/{id}/members",
-            get(list_members).post(invite_member),
-        )
+        .route("/projects/{id}/members", get(list_members).merge(invite))
         .route("/projects/{id}/accept", post(accept_invite))
         .route("/projects/{id}/decline", post(decline_invite))
         .route("/projects/{id}/claim-ownership", post(claim_ownership))

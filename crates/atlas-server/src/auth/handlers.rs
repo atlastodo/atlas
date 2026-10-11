@@ -4,9 +4,10 @@ use axum::extract::{Path, Query, State};
 use axum::http::header::CONTENT_DISPOSITION;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
+use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::net::IpAddr;
 use std::time::Instant;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -18,7 +19,7 @@ use super::recovery::{self, Challenge};
 use super::token::{generate_refresh_token, hash_refresh_token, issue_access_token};
 use super::{AuthUser, AuthUserAllowScheduled};
 use crate::error::{AppError, AppResult};
-use crate::ratelimit;
+use crate::ratelimit::{self, ClientIp};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -329,17 +330,24 @@ fn now_unix() -> i64 {
 /// Fetch a user by email and verify `password`. Runs a dummy Argon2 verify for unknown users to
 /// keep timing constant, and rejects an over-long password before hashing.
 ///
-/// Failures count against the email ([`ratelimit::account_failures`]), known or not; a locked
-/// email is refused before any password is checked.
-async fn authenticate(state: &AppState, email: &str, password: &str) -> AppResult<UserRow> {
+/// Failures count against the email and the caller's address ([`ratelimit::account_failures`]),
+/// known email or not; a locked one is refused before any password is checked.
+async fn authenticate(
+    state: &AppState,
+    email: &str,
+    password: &str,
+    ip: IpAddr,
+) -> AppResult<UserRow> {
     let failures = ratelimit::account_failures();
-    if failures.is_blocked(email, Instant::now()) {
+    if failures.is_blocked(email, ip, Instant::now()) {
         return Err(AppError::TooManyRequests);
     }
     let verified = verify_login(state, email, password).await;
     match &verified {
-        Err(AppError::Unauthorized) => failures.record_failure(email, Instant::now()),
-        Ok(_) | Err(AppError::AccountDisabled | AppError::LegacyAccount) => failures.reset(email),
+        Err(AppError::Unauthorized) => failures.record_failure(email, ip, Instant::now()),
+        Ok(_) | Err(AppError::AccountDisabled | AppError::LegacyAccount) => {
+            failures.reset(email, ip)
+        }
         Err(_) => {}
     }
     verified
@@ -724,10 +732,11 @@ pub async fn signup(
 /// `POST /auth/login`
 pub async fn login(
     State(state): State<AppState>,
+    client: Option<Extension<ClientIp>>,
     Json(req): Json<LoginRequest>,
 ) -> AppResult<Json<AuthResponse>> {
     let email = req.email.trim().to_lowercase();
-    let user = authenticate(&state, &email, &req.password).await?;
+    let user = authenticate(&state, &email, &req.password, ClientIp::of(client)).await?;
 
     if let Some(scheduled_at) = user.deletion_scheduled_at {
         return Err(scheduled_deletion_error(scheduled_at));
@@ -1040,20 +1049,22 @@ pub async fn get_recovery_keys(
 /// lands while that hash is still in place.
 pub async fn recover_account(
     State(state): State<AppState>,
+    client: Option<Extension<ClientIp>>,
     Json(req): Json<RecoverAccountRequest>,
 ) -> AppResult<StatusCode> {
+    let ip = ClientIp::of(client);
     validate_auth_hash(&req.new_auth_hash)?;
     let kdf = Kdf::from_request(req.kdf_version, req.kdf_params.as_ref())?;
     let email = req.email.trim().to_lowercase();
-    // Failures count per email, as for login.
+    // Failures count per email and address, as for login.
     let failures = ratelimit::account_failures();
-    if failures.is_blocked(&email, Instant::now()) {
+    if failures.is_blocked(&email, ip, Instant::now()) {
         return Err(AppError::TooManyRequests);
     }
     let recovered = recover(&state, &email, &req, kdf).await;
     match &recovered {
-        Err(AppError::Unauthorized) => failures.record_failure(&email, Instant::now()),
-        Ok(_) => failures.reset(&email),
+        Err(AppError::Unauthorized) => failures.record_failure(&email, ip, Instant::now()),
+        Ok(_) => failures.reset(&email, ip),
         Err(_) => {}
     }
     recovered
@@ -1520,10 +1531,11 @@ pub struct CancelDeletionRequest {
 /// `POST /auth/account/cancel-deletion`: cancel a pending deletion and start a session.
 pub async fn cancel_account_deletion(
     State(state): State<AppState>,
+    client: Option<Extension<ClientIp>>,
     Json(req): Json<CancelDeletionRequest>,
 ) -> AppResult<Json<AuthResponse>> {
     let email = req.email.trim().to_lowercase();
-    let user = authenticate(&state, &email, &req.password).await?;
+    let user = authenticate(&state, &email, &req.password, ClientIp::of(client)).await?;
 
     match user.deletion_scheduled_at {
         None => Ok(Json(

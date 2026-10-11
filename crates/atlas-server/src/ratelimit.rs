@@ -1,9 +1,10 @@
 //! A small, dependency-free fixed-window in-memory rate limiter; over the cap answers 429.
 //!
 //! `/auth/*` and `POST /reports` are keyed per client IP (the only unforgeable handle for
-//! unauthenticated callers, see [`client_ip`]). `/sync/*` is keyed per verified user id, which
-//! survives shared NATs and network changes. Password logins and recovery also count failures
-//! per account ([`account_failures`]), so guesses spread over many addresses still hit a cap.
+//! unauthenticated callers, see [`client_ip`]). `/sync/*`, attachments and invites are keyed per
+//! verified user id, which survives shared NATs and network changes. Password logins and recovery
+//! also count failures per account and address ([`account_failures`]), with an account-wide cap so
+//! guesses spread over many addresses still hit one.
 //!
 //! Behind a reverse proxy `AUTH_RATE_LIMIT_TRUST_FORWARDED=true` reads `X-Forwarded-For` from the
 //! right: the entry `TRUSTED_PROXY_HOPS` from the end is the one the outermost trusted proxy
@@ -169,8 +170,7 @@ impl<K: Eq + Hash + Clone> RateLimiter<K> {
 
     /// Record a request from `key` at `now`; true if within the limit. `now` is injected for tests.
     pub fn check(&self, key: K, now: Instant) -> bool {
-        let mut windows = self.state.lock().expect("rate limiter mutex poisoned");
-        match windows.window(key, now, self.window) {
+        match lock(&self.state).window(key, now, self.window) {
             Some(w) => {
                 w.count += 1;
                 w.count <= self.max
@@ -180,12 +180,19 @@ impl<K: Eq + Hash + Clone> RateLimiter<K> {
     }
 }
 
-/// Counts failed credential checks per key (a normalized email) and blocks the key at the
-/// limit. Only failures count and a success clears, so the owner is not locked out by their own sign-ins.
+/// How many times the per-address cap one account's failures may add up to across addresses.
+pub const ACCOUNT_WIDE_FACTOR: u32 = 5;
+
+/// Counts failed credential checks per account (a normalized email) and client address. An
+/// address is blocked for an account at the cap, and the account for every address at
+/// [`ACCOUNT_WIDE_FACTOR`] times it. Someone who knows an email therefore cannot lock its owner
+/// out from one address, while guesses spread over many addresses still hit a cap. Only failures
+/// count and a success clears both, so the owner is not locked out by their own sign-ins.
 pub struct FailureLimiter {
     max_failures: u32,
     window: Duration,
-    state: Mutex<Windows<String>>,
+    pairs: Mutex<Windows<(String, IpAddr)>>,
+    accounts: Mutex<Windows<String>>,
 }
 
 impl FailureLimiter {
@@ -193,35 +200,50 @@ impl FailureLimiter {
         Self {
             max_failures: max_failures.max(1),
             window,
-            state: Mutex::new(Windows::new(capacity)),
+            pairs: Mutex::new(Windows::new(capacity)),
+            accounts: Mutex::new(Windows::new(capacity)),
         }
     }
 
-    /// Whether `key` must be refused before its credential is checked; also true for an
-    /// untracked key while the map is full.
-    pub fn is_blocked(&self, key: &str, now: Instant) -> bool {
-        let mut windows = self.state.lock().expect("failure limiter mutex poisoned");
-        match windows.window(key.to_owned(), now, self.window) {
-            Some(w) => w.count >= self.max_failures,
+    /// Whether `email` must be refused from `ip` before its credential is checked; also true for
+    /// an untracked key while a map is full.
+    pub fn is_blocked(&self, email: &str, ip: IpAddr, now: Instant) -> bool {
+        let account_cap = self.max_failures.saturating_mul(ACCOUNT_WIDE_FACTOR);
+        let account = match lock(&self.accounts).window(email.to_owned(), now, self.window) {
+            Some(w) => w.count >= account_cap,
             None => true,
-        }
+        };
+        account
+            || match lock(&self.pairs).window((email.to_owned(), ip), now, self.window) {
+                Some(w) => w.count >= self.max_failures,
+                None => true,
+            }
     }
 
-    pub fn record_failure(&self, key: &str, now: Instant) {
-        let mut windows = self.state.lock().expect("failure limiter mutex poisoned");
-        if let Some(w) = windows.window(key.to_owned(), now, self.window) {
+    pub fn record_failure(&self, email: &str, ip: IpAddr, now: Instant) {
+        if let Some(w) = lock(&self.accounts).window(email.to_owned(), now, self.window) {
+            w.count = w.count.saturating_add(1);
+        }
+        if let Some(w) = lock(&self.pairs).window((email.to_owned(), ip), now, self.window) {
             w.count = w.count.saturating_add(1);
         }
     }
 
-    pub fn reset(&self, key: &str) {
-        let mut windows = self.state.lock().expect("failure limiter mutex poisoned");
-        windows.map.remove(key);
+    pub fn reset(&self, email: &str, ip: IpAddr) {
+        lock(&self.accounts).map.remove(email);
+        lock(&self.pairs).map.remove(&(email.to_owned(), ip));
     }
 }
 
-/// The process-wide per-account failure counter: `AUTH_ACCOUNT_FAILURE_MAX` (default 10) per
-/// `AUTH_ACCOUNT_FAILURE_WINDOW_SECS` (default 900) per email. Process-wide because the
+/// Lock a limiter's state, recovering it after a panic elsewhere: the counters stay usable, and
+/// one panicking request must not turn every later one into a panic.
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+/// The process-wide failure counter: `AUTH_ACCOUNT_FAILURE_MAX` (default 10) per
+/// `AUTH_ACCOUNT_FAILURE_WINDOW_SECS` (default 900) per email and client IP, and
+/// [`ACCOUNT_WIDE_FACTOR`] times that per email. Process-wide because the account, not the route,
+/// is protected.
 /// account, not the route, is protected.
 pub fn account_failures() -> &'static FailureLimiter {
     static LIMITER: OnceLock<FailureLimiter> = OnceLock::new();
@@ -299,11 +321,24 @@ impl RateLimitState {
     }
 }
 
-/// Middleware enforcing the limiter per client IP (429 when over). Auth sub-router only;
-/// `ConnectInfo` is optional so a request without peer info degrades gracefully.
+/// The client IP [`enforce`] limited a request by, for handlers that key on it too.
+#[derive(Debug, Clone, Copy)]
+pub struct ClientIp(pub IpAddr);
+
+impl ClientIp {
+    /// The address from a request's extensions, or the unspecified address without one.
+    pub fn of(ext: Option<axum::Extension<ClientIp>>) -> IpAddr {
+        ext.map(|e| e.0 .0)
+            .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
+    }
+}
+
+/// Middleware enforcing the limiter per client IP (429 when over), and recording that IP as a
+/// [`ClientIp`] extension. Auth sub-router only; `ConnectInfo` is optional so a request without
+/// peer info degrades gracefully.
 pub async fn enforce(
     State(rl): State<RateLimitState>,
-    req: Request<axum::body::Body>,
+    mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
     // Read from the extensions: axum 0.8's `Option<ConnectInfo<_>>` extractor no longer exists.
@@ -315,6 +350,7 @@ pub async fn enforce(
     if !rl.limiter.check(ip, Instant::now()) {
         return AppError::TooManyRequests.into_response();
     }
+    req.extensions_mut().insert(ClientIp(ip));
     next.run(req).await
 }
 
@@ -531,30 +567,53 @@ mod tests {
         let limiter = FailureLimiter::new(3, Duration::from_secs(900), 100);
         let t0 = Instant::now();
         for _ in 0..3 {
-            assert!(!limiter.is_blocked("a@example.com", t0));
-            limiter.record_failure("a@example.com", t0);
+            assert!(!limiter.is_blocked("a@example.com", ip(1), t0));
+            limiter.record_failure("a@example.com", ip(1), t0);
         }
-        assert!(limiter.is_blocked("a@example.com", t0));
-        assert!(!limiter.is_blocked("b@example.com", t0), "per account");
-        assert!(!limiter.is_blocked("a@example.com", t0 + Duration::from_secs(901)));
-
-        limiter.record_failure("b@example.com", t0);
-        limiter.record_failure("b@example.com", t0);
-        limiter.reset("b@example.com");
-        limiter.record_failure("b@example.com", t0);
+        assert!(limiter.is_blocked("a@example.com", ip(1), t0));
         assert!(
-            !limiter.is_blocked("b@example.com", t0),
+            !limiter.is_blocked("b@example.com", ip(1), t0),
+            "per account"
+        );
+        assert!(!limiter.is_blocked("a@example.com", ip(1), t0 + Duration::from_secs(901)));
+
+        limiter.record_failure("b@example.com", ip(1), t0);
+        limiter.record_failure("b@example.com", ip(1), t0);
+        limiter.reset("b@example.com", ip(1));
+        limiter.record_failure("b@example.com", ip(1), t0);
+        assert!(
+            !limiter.is_blocked("b@example.com", ip(1), t0),
             "a success clears the count"
         );
+    }
+
+    #[test]
+    fn one_address_cannot_lock_the_owner_out_but_many_addresses_hit_the_account_cap() {
+        let limiter = FailureLimiter::new(3, Duration::from_secs(900), 100);
+        let t0 = Instant::now();
+        for _ in 0..3 {
+            limiter.record_failure("a@example.com", ip(1), t0);
+        }
+        assert!(limiter.is_blocked("a@example.com", ip(1), t0));
+        assert!(
+            !limiter.is_blocked("a@example.com", ip(2), t0),
+            "the owner's address"
+        );
+
+        // Spread over addresses, the account closes at ACCOUNT_WIDE_FACTOR times the cap.
+        for n in 0..(3 * ACCOUNT_WIDE_FACTOR - 3) {
+            limiter.record_failure("a@example.com", ip(10 + n as u8), t0);
+        }
+        assert!(limiter.is_blocked("a@example.com", ip(2), t0));
     }
 
     #[test]
     fn a_full_failure_limiter_fails_closed() {
         let limiter = FailureLimiter::new(3, Duration::from_secs(900), 1);
         let t0 = Instant::now();
-        limiter.record_failure("a@example.com", t0);
-        assert!(limiter.is_blocked("b@example.com", t0));
-        assert!(!limiter.is_blocked("a@example.com", t0));
+        limiter.record_failure("a@example.com", ip(1), t0);
+        assert!(limiter.is_blocked("b@example.com", ip(1), t0));
+        assert!(!limiter.is_blocked("a@example.com", ip(1), t0));
     }
 
     fn user(n: u128) -> Uuid {

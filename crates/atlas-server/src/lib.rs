@@ -111,11 +111,22 @@ pub fn app(state: AppState) -> Router {
         attachments::disabled_routes()
     };
 
+    // Invites per user (`INVITE_RATE_LIMIT_*`): each one probes whether an email has an account.
+    let invite_rl = ratelimit::UserRateLimitState::from_config(
+        ratelimit::RateLimitConfig::from_env_keyed(
+            "INVITE_RATE_LIMIT_MAX",
+            "INVITE_RATE_LIMIT_WINDOW_SECS",
+            60,
+            3600,
+        ),
+        &state.config,
+    );
+
     let api = Router::new()
         .route("/health", get(health))
         .merge(auth_routes)
         .merge(projects::routes())
-        .merge(members::routes())
+        .merge(members::routes(invite_rl))
         .merge(sync_routes)
         .merge(attachment_routes)
         .merge(report_routes)
