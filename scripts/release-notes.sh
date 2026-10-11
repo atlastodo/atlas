@@ -65,7 +65,8 @@ let maintenance = 0;
 for (const s of subjects) {
   const m = s.match(CONVENTIONAL);
   const kind = m ? m[1] : "";
-  if (MAINTENANCE.has(kind)) {
+  // A breaking change (`type!:`) is listed whatever its type.
+  if (MAINTENANCE.has(kind) && !/^[a-z]+(\([^)]*\))?!:/.test(s)) {
     if (/^\(deps/.test(m[2] ?? "")) deps++;
     else maintenance++;
     continue;

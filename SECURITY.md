@@ -29,7 +29,8 @@ gh attestation verify atlas-todo-X.Y.Z.apk --repo atlastodo/atlas-todo
 gh attestation verify oci://ghcr.io/atlastodo/atlas-todo:X.Y.Z --repo atlastodo/atlas-todo
 ```
 
-Each release also lists `SHA256SUMS.txt`, which the desktop app checks before it installs an
+The attestation is on the GitHub Container Registry image; the Docker Hub mirror is the same
+image but carries none. Each release also lists `SHA256SUMS.txt`, which the desktop app checks before it installs an
 update, and the image carries an SBOM. Releases before 0.1.10 have no attestations.
 
 ## Scope
