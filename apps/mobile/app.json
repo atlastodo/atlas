@@ -64,7 +64,10 @@
         "me.everything.badger.permission.BADGE_COUNT_READ",
         "me.everything.badger.permission.BADGE_COUNT_WRITE"
       ],
-      "permissions": ["android.permission.SCHEDULE_EXACT_ALARM"]
+      "permissions": [
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM"
+      ]
     },
     "web": {
       "bundler": "metro",
