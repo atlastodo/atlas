@@ -1966,6 +1966,17 @@ async fn delete_account_requires_the_password_then_schedules_and_revokes() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "sessions are revoked");
 
+    // No new session can be had in the grace period, so the token in hand still exports.
+    let (status, _) = send(&router, "GET", "/auth/export", Some(access), Value::Null).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the export outlives the revoked session"
+    );
+    let (status, body) = send(&router, "GET", "/auth/me", Some(access), Value::Null).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body:?}");
+    assert_eq!(body["error"], "account_scheduled_deletion");
+
     // The grace period: login reports the scheduled deletion instead of working or denying.
     let (status, body) = send(
         &router,

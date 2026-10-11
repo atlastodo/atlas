@@ -1886,7 +1886,7 @@ fn successor_hlc(ts: Hlc) -> Hlc {
             ..ts
         },
         None => Hlc {
-            counter: ts.counter + 1,
+            counter: ts.counter.saturating_add(1),
             node: Uuid::nil(),
             ..ts
         },

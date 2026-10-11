@@ -144,12 +144,11 @@ async fn authenticate_bearer(
     if disabled {
         return Err(AppError::AccountDisabled);
     }
-    // Scheduling a deletion also ends every session; its typed error still wins.
-    if !live_session {
-        return Err(match deletion_scheduled_at {
-            Some(at) => handlers::scheduled_deletion_error(at),
-            None => AppError::Unauthorized,
-        });
+    // Scheduling a deletion also ends every session. The token in hand still reaches the export
+    // until it expires (`AuthUserAllowScheduled`), as no new session can be had in the grace
+    // period; `AuthUser` refuses it with the typed error.
+    if !live_session && deletion_scheduled_at.is_none() {
+        return Err(AppError::Unauthorized);
     }
     Ok((
         AuthUser {

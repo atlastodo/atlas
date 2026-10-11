@@ -240,11 +240,11 @@ impl FailureLimiter {
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
+
 /// The process-wide failure counter: `AUTH_ACCOUNT_FAILURE_MAX` (default 10) per
 /// `AUTH_ACCOUNT_FAILURE_WINDOW_SECS` (default 900) per email and client IP, and
 /// [`ACCOUNT_WIDE_FACTOR`] times that per email. Process-wide because the account, not the route,
 /// is protected.
-/// account, not the route, is protected.
 pub fn account_failures() -> &'static FailureLimiter {
     static LIMITER: OnceLock<FailureLimiter> = OnceLock::new();
     LIMITER.get_or_init(|| {
@@ -321,7 +321,21 @@ impl RateLimitState {
     }
 }
 
-/// The client IP [`enforce`] limited a request by, for handlers that key on it too.
+/// The address a client is limited by: an IPv6 address by its /64, since one host commonly holds
+/// a whole /64 and could otherwise take a fresh address per request. An IPv4-mapped IPv6 address
+/// counts as its IPv4 address.
+pub fn limit_key(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V4(_) => ip,
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => IpAddr::V6((u128::from(v6) & !((1u128 << 64) - 1)).into()),
+        },
+    }
+}
+
+/// The client address [`enforce`] limited a request by ([`limit_key`]), for handlers that key
+/// on it too.
 #[derive(Debug, Clone, Copy)]
 pub struct ClientIp(pub IpAddr);
 
@@ -346,7 +360,7 @@ pub async fn enforce(
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ci| ci.0);
-    let ip = client_ip(req.headers(), peer, rl.trust_forwarded);
+    let ip = limit_key(client_ip(req.headers(), peer, rl.trust_forwarded));
     if !rl.limiter.check(ip, Instant::now()) {
         return AppError::TooManyRequests.into_response();
     }
@@ -385,7 +399,8 @@ fn request_subject(headers: &HeaderMap, secret: &[u8]) -> Option<Uuid> {
         .map(|c| c.sub)
 }
 
-/// Middleware enforcing the limiter per authenticated user (429 when over). Sync sub-router only.
+/// Middleware enforcing the limiter per authenticated user (429 when over): attachment transfers
+/// and invites.
 pub async fn enforce_per_user(
     State(rl): State<UserRateLimitState>,
     req: Request<axum::body::Body>,
@@ -605,6 +620,18 @@ mod tests {
             limiter.record_failure("a@example.com", ip(10 + n as u8), t0);
         }
         assert!(limiter.is_blocked("a@example.com", ip(2), t0));
+    }
+
+    #[test]
+    fn ipv6_clients_are_limited_by_their_64() {
+        let a: IpAddr = "2001:db8:1:2:aaaa::1".parse().unwrap();
+        let b: IpAddr = "2001:db8:1:2:bbbb::2".parse().unwrap();
+        let other: IpAddr = "2001:db8:1:3::1".parse().unwrap();
+        assert_eq!(limit_key(a), limit_key(b));
+        assert_ne!(limit_key(a), limit_key(other));
+        let mapped: IpAddr = "::ffff:10.0.0.7".parse().unwrap();
+        assert_eq!(limit_key(mapped), ip(7));
+        assert_eq!(limit_key(ip(7)), ip(7));
     }
 
     #[test]
