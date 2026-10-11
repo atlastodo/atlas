@@ -18,7 +18,9 @@ Every `/sync/*` HTTP request carries:
 
 The server answers `426 Upgrade Required` with
 `{"code": "upgrade_required", "min_protocol": <n>}` when the version is missing or below its
-minimum. All routes are also served under `/api`.
+minimum. Any route answers `429` with `Retry-After` when the user is over budget; pushes and
+reads (pull, snapshot, socket tickets) have separate budgets. All routes are also served under
+`/api`.
 
 ## Operations
 
@@ -76,7 +78,6 @@ Errors:
   Nothing was applied. Correct the clock offset and retry later; do not drop the ops.
 - Other `400`, `403` (no permission for an op's project) and `413` (body too large) are
   permanent for that batch. Nothing was applied. Split the batch to find the op at fault.
-- `429` with `Retry-After`: over the per-user push budget.
 
 ### `GET /sync/pull?since=<seq>&limit=<n>`
 
@@ -102,21 +103,24 @@ again in that pull, which is harmless.
 
 `POST /sync/ws-ticket` returns `{"ticket": "<opaque>", "expires_in": 30}`: a single-use ticket
 for one socket. Open `GET /sync/ws?ticket=<ticket>&since=<seq>&protocol=<version>` (browsers
-cannot set headers on a WebSocket, so the version and ticket travel in the query).
+cannot set headers on a WebSocket, so the version and ticket travel in the query). The handshake
+answers `401` for an unknown, used or expired ticket, and `410 {"code": "cursor_expired"}`
+before any socket opens when `since` predates retention.
 
 The server sends text messages shaped like a pull response, `{"operations", "from", "cursor"}`:
 first the backlog since `since`, then live ops. A message covers `(from, cursor]`: apply its ops,
 but move your cursor to its `cursor` only when your cursor is at least `from`; otherwise pull to
 fill the gap first. Close codes:
 
-| Code   | Meaning                                                     |
-| ------ | ----------------------------------------------------------- |
-| `4401` | The access token expired. Refresh it and reconnect.         |
-| `4403` | The session was revoked or the account disabled. Sign out.  |
-| `4410` | The cursor predates retention. Bootstrap from the snapshot. |
+| Code   | Meaning                                                                       |
+| ------ | ----------------------------------------------------------------------------- |
+| `4401` | The access token expired. Refresh it and reconnect.                           |
+| `4403` | The session was revoked or the account disabled. Sign out.                    |
+| `4410` | The cursor went stale during the backlog. Bootstrap from the snapshot.        |
+| `1013` | The client fell behind the live stream. Reconnect; the backlog fills the gap. |
+| `1011` | Reading the backlog failed. Reconnect.                                        |
 
-The server pings every 30 seconds. Keep polling `pull` as a fallback: the server drops live
-messages for a client that falls behind.
+The server pings every 30 seconds. Keep polling `pull` as a fallback in case the socket is down.
 
 ## Versions
 
