@@ -1,8 +1,7 @@
-## v0.1.10-rc.1
+## v0.1.10-rc.2
 
 ### Features
 - Open the admin panel as a Settings section
-- Declare USE_EXACT_ALARM so reminders are exact without a settings trip
 - Parse dates and repeats in every UI language
 - Add German, Spanish, French, Italian, Dutch, Polish and Portuguese
 
