@@ -949,3 +949,45 @@ async fn push_response_names_the_cursor_it_follows() {
     assert_eq!(replay["applied"], 0);
     assert_eq!(replay["from"], replay["cursor"]);
 }
+
+#[tokio::test]
+async fn push_rejects_counters_above_the_clock_maximum() {
+    let router = setup().await;
+    let token = new_user_token(&router).await;
+    let max = atlas_core::hlc::MAX_COUNTER;
+
+    for counter in [max + 1, i32::MAX as u32] {
+        let op = set_op(
+            Uuid::now_v7(),
+            "title",
+            json!("x"),
+            1,
+            counter,
+            Uuid::now_v7(),
+        );
+        let (status, body) = send(
+            &router,
+            "POST",
+            "/sync/push",
+            Some(&token),
+            json!({ "operations": [op] }),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "counter {counter}: {body:?}"
+        );
+    }
+
+    let op = set_op(Uuid::now_v7(), "title", json!("x"), 1, max, Uuid::now_v7());
+    let (status, body) = send(
+        &router,
+        "POST",
+        "/sync/push",
+        Some(&token),
+        json!({ "operations": [op] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+}

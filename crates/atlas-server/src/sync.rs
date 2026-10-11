@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use atlas_core::hlc::MAX_COUNTER;
 use atlas_core::{Change, EntityKind, Hlc, Operation};
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
@@ -1151,6 +1152,11 @@ async fn push(
             return Err(SyncError::ClockSkew {
                 server_time: now_ms,
             });
+        }
+        // Clocks carry past MAX_COUNTER, so a larger counter is forged; observing it would
+        // push the server clock's counter past what `int4` holds.
+        if op.ts.counter > MAX_COUNTER {
+            return Err(AppError::BadRequest("hlc counter too large".into()).into());
         }
         newest = newest.max(Some(op.ts));
 

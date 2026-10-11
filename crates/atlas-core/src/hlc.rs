@@ -12,6 +12,11 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use uuid::Uuid;
 
+/// The largest counter a clock emits. A tick past it carries into the next millisecond
+/// (counter 0), so a peer's huge counter can never overflow `u32` or the server's `int4` column.
+/// Servers reject pushed timestamps above it. Mirrored by `MAX_COUNTER` in the TypeScript clock.
+pub const MAX_COUNTER: u32 = 0xFFFF;
+
 /// A hybrid logical clock timestamp.
 ///
 /// Ordering is defined by `wall_ms`, then `counter`, then `node`. The `node` tiebreak
@@ -84,12 +89,23 @@ impl HlcClock {
     pub fn now(&mut self, physical_ms: u64) -> Hlc {
         let wall = physical_ms.max(self.last.wall_ms);
         let counter = if wall == self.last.wall_ms {
-            self.last.counter + 1
+            u64::from(self.last.counter) + 1
         } else {
             0
         };
+        self.emit(wall, counter)
+    }
+
+    /// Record and return `(wall, counter)`, carrying a counter above [`MAX_COUNTER`] into the
+    /// next millisecond.
+    fn emit(&mut self, wall: u64, counter: u64) -> Hlc {
+        let (wall_ms, counter) = if counter > u64::from(MAX_COUNTER) {
+            (wall.saturating_add(1), 0)
+        } else {
+            (wall, counter as u32)
+        };
         self.last = Hlc {
-            wall_ms: wall,
+            wall_ms,
             counter,
             node: self.node,
         };
@@ -101,20 +117,15 @@ impl HlcClock {
     pub fn update(&mut self, remote: Hlc, physical_ms: u64) -> Hlc {
         let wall = physical_ms.max(self.last.wall_ms).max(remote.wall_ms);
         let counter = if wall == self.last.wall_ms && wall == remote.wall_ms {
-            self.last.counter.max(remote.counter) + 1
+            u64::from(self.last.counter.max(remote.counter)) + 1
         } else if wall == self.last.wall_ms {
-            self.last.counter + 1
+            u64::from(self.last.counter) + 1
         } else if wall == remote.wall_ms {
-            remote.counter + 1
+            u64::from(remote.counter) + 1
         } else {
             0
         };
-        self.last = Hlc {
-            wall_ms: wall,
-            counter,
-            node: self.node,
-        };
-        self.last
+        self.emit(wall, counter)
     }
 }
 
@@ -170,6 +181,29 @@ mod tests {
         assert!(local > remote);
         assert_eq!(local.node, node(1));
         assert_eq!(local.wall_ms, 9000);
+    }
+
+    #[test]
+    fn counter_carries_into_the_next_millisecond() {
+        let mut clock = HlcClock::new(node(1));
+        let remote = Hlc {
+            wall_ms: 1000,
+            counter: u32::MAX,
+            node: node(2),
+        };
+        let a = clock.update(remote, 1000);
+        assert!(a > remote);
+        assert_eq!((a.wall_ms, a.counter), (1001, 0));
+
+        let mut clock = HlcClock::new(node(1));
+        let mut last = clock.now(5000);
+        for _ in 0..MAX_COUNTER {
+            last = clock.now(5000);
+        }
+        assert_eq!((last.wall_ms, last.counter), (5000, MAX_COUNTER));
+        let next = clock.now(5000);
+        assert!(next > last);
+        assert_eq!((next.wall_ms, next.counter), (5001, 0));
     }
 
     #[test]

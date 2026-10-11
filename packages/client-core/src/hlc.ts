@@ -10,6 +10,12 @@ export interface Hlc {
   node: string;
 }
 
+/**
+ * The largest counter a clock emits; a tick past it carries into the next millisecond (counter 0).
+ * Mirrors `MAX_COUNTER` in `hlc.rs`; the server rejects pushed timestamps above it.
+ */
+export const MAX_COUNTER = 0xffff;
+
 export function compareHlc(a: Hlc, b: Hlc): number {
   if (a.wallMs !== b.wallMs) return a.wallMs - b.wallMs;
   if (a.counter !== b.counter) return a.counter - b.counter;
@@ -30,8 +36,7 @@ export class HlcClock {
   now(physicalMs: number): Hlc {
     const wallMs = Math.max(physicalMs, this.last.wallMs);
     const counter = wallMs === this.last.wallMs ? this.last.counter + 1 : 0;
-    this.last = { wallMs, counter, node: this.node };
-    return { ...this.last };
+    return this.emit(wallMs, counter);
   }
 
   update(remote: Hlc, physicalMs: number): Hlc {
@@ -46,7 +51,14 @@ export class HlcClock {
     } else {
       counter = 0;
     }
-    this.last = { wallMs, counter, node: this.node };
+    return this.emit(wallMs, counter);
+  }
+
+  private emit(wallMs: number, counter: number): Hlc {
+    this.last =
+      counter > MAX_COUNTER
+        ? { wallMs: wallMs + 1, counter: 0, node: this.node }
+        : { wallMs, counter, node: this.node };
     return { ...this.last };
   }
 }
