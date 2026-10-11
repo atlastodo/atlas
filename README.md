@@ -114,7 +114,8 @@ Clients record each edit as an operation on one field, stamped with a hybrid log
 newest stamp wins per field, so replaying operations in any order gives the same result. The
 server keeps an append-only log per user and copies operations on shared projects to every
 member. [docs/architecture.md](./docs/architecture.md) covers sync, the clock and the key
-hierarchy.
+hierarchy, [docs/sync-protocol.md](./docs/sync-protocol.md) the wire format, and
+[docs/decisions/](./docs/decisions/README.md) why the main choices were made.
 
 ## Self-hosting
 

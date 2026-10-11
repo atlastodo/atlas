@@ -5,7 +5,9 @@ offline. The server stores and relays encrypted edits between devices and betwee
 of a shared project. It never needs to read the content.
 
 This page is the reference for how things work. [SECURITY.md](../SECURITY.md) says what is and
-is not protected, and [self-hosting.md](./self-hosting.md) covers running a server.
+is not protected, [self-hosting.md](./self-hosting.md) covers running a server,
+[sync-protocol.md](./sync-protocol.md) is the wire contract, and [decisions/](./decisions/README.md)
+records why the main choices were made.
 
 ## Components
 
