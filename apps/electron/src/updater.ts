@@ -122,6 +122,18 @@ export function isNewerVersion(current: string, candidate: string): boolean {
   return false;
 }
 
+/**
+ * The lowercase SHA-256 that a `sha256sum`-format listing gives for exactly `fileName`
+ * (`<hash>  <name>`, or `<hash> *<name>` in binary mode), or null when it has none.
+ */
+export function expectedChecksum(sums: string, fileName: string): string | null {
+  for (const line of sums.split("\n")) {
+    const match = /^([0-9a-fA-F]{64}) [ *](.+)$/.exec(line.trim());
+    if (match && match[2] === fileName) return match[1].toLowerCase();
+  }
+  return null;
+}
+
 const DEFAULT_REPO = "atlastodo/atlas-todo";
 
 export class DesktopUpdater {
@@ -318,33 +330,29 @@ export class DesktopUpdater {
         fileStream.end((err?: Error | null) => (err ? reject(err) : resolve()));
       });
 
-      // Verify SHA256 against SHA256SUMS.txt if attached
-      const checksumsAsset = assets.find((a) => a.name === "SHA256SUMS.txt");
-      if (checksumsAsset) {
-        try {
-          const sumsRes = await net.fetch(checksumsAsset.browser_download_url, {
-            headers: { "User-Agent": "Atlas-Todo-Desktop" },
-          });
-          if (sumsRes.ok) {
-            const sumsText = await sumsRes.text();
-            const computedHash = hasher.digest("hex");
-            const expectedLine = sumsText
-              .split("\n")
-              .find((line) => line.includes(targetAsset!.name));
-            if (expectedLine) {
-              const expectedHash = expectedLine.trim().split(/\s+/)[0];
-              if (expectedHash.toLowerCase() !== computedHash.toLowerCase()) {
-                fs.rmSync(tempPath, { force: true });
-                throw new Error("Checksum verification failed for downloaded update.");
-              }
-            }
-          }
-        } catch (sumErr) {
-          console.warn(
-            "[DesktopUpdater] Checksum verification warning:",
-            sumErr instanceof Error ? sumErr.message : String(sumErr),
-          );
+      // Verify against the release's SHA256SUMS.txt. Fail closed: an update that cannot be
+      // verified is never installed.
+      try {
+        const checksumsAsset = assets.find((a) => a.name === "SHA256SUMS.txt");
+        if (!checksumsAsset) {
+          throw new Error("The release has no SHA256SUMS.txt; refusing an unverified update.");
         }
+        const sumsRes = await net.fetch(checksumsAsset.browser_download_url, {
+          headers: { "User-Agent": "Atlas-Todo-Desktop" },
+        });
+        if (!sumsRes.ok) {
+          throw new Error(`Failed to download SHA256SUMS.txt: HTTP ${sumsRes.status}`);
+        }
+        const expectedHash = expectedChecksum(await sumsRes.text(), targetAsset.name);
+        if (!expectedHash) {
+          throw new Error(`SHA256SUMS.txt has no entry for ${targetAsset.name}.`);
+        }
+        if (expectedHash !== hasher.digest("hex")) {
+          throw new Error("Checksum verification failed for the downloaded update.");
+        }
+      } catch (err) {
+        fs.rmSync(tempPath, { force: true });
+        throw err;
       }
 
       fs.chmodSync(tempPath, 0o755);
