@@ -639,11 +639,15 @@ async fn sockets_close_on_request_per_device_or_per_user() {
         .execute(&state.pool)
         .await
         .unwrap();
-    let phone_ticket = ticket(&control, &phone_token).await;
-    assert_eq!(
-        url_handshake_status(ws_url(addr, &phone_ticket, 0)).await,
-        Some(401)
-    );
+    let (status, _) = http(
+        &control,
+        "POST",
+        "/sync/ws-ticket",
+        Some(&phone_token),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
 
     assert_eq!(state.hub.close_user_sockets(user), 1);
     assert_eq!(close_code(&mut laptop_ws, 5).await, Some(4403));

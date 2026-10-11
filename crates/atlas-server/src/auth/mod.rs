@@ -60,9 +60,10 @@ pub fn routes() -> Router<AppState> {
 /// Extractor that authenticates a request via `Authorization: Bearer <access-token>`. Rejects
 /// with 401 when the header is missing/malformed, the token invalid/expired, or the account gone.
 ///
-/// The token is stateless, so a disabled or deletion-scheduled account is caught here by
-/// re-checking both columns on every request (one primary-key lookup), taking effect on the next
-/// call rather than at access-token expiry. [`AuthUserAllowScheduled`] is the exception.
+/// The token is stateless, so a disabled or deletion-scheduled account and a revoked session
+/// (signed out, or ended from another device) are caught here by re-checking them on every
+/// request, taking effect on the next call rather than at access-token expiry.
+/// [`AuthUserAllowScheduled`] admits a scheduled deletion.
 pub struct AuthUser {
     pub user_id: Uuid,
     /// The device the token was issued to (`did` claim), which lets the session endpoints spare
@@ -120,10 +121,21 @@ async fn authenticate_bearer(
         .ok_or(AppError::Unauthorized)?;
     let claims = token::verify_access_token(token, &state.config.jwt_secret)
         .map_err(|_| AppError::Unauthorized)?;
-    let (disabled, deletion_scheduled_at): (bool, Option<time::OffsetDateTime>) = sqlx::query_as(
-        "SELECT disabled_at IS NOT NULL, deletion_scheduled_at FROM users WHERE id = $1",
+    // A token minted before the `did` claim has no session to check.
+    let (disabled, deletion_scheduled_at, live_session): (
+        bool,
+        Option<time::OffsetDateTime>,
+        bool,
+    ) = sqlx::query_as(
+        "SELECT disabled_at IS NOT NULL, deletion_scheduled_at,
+                $2::uuid IS NULL OR EXISTS (
+                    SELECT 1 FROM refresh_tokens
+                     WHERE user_id = $1 AND device_id = $2
+                       AND revoked_at IS NULL AND expires_at > now())
+           FROM users WHERE id = $1",
     )
     .bind(claims.sub)
+    .bind(claims.did)
     .fetch_optional(&state.pool)
     .await?
     .ok_or(AppError::Unauthorized)?;
@@ -131,6 +143,13 @@ async fn authenticate_bearer(
     // refresh-and-retry loop over a rejection refresh cannot fix.
     if disabled {
         return Err(AppError::AccountDisabled);
+    }
+    // Scheduling a deletion also ends every session; its typed error still wins.
+    if !live_session {
+        return Err(match deletion_scheduled_at {
+            Some(at) => handlers::scheduled_deletion_error(at),
+            None => AppError::Unauthorized,
+        });
     }
     Ok((
         AuthUser {

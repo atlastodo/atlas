@@ -255,6 +255,10 @@ Access tokens are JWTs that live 15 minutes by default. Refresh tokens last 30 d
 single-use: the server consumes one and issues a replacement. Presenting a consumed token again
 is treated as theft and revokes the device's whole token family.
 
+Every authenticated request also checks that the token's device still has a live refresh
+family, so signing a device out (or ending its session from another one) takes effect on its
+next request, not when its access token expires.
+
 The client takes care not to trip this itself (`packages/client-core/src/api.ts`):
 
 - Concurrent 401s share one rotation. A cold start fires a sync, `me()` and `listInvites()`

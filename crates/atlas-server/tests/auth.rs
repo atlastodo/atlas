@@ -2688,14 +2688,9 @@ async fn revoke_others_keeps_the_caller_signed_in() {
     assert_eq!(sessions[0]["device_id"], device_a.to_string());
     assert_eq!(sessions[0]["current"], true);
 
-    // ...the other device's access token still works until it expires, but its refresh family is
-    // gone: its next refresh is rejected (the signed-out signal clients act on).
+    // ...and the other device's access token stops working at once, not at its expiry.
     let (status, _) = send(&router, "GET", "/auth/me", Some(&access_b), Value::Null).await;
-    assert_eq!(
-        status,
-        StatusCode::OK,
-        "access tokens are stateless and live on"
-    );
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
@@ -3029,4 +3024,28 @@ async fn export_returns_account_and_materialized_state_as_an_attachment() {
     // Without a token the export is unreachable.
     let (status, _) = send(&router, "GET", "/auth/export", None, Value::Null).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn a_revoked_sessions_access_token_stops_working_at_once() {
+    let router = setup().await;
+    let (access_a, access_b, _device_a, device_b) = two_devices(&router).await;
+    let (status, _) = send(&router, "GET", "/auth/me", Some(&access_b), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, _) = send(
+        &router,
+        "DELETE",
+        &format!("/auth/sessions/{device_b}"),
+        Some(&access_a),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Not at the access token's expiry: on the next request.
+    let (status, _) = send(&router, "GET", "/auth/me", Some(&access_b), Value::Null).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = send(&router, "GET", "/auth/me", Some(&access_a), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
 }
