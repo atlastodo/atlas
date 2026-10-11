@@ -567,7 +567,11 @@ export function TaskDetailScreen({
       {/* Due date pill */}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Quick due date"
+        accessibilityLabel={
+          task.due_at != null
+            ? t("taskDetail.dueOn", { date: formatDue(task.due_at) })
+            : t("taskDetail.dueDate")
+        }
         onPress={() => setPicking("due_at")}
         className={
           "flex-row items-center gap-1.5 rounded-lg border px-3 py-1.5 " +
@@ -598,7 +602,9 @@ export function TaskDetailScreen({
               : "text-neutral-700 dark:text-neutral-300")
           }
         >
-          {task.due_at != null ? `Due: ${formatDue(task.due_at)}` : `+ ${t("taskDetail.dueDate")}`}
+          {task.due_at != null
+            ? t("taskDetail.dueOn", { date: formatDue(task.due_at) })
+            : `+ ${t("taskDetail.dueDate")}`}
         </Text>
       </Pressable>
 
@@ -658,23 +664,20 @@ export function TaskDetailScreen({
       {task.start_at != null && (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Quick start date"
+          accessibilityLabel={t("taskDetail.startsOn", { date: formatDue(task.start_at) })}
           onPress={() => setPicking("start_at")}
           className="flex-row items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-100/80 px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-900/60"
         >
           <CalendarClock size={14} className="text-neutral-500" />
           <Text className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
-            {`Starts: ${formatDue(task.start_at)}`}
+            {t("taskDetail.startsOn", { date: formatDue(task.start_at) })}
           </Text>
         </Pressable>
       )}
 
       {/* Recurrence pill */}
       {task.recurrence && (
-        <View
-          accessibilityLabel="Quick recurrence"
-          className="flex-row items-center gap-1.5 rounded-lg border border-accent-200 bg-accent-50 px-3 py-1.5 dark:border-accent-900 dark:bg-accent-950"
-        >
+        <View className="flex-row items-center gap-1.5 rounded-lg border border-accent-200 bg-accent-50 px-3 py-1.5 dark:border-accent-900 dark:bg-accent-950">
           <Repeat size={14} className="text-accent-600 dark:text-accent-400" />
           <Text className="text-xs font-medium text-accent-700 dark:text-accent-300">
             {t("recurrence.repeat")}

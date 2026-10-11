@@ -523,6 +523,8 @@
     "properties": "Egenskaber",
     "dueDate": "Forfaldsdato",
     "startDate": "Startdato",
+    "dueOn": "Forfald: {{date}}",
+    "startsOn": "Starter: {{date}}",
     "priority": "Prioritet",
     "priorityUrgent": "Haster",
     "priorityHigh": "Høj",

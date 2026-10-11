@@ -539,6 +539,8 @@
     "properties": "Propriedades",
     "dueDate": "Data de vencimento",
     "startDate": "Data de início",
+    "dueOn": "Vence: {{date}}",
+    "startsOn": "Início: {{date}}",
     "priority": "Prioridade",
     "priorityUrgent": "Urgente",
     "priorityHigh": "Alta",

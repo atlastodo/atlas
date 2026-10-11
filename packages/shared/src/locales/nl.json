@@ -523,6 +523,8 @@
     "properties": "Eigenschappen",
     "dueDate": "Deadline",
     "startDate": "Startdatum",
+    "dueOn": "Deadline: {{date}}",
+    "startsOn": "Start: {{date}}",
     "priority": "Prioriteit",
     "priorityUrgent": "Urgent",
     "priorityHigh": "Hoog",

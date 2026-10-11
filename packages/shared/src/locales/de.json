@@ -523,6 +523,8 @@
     "properties": "Eigenschaften",
     "dueDate": "Fälligkeitsdatum",
     "startDate": "Startdatum",
+    "dueOn": "Fällig: {{date}}",
+    "startsOn": "Beginnt: {{date}}",
     "priority": "Priorität",
     "priorityUrgent": "Dringend",
     "priorityHigh": "Hoch",

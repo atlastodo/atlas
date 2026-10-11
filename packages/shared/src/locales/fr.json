@@ -539,6 +539,8 @@
     "properties": "Propriétés",
     "dueDate": "Date d’échéance",
     "startDate": "Date de début",
+    "dueOn": "Échéance : {{date}}",
+    "startsOn": "Début : {{date}}",
     "priority": "Priorité",
     "priorityUrgent": "Urgente",
     "priorityHigh": "Haute",

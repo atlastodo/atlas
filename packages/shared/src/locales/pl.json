@@ -555,6 +555,8 @@
     "properties": "Właściwości",
     "dueDate": "Termin",
     "startDate": "Data rozpoczęcia",
+    "dueOn": "Termin: {{date}}",
+    "startsOn": "Początek: {{date}}",
     "priority": "Priorytet",
     "priorityUrgent": "Pilny",
     "priorityHigh": "Wysoki",

@@ -523,6 +523,8 @@
     "properties": "Properties",
     "dueDate": "Due date",
     "startDate": "Start date",
+    "dueOn": "Due: {{date}}",
+    "startsOn": "Starts: {{date}}",
     "priority": "Priority",
     "priorityUrgent": "Urgent",
     "priorityHigh": "High",
