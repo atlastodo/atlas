@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 #
 # Generate RELEASE_NOTES.md for a version from the commit log: every commit since the previous
-# release tag (see PREV below), grouped by conventional-commit type (Features / Fixes / Changes), one line per
-# commit. `chore(release):` commits are excluded -- they are the releases themselves.
+# release tag (see PREV below), grouped by conventional-commit type (Features / Fixes / Changes /
+# Documentation), one line per distinct subject. Maintenance commits (chore, ci, build, test,
+# style, refactor: dependency bumps, regenerated lockfiles) are counted on one line with a link to
+# the full comparison instead. `chore(release):` commits are excluded -- they are the releases
+# themselves.
 #
 # Called by bump-version.sh, so the notes live in the chore(release) commit and are reviewed in
 # the diff before anything ships; the release workflow (.github/workflows/release.yml) then publishes
@@ -53,21 +56,40 @@ const subjects = execFileSync("git", ["log", "--no-merges", "--format=%s", range
 // plain subject that must not be mangled by prefix-stripping.
 const CONVENTIONAL = /^([a-z]+)(\([^)]*\))?!?:(.*)$/s;
 
-const sections = { Features: [], Fixes: [], Changes: [] };
+// Housekeeping a user of the release does not need line by line.
+const MAINTENANCE = new Set(["chore", "ci", "build", "test", "style", "refactor"]);
+
+const sections = { Features: [], Fixes: [], Changes: [], Documentation: [] };
+let deps = 0;
+let maintenance = 0;
 for (const s of subjects) {
   const m = s.match(CONVENTIONAL);
   const kind = m ? m[1] : "";
+  if (MAINTENANCE.has(kind)) {
+    if (/^\(deps/.test(m[2] ?? "")) deps++;
+    else maintenance++;
+    continue;
+  }
   let text = m ? m[3].trim() : s;
   text = text.slice(0, 1).toUpperCase() + text.slice(1); // sentence case
-  if (kind === "feat") sections.Features.push(text);
-  else if (kind === "fix") sections.Fixes.push(text);
-  else sections.Changes.push(text);
+  const section =
+    kind === "feat" ? "Features" : kind === "fix" ? "Fixes" : kind === "docs" ? "Documentation" : "Changes";
+  if (!sections[section].includes(text)) sections[section].push(text);
 }
 
 const lines = [`## v${version}`, ""];
 for (const [title, entries] of Object.entries(sections)) {
   if (!entries.length) continue;
   lines.push(`### ${title}`, ...entries.map((e) => `- ${e}`), "");
+}
+if (deps + maintenance > 0) {
+  const parts = [];
+  if (deps) parts.push(`${deps} dependency update${deps === 1 ? "" : "s"}`);
+  if (maintenance) parts.push(`${maintenance} maintenance commit${maintenance === 1 ? "" : "s"} (CI, build, tests)`);
+  const compare = prev
+    ? ` ([full list](https://github.com/atlastodo/atlas-todo/compare/${prev}...v${version}))`
+    : "";
+  lines.push("### Maintenance", `- ${parts.join(", ")}${compare}`, "");
 }
 if (lines.length === 2) {
   // Nothing but the heading -- e.g. a manifest-only re-release.
