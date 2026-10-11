@@ -660,7 +660,7 @@
       "valid": false
     },
     {
-      "rule": "FREQ=DAILY;INTERVAL=٣",
+      "rule": "FREQ=DAILY;INTERVAL=\u0663",
       "valid": false
     },
     {
@@ -672,19 +672,19 @@
       "valid": true
     },
     {
-      "rule": "freq=daıly",
+      "rule": "freq=da\u0131ly",
       "valid": false
     },
     {
-      "rule": "FREQ=WEEKLY;BYDAY=ſu",
+      "rule": "FREQ=WEEKLY;BYDAY=\u017fu",
       "valid": false
     },
     {
-      "rule": "FREQ=DAILY;MODE=ſchedule",
+      "rule": "FREQ=DAILY;MODE=\u017fchedule",
       "valid": false
     },
     {
-      "rule": "﻿FREQ=DAILY",
+      "rule": "\ufeffFREQ=DAILY",
       "valid": false
     },
     {
@@ -692,11 +692,11 @@
       "valid": false
     },
     {
-      "rule": "FREQ=DAILY; INTERVAL=2",
+      "rule": "FREQ=DAILY;\u00a0INTERVAL=2",
       "valid": false
     },
     {
-      "rule": "FREQ=DAILY",
+      "rule": "FREQ=DAILY\u0085",
       "valid": false
     },
     {
@@ -756,7 +756,7 @@
       "valid": false
     },
     {
-      "rule": "FREQ=MONTHLY;BYMONTHDAY=٣",
+      "rule": "FREQ=MONTHLY;BYMONTHDAY=\u0663",
       "valid": false
     },
     {
