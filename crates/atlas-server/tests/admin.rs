@@ -1104,6 +1104,10 @@ async fn stepping_down_while_disabling_the_other_admin_leaves_one_standing() {
     // Hold both rows so the two requests pass authentication and then meet at the guard at the
     // same time: each would otherwise see the other admin still active and go ahead.
     let mut hold = pool.begin().await.unwrap();
+    let holder: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *hold)
+        .await
+        .unwrap();
     sqlx::query("SELECT id FROM users WHERE id = ANY($1) FOR UPDATE")
         .bind(&ids)
         .execute(&mut *hold)
@@ -1115,7 +1119,7 @@ async fn stepping_down_while_disabling_the_other_admin_leaves_one_standing() {
     };
     let step_down = patch(a.id.clone(), json!({ "is_admin": false }));
     let disable_b = patch(b.id.clone(), json!({ "disabled": true }));
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    wait_for_blocked(&pool, holder, 2).await;
     hold.commit().await.unwrap();
     let (step_down, disable_b) = (step_down.await.unwrap(), disable_b.await.unwrap());
 
@@ -1735,4 +1739,30 @@ async fn admin_actions_land_in_the_audit_trail() {
         .unwrap()
         .iter()
         .all(|e| e["id"].as_i64().unwrap() < cursor));
+}
+
+/// Wait until `n` backends are blocked behind `holder` (a `pg_backend_pid()`), so concurrent
+/// requests are known to be queued on a held lock instead of guessing with a sleep. Gives up
+/// after ten seconds; the test's own assertions then decide.
+async fn wait_for_blocked(pool: &sqlx::PgPool, holder: i32, n: i64) {
+    for _ in 0..1000 {
+        let blocked: i64 = sqlx::query_scalar(
+            // Directly or through another waiter: a second request for the same row queues
+            // behind the first.
+            "WITH RECURSIVE blocked(pid) AS (
+                 SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))
+                 UNION
+                 SELECT a.pid FROM pg_stat_activity a, blocked b
+                  WHERE b.pid = ANY(pg_blocking_pids(a.pid)))
+             SELECT count(*) FROM blocked",
+        )
+        .bind(holder)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        if blocked >= n {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
 }
