@@ -9,16 +9,16 @@ is not protected, and [self-hosting.md](./self-hosting.md) covers running a serv
 
 ## Components
 
-| Path                   | Language              | Role                                                                                                                                |
-| ---------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `crates/atlas-core`    | Rust                  | The hybrid logical clock and the op log types. No I/O.                                                                              |
-| `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.     |
-| `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                       |
-| `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client.                                                 |
-| `packages/shared`      | TypeScript            | Pure logic shared by every client: recurrence, quick-add parsing, filters, habits, stats, ordering, TickTick import, i18n catalogs. |
-| `apps/mobile`          | React Native + Expo   | The only UI. Runs natively on Android and iOS and in the browser through react-native-web.                                          |
-| `apps/electron`        | TypeScript (Electron) | Desktop shell that loads the web export from an `app://` origin.                                                                    |
-| `test-vectors/`        | JSON                  | Fixtures read by both the Rust and TypeScript tests so both sides behave the same.                                                  |
+| Path                   | Language              | Role                                                                                                                                     |
+| ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/atlas-core`    | Rust                  | The hybrid logical clock and the op log types. No I/O.                                                                                   |
+| `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.          |
+| `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                            |
+| `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client.                                                      |
+| `packages/shared`      | TypeScript            | Pure logic shared by every client: recurrence, quick-add parsing, filters, habits, stats, ordering, TickTick import, i18n catalogs.      |
+| `apps/mobile`          | React Native + Expo   | The only UI. Runs natively on Android and iOS and in the browser through react-native-web.                                               |
+| `apps/electron`        | TypeScript (Electron) | Desktop shell that loads the web export from an `app://` origin.                                                                         |
+| `test-vectors/`        | JSON                  | Shared fixtures. The conflict and plaintext-field vectors are read by both the Rust and TypeScript tests; recurrence is TypeScript only. |
 
 ## How the clients share code
 
@@ -84,8 +84,24 @@ A delete is a tombstone with its own timestamp. Field writes older than the tomb
 hidden. A field written after the tombstone is visible again, so an edit made after a delete
 brings the entity back.
 
-The server only stores and relays ops; the rule runs in `packages/client-core`.
-`test-vectors/conflict_vectors.json` holds the cases its tests resolve.
+The rule runs on every client (`packages/client-core`) and on the server, which folds each pushed
+op into the snapshot state with the same comparison. `test-vectors/conflict_vectors.json` holds
+the cases both resolve; the server test pushes them one at a time and in reverse as one batch.
+
+What this means in practice:
+
+- Merging is per field, not per character. When two devices edit the same note offline, the
+  later edit wins whole; the other is not merged in. Different fields of one task (title on one
+  device, due date on another) both survive.
+- An edit made concurrently with a delete, but stamped after it, brings the entity back with only
+  the fields written after the delete. The other fields stay hidden by the tombstone.
+- The rule has no notion of meaning. The server checks an op's shape, size, clock and the
+  caller's role in the project, never what an encrypted value says. A buggy client can write a
+  value no other client understands; the protocol floor (see [Protocol versions](#protocol-versions))
+  is the lever for keeping such clients off.
+- A device whose clock runs more than five minutes fast has its pushes refused with
+  `clock_skew`. The app shows the skew in Sync details. Edits already stamped with the fast clock
+  stay queued until real time passes their stamps; setting the clock right only fixes new ones.
 
 ## Sync
 
@@ -194,7 +210,15 @@ A lock per caller would not be enough, because a partition also receives rows fa
 other users' transactions, so two pushers who share a project can interleave inside one target
 partition. Locking every partition a transaction might write, in sorted order, would work but
 needs the full write set up front. Pushes are short, so one global lock is the simplest choice
-that is provably correct, and a single key taken first cannot deadlock.
+that is provably correct, and a single key taken first cannot deadlock. Pushes from all users
+queue on it, each holding a pooled connection while it waits, so `DB_MAX_CONNECTIONS` bounds how
+many can wait at once.
+
+Server-authored ops (membership rows, revocation tombstones) are stamped by one server clock.
+Receiving a push moves that clock past the push's newest stamp, so these ops order after what
+the server has already accepted. A client may stamp up to five minutes ahead, and the server
+clock then follows it. That is by design: those ops touch only server-managed membership rows,
+or delete a task the caller lost access to, and both must win.
 
 The live fan-out to open sockets and the socket tickets are kept in the server's memory. That is
 enough while one server instance serves every client, which is how Atlas Todo is deployed. A user

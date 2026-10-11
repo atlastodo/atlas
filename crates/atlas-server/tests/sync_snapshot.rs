@@ -482,3 +482,105 @@ async fn a_snapshot_page_holds_up_to_1000_keys() {
     assert_eq!(page["operations"].as_array().unwrap().len(), 700);
     assert!(page.get("next").is_none(), "700 keys fit one page of 1000");
 }
+
+/// Every snapshot page of the caller's partition, concatenated.
+async fn snapshot_ops(router: &Router, token: &str) -> Vec<Value> {
+    let mut ops = Vec::new();
+    let mut uri = "/sync/snapshot".to_string();
+    loop {
+        let (status, body) = http(router, "GET", &uri, Some(token), Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body:?}");
+        ops.extend(body["operations"].as_array().unwrap().iter().cloned());
+        match body["next"].as_str() {
+            Some(next) => uri = format!("/sync/snapshot?next={next}"),
+            None => return ops,
+        }
+    }
+}
+
+fn hlc_key(ts: &Value) -> (u64, u64, String) {
+    (
+        ts["wall_ms"].as_u64().unwrap(),
+        ts["counter"].as_u64().unwrap(),
+        ts["node"].as_str().unwrap().to_string(),
+    )
+}
+
+/// `test-vectors/conflict_vectors.json` through the server's own fold: each scenario's ops,
+/// pushed one at a time in order and as one batch in reverse, must snapshot to the state the
+/// client resolves, read with the client's rule (a field shows when newer than the tombstone).
+#[tokio::test]
+async fn the_server_fold_resolves_the_shared_conflict_vectors() {
+    let vectors: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../test-vectors/conflict_vectors.json"
+    )))
+    .unwrap();
+    let router = app(make_state().await);
+    let (token, _) = new_user(&router).await;
+
+    let mut expected = Vec::new();
+    for scenario in vectors["scenarios"].as_array().unwrap() {
+        let name = scenario["name"].as_str().unwrap();
+        let ops = scenario["ops"].as_array().unwrap();
+        for one_at_a_time in [true, false] {
+            let entity_id = Uuid::now_v7();
+            let wire: Vec<Value> = ops
+                .iter()
+                .map(|op| {
+                    let mut w = json!({
+                        "id": Uuid::now_v7(),
+                        "entity": "task",
+                        "entity_id": entity_id,
+                        "ts": op["ts"],
+                    });
+                    if op["delete"].as_bool() == Some(true) {
+                        w["op"] = json!("delete");
+                    } else {
+                        w["op"] = json!("set");
+                        w["field"] = op["field"].clone();
+                        w["value"] = op["value"].clone();
+                    }
+                    w
+                })
+                .collect();
+            let batches: Vec<Vec<Value>> = if one_at_a_time {
+                wire.into_iter().map(|w| vec![w]).collect()
+            } else {
+                vec![wire.into_iter().rev().collect()]
+            };
+            for batch in batches {
+                let (status, body) = http(
+                    &router,
+                    "POST",
+                    "/sync/push",
+                    Some(&token),
+                    json!({ "operations": batch }),
+                )
+                .await;
+                assert_eq!(status, StatusCode::OK, "{name}: {body:?}");
+            }
+            expected.push((name, entity_id, &scenario["expected"]));
+        }
+    }
+
+    let snapshot = snapshot_ops(&router, &token).await;
+    for (name, entity_id, want) in expected {
+        let id = entity_id.to_string();
+        let ops: Vec<&Value> = snapshot.iter().filter(|o| o["entity_id"] == id).collect();
+        let tomb = ops
+            .iter()
+            .filter(|o| o["op"] == "delete")
+            .map(|o| hlc_key(&o["ts"]))
+            .max();
+        let mut fields = serde_json::Map::new();
+        for op in ops.iter().filter(|o| o["op"] == "set") {
+            if tomb.as_ref().is_none_or(|t| hlc_key(&op["ts"]) > *t) {
+                fields.insert(op["field"].as_str().unwrap().into(), op["value"].clone());
+            }
+        }
+        let deleted = tomb.is_some() && fields.is_empty();
+        assert_eq!(deleted, want["deleted"].as_bool().unwrap(), "{name}");
+        assert_eq!(Value::Object(fields), want["fields"], "{name}");
+    }
+}
