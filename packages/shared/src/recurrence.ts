@@ -8,7 +8,9 @@ import { makeInstant, resolveTimeZone, zonedParts } from "./zonedTime";
  * `MODE=COMPLETION` (next occurrence based on the completion time).
  *
  * A monthly rule keeps its day in `BYMONTHDAY` ({@link anchorMonthDay}): stepping from the previous
- * occurrence would turn "the 31st" into "the 28th" for good after one February.
+ * occurrence would turn "the 31st" into "the 28th" for good after one February. A yearly rule due
+ * on a leap day keeps it the same way (`BYMONTHDAY=29`, the only day a yearly rule takes), so it
+ * returns to Feb 29 in leap years.
  *
  * The engine ({@link nextOccurrenceCivil}) steps wall-clock dates and keeps the time of day, so
  * "every day at 23:59" does not drift across DST. Month and leap-day overflows clamp.
@@ -24,6 +26,9 @@ export interface Rule {
   // Day of month (1-31), clamped for shorter months. Ignored after completion, which re-anchors.
   bymonthday: number | null;
   mode: RecurMode;
+  // Time of day (`BYHOUR`/`BYMINUTE`), kept only while an occurrence sits in a DST gap and so
+  // shows a later time than the series' own ({@link advanceSeries}).
+  at?: { hour: number; minute: number } | null;
 }
 
 const WEEKDAY_TOKENS: Record<string, number> = {
@@ -39,8 +44,8 @@ const WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 export const MAX_INTERVAL = 1000;
 
-// ASCII-only case folding and trimming, as the Rust parser does: `toUpperCase` folds "ı" to "I" and
-// `trim` strips a BOM, so the parsers would disagree.
+// ASCII-only case folding and trimming, so a rule reads the same in every locale: `toUpperCase`
+// folds "ı" to "I" and `trim` strips a BOM.
 const ASCII_WS = /^[ \t\n\f\r]+|[ \t\n\f\r]+$/g;
 const trimAscii = (s: string) => s.replace(ASCII_WS, "");
 const upperAscii = (s: string) => s.replace(/[a-z]+/g, (m) => m.toUpperCase());
@@ -50,6 +55,8 @@ export function parseRule(input: string): Rule | null {
   let interval = 1;
   const byday: number[] = [];
   let bymonthday: number | null = null;
+  let byhour: number | null = null;
+  let byminute: number | null = null;
   let mode: RecurMode = "on_schedule";
 
   for (const rawPart of input.split(";")) {
@@ -92,6 +99,16 @@ export function parseRule(input: string): Rule | null {
         bymonthday = n;
         break;
       }
+      case "BYHOUR":
+      case "BYMINUTE": {
+        // One value each, as written by advanceSeries.
+        if (!/^[0-9]{1,2}$/.test(value)) return null;
+        const n = Number(value);
+        if (n > (key === "BYHOUR" ? 23 : 59)) return null;
+        if (key === "BYHOUR") byhour = n;
+        else byminute = n;
+        break;
+      }
       case "MODE": {
         if (value === "SCHEDULE") mode = "on_schedule";
         else if (value === "COMPLETION") mode = "after_completion";
@@ -106,9 +123,14 @@ export function parseRule(input: string): Rule | null {
   if (freq === null) return null;
   // Every other frequency gives BYMONTHDAY a meaning this engine does not implement; refusing beats
   // silently repeating on other days.
-  if (bymonthday !== null && freq !== "monthly") return null;
+  if (bymonthday !== null && freq !== "monthly" && !(freq === "yearly" && bymonthday === 29)) {
+    return null;
+  }
+  if ((byhour === null) !== (byminute === null)) return null;
   const uniqueSorted = [...new Set(byday)].sort((a, b) => a - b);
-  return { freq, interval, byday: uniqueSorted, bymonthday, mode };
+  const rule: Rule = { freq, interval, byday: uniqueSorted, bymonthday, mode };
+  if (byhour !== null && byminute !== null) rule.at = { hour: byhour, minute: byminute };
+  return rule;
 }
 
 export function ruleToString(rule: Rule): string {
@@ -119,17 +141,37 @@ export function ruleToString(rule: Rule): string {
     parts.push(`BYDAY=${days}`);
   }
   if (monthDayApplies(rule)) parts.push(`BYMONTHDAY=${rule.bymonthday}`);
+  if (rule.at) parts.push(`BYHOUR=${rule.at.hour}`, `BYMINUTE=${rule.at.minute}`);
   if (rule.mode === "after_completion") parts.push("MODE=COMPLETION");
   return parts.join(";");
 }
 
 function monthDayApplies(rule: Rule): rule is Rule & { bymonthday: number } {
-  return rule.freq === "monthly" && rule.mode === "on_schedule" && rule.bymonthday !== null;
+  return (
+    (rule.freq === "monthly" || rule.freq === "yearly") &&
+    rule.mode === "on_schedule" &&
+    rule.bymonthday !== null
+  );
 }
 
 // A monthly rule on schedule gets the due date's day as `BYMONTHDAY`; an existing day is kept when it clamps to that date (31 on Feb 28).
+// A time of day the due date does not show (a manual reschedule) is dropped too.
 export function anchorMonthDay(rule: string, dueMs: number, timeZone?: string): string {
-  return withMonthDay(rule, dueMs, timeZone, false);
+  return withMonthDay(withTimeFitting(rule, dueMs, timeZone), dueMs, timeZone, false);
+}
+
+// `rule` without its time of day unless that time resolves to `dueMs` on the due date.
+function withTimeFitting(rule: string, dueMs: number, timeZone: string | undefined): string {
+  const parsed = parseRule(rule);
+  if (!parsed?.at) return rule;
+  if (Math.abs(dueMs) <= MAX_DATE_MS) {
+    const tz = resolveTimeZone(timeZone);
+    const p = zonedParts(dueMs, tz);
+    const { hour, minute } = parsed.at;
+    const at = makeInstant(p.year, p.month, p.day, hour, minute, p.second, tz);
+    if (at + modEuclid(dueMs, 1000) === dueMs) return rule;
+  }
+  return ruleToString({ ...parsed, at: null });
 }
 
 // For rules stored before `BYMONTHDAY` existed. A series already shortened by a February stays shortened.
@@ -144,12 +186,18 @@ function withMonthDay(
   onlyIfMissing: boolean,
 ): string {
   const parsed = parseRule(rule);
-  if (!parsed || parsed.freq !== "monthly" || parsed.mode !== "on_schedule") return rule;
+  if (!parsed || parsed.mode !== "on_schedule") return rule;
+  if (parsed.freq !== "monthly" && parsed.freq !== "yearly") return rule;
   if (!(Math.abs(dueMs) <= MAX_DATE_MS)) return rule;
   if (onlyIfMissing && parsed.bymonthday !== null) return rule;
   const p = zonedParts(dueMs, resolveTimeZone(timeZone));
   const lastDay = daysInMonth(p.year, p.month + 1);
   if (parsed.bymonthday !== null && Math.min(parsed.bymonthday, lastDay) === p.day) return rule;
+  if (parsed.freq === "yearly") {
+    // Only a leap day needs keeping; any other date repeats as is.
+    const bymonthday = p.month === 1 && p.day === 29 ? 29 : null;
+    return bymonthday === parsed.bymonthday ? rule : ruleToString({ ...parsed, bymonthday });
+  }
   return ruleToString({ ...parsed, bymonthday: p.day });
 }
 
@@ -174,7 +222,7 @@ export function formatRule(input: string, t: Translate = english): string | null
     const days = rule.byday.map((d) => t(key(WEEKDAY_KEYS[d]!), {})).join(", ");
     summary = t(key("onWeekdays"), { rule: summary, days });
   }
-  if (monthDayApplies(rule))
+  if (monthDayApplies(rule) && rule.freq === "monthly")
     summary = t(key("onMonthDay"), { rule: summary, day: rule.bymonthday });
   if (rule.mode === "after_completion") summary = t(key("afterCompletion"), { rule: summary });
   return summary;
@@ -247,7 +295,7 @@ function addMonths(day: number, months: number, monthDay: number | null = null):
 
 const isInt = (n: number, lo: number, hi: number) => Number.isInteger(n) && n >= lo && n <= hi;
 
-// Civil years are 32-bit as in Rust (`i32`), so both engines refuse the same out-of-range dates.
+// Civil years are bounded to 32 bits, so out-of-range dates are refused rather than misread.
 const MIN_YEAR = -(2 ** 31);
 const MAX_YEAR = 2 ** 31 - 1;
 
@@ -268,7 +316,8 @@ export function nextOccurrenceCivil(
 ): CivilDateTime | null {
   const parsed = parseRule(rule);
   if (!parsed) return null;
-  const { hour, minute, second, millisecond } = anchor;
+  const { second, millisecond } = anchor;
+  const { hour, minute } = parsed.at ?? anchor;
   if (!isInt(hour, 0, 23) || !isInt(minute, 0, 59) || !isInt(second, 0, 59)) return null;
   if (!isInt(millisecond, 0, 999)) return null;
   const anchorDay = dateToDays(anchor);
@@ -294,13 +343,45 @@ export function nextOccurrenceCivil(
       // after a short month or one-off reschedule.
       next = addMonths(base, interval, monthDayApplies(parsed) ? parsed.bymonthday : null);
       break;
-    case "yearly":
-      next = addMonths(base, interval * 12);
+    case "yearly": {
+      // BYMONTHDAY=29 is the leap day, so it applies only from a February due date.
+      const inFebruary = civilFromDays(base)[1] === 2;
+      next = addMonths(
+        base,
+        interval * 12,
+        monthDayApplies(parsed) && inFebruary ? parsed.bymonthday : null,
+      );
       break;
+    }
   }
   const [year, month, day] = civilFromDays(next);
   if (!isInt(year, MIN_YEAR, MAX_YEAR)) return null;
   return { year, month, day, hour, minute, second, millisecond };
+}
+
+/**
+ * The occurrence after `dueMs` and the rule to store with it (also given the leap-day and month-day
+ * anchors of {@link pinMonthDay}). When the next occurrence falls in a DST gap it shows a later
+ * time than the series' own, so the rule keeps the series' time (`BYHOUR`/`BYMINUTE`) to step from;
+ * the first occurrence that shows it again drops it. `null` when there is no next occurrence.
+ */
+export function advanceSeries(
+  rule: string,
+  dueMs: number,
+  fromMs: number,
+  timeZone?: string,
+): { next: number; rule: string } | null {
+  const tz = resolveTimeZone(timeZone);
+  const pinned = pinMonthDay(rule, dueMs, tz);
+  const next = nextOccurrence(pinned, dueMs, fromMs, tz);
+  const parsed = parseRule(pinned);
+  if (next == null || !parsed) return null;
+  const due = zonedParts(dueMs, tz);
+  const want = parsed.at ?? { hour: due.hour, minute: due.minute };
+  const shown = zonedParts(next, tz);
+  const at = shown.hour === want.hour && shown.minute === want.minute ? null : want;
+  const sameAt = parsed.at?.hour === at?.hour && parsed.at?.minute === at?.minute;
+  return { next, rule: sameAt ? pinned : ruleToString({ ...parsed, at }) };
 }
 
 // {@link nextOccurrenceCivil} for Unix-ms instants, read as wall-clock time in `timeZone`.

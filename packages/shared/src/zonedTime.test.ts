@@ -114,3 +114,24 @@ describe("invalid input", () => {
     expect(zonedParts(ms, "Not/AZone")).toEqual(zonedParts(ms));
   });
 });
+
+describe("makeInstant in a DST gap", () => {
+  it("resolves a skipped wall time forward by the gap's length", () => {
+    // US spring-forward 2024-03-10 02:00 -> 03:00 EDT; 02:30 does not exist.
+    expect(new Date(makeInstant(2024, 2, 10, 2, 30, 0, "America/New_York")).toISOString()).toBe(
+      "2024-03-10T07:30:00.000Z",
+    );
+    // Lord Howe's 30-minute gap: 02:00 -> 02:30.
+    const lh = makeInstant(2024, 9, 6, 2, 15, 0, "Australia/Lord_Howe");
+    expect(zonedParts(lh, "Australia/Lord_Howe")).toMatchObject({ hour: 2, minute: 45 });
+  });
+
+  it("leaves existing wall times exact", () => {
+    expect(new Date(makeInstant(2024, 2, 10, 3, 30, 0, "America/New_York")).toISOString()).toBe(
+      "2024-03-10T07:30:00.000Z",
+    );
+    expect(new Date(makeInstant(2024, 2, 10, 1, 59, 0, "America/New_York")).toISOString()).toBe(
+      "2024-03-10T06:59:00.000Z",
+    );
+  });
+});

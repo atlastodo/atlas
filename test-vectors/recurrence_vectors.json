@@ -233,6 +233,39 @@
       "expected_local": "2025-02-28T00:00:00"
     },
     {
+      "name": "yearly leap-day anchor clamps in a common year (Feb 29 2024 -> Feb 28 2025)",
+      "rule": "FREQ=YEARLY;BYMONTHDAY=29",
+      "tz": "UTC",
+      "anchor": 1709197200000,
+      "anchor_local": "2024-02-29T09:00:00",
+      "from": 1709197200000,
+      "from_local": "2024-02-29T09:00:00",
+      "expected": 1740733200000,
+      "expected_local": "2025-02-28T09:00:00"
+    },
+    {
+      "name": "yearly leap-day anchor returns to Feb 29 in a leap year (Feb 28 2027 -> Feb 29 2028)",
+      "rule": "FREQ=YEARLY;BYMONTHDAY=29",
+      "tz": "UTC",
+      "anchor": 1803805200000,
+      "anchor_local": "2027-02-28T09:00:00",
+      "from": 1803805200000,
+      "from_local": "2027-02-28T09:00:00",
+      "expected": 1835427600000,
+      "expected_local": "2028-02-29T09:00:00"
+    },
+    {
+      "name": "yearly leap-day anchor is ignored outside February (Mar 5 2025 -> Mar 5 2026)",
+      "rule": "FREQ=YEARLY;BYMONTHDAY=29",
+      "tz": "UTC",
+      "anchor": 1741165200000,
+      "anchor_local": "2025-03-05T09:00:00",
+      "from": 1741165200000,
+      "from_local": "2025-03-05T09:00:00",
+      "expected": 1772701200000,
+      "expected_local": "2026-03-05T09:00:00"
+    },
+    {
       "name": "invalid rule yields no occurrence",
       "rule": "FREQ=BOGUS",
       "tz": "UTC",
@@ -627,7 +660,7 @@
       "valid": false
     },
     {
-      "rule": "FREQ=DAILY;INTERVAL=\u0663",
+      "rule": "FREQ=DAILY;INTERVAL=٣",
       "valid": false
     },
     {
@@ -639,19 +672,19 @@
       "valid": true
     },
     {
-      "rule": "freq=da\u0131ly",
+      "rule": "freq=daıly",
       "valid": false
     },
     {
-      "rule": "FREQ=WEEKLY;BYDAY=\u017fu",
+      "rule": "FREQ=WEEKLY;BYDAY=ſu",
       "valid": false
     },
     {
-      "rule": "FREQ=DAILY;MODE=\u017fchedule",
+      "rule": "FREQ=DAILY;MODE=ſchedule",
       "valid": false
     },
     {
-      "rule": "\ufeffFREQ=DAILY",
+      "rule": "﻿FREQ=DAILY",
       "valid": false
     },
     {
@@ -659,11 +692,11 @@
       "valid": false
     },
     {
-      "rule": "FREQ=DAILY;\u00a0INTERVAL=2",
+      "rule": "FREQ=DAILY; INTERVAL=2",
       "valid": false
     },
     {
-      "rule": "FREQ=DAILY\u0085",
+      "rule": "FREQ=DAILY",
       "valid": false
     },
     {
@@ -723,7 +756,7 @@
       "valid": false
     },
     {
-      "rule": "FREQ=MONTHLY;BYMONTHDAY=\u0663",
+      "rule": "FREQ=MONTHLY;BYMONTHDAY=٣",
       "valid": false
     },
     {
@@ -736,6 +769,10 @@
     },
     {
       "rule": "FREQ=YEARLY;BYMONTHDAY=29",
+      "valid": true
+    },
+    {
+      "rule": "FREQ=YEARLY;BYMONTHDAY=28",
       "valid": false
     }
   ]
