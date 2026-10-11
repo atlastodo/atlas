@@ -79,6 +79,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          # BuildKit's SLSA provenance (with the build's full inputs) and an SBOM, attached to the image.
+          provenance: mode=max
+          sbom: true
           # The web app's About screen links to the source it was built from.
           build-args: |
             REPO_URL=${{ github.server_url }}/${{ github.repository }}
@@ -104,6 +107,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # GitHub's build provenance attestation for the multi-arch image (see the last step).
+      id-token: write
+      attestations: write
     env:
       # Optional Docker Hub mirror: the DOCKERHUB_IMAGE variable (e.g. `atlastodo/atlas-todo`) plus the
       # DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets. Skipped while the repository is private,
@@ -141,6 +147,7 @@ jobs:
           flavor: ${{ inputs.flavor }}
           annotations: ${{ env.IMAGE_METADATA }}
       - name: Tag the multi-arch image
+        id: tag
         env:
           IMAGE: ${{ steps.image.outputs.name }}
         run: |
@@ -149,4 +156,12 @@ jobs:
           while IFS= read -r a; do args+=(--annotation "$a"); done < <(jq -r '.annotations[]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
           for digest in digests/*; do args+=("$IMAGE@sha256:${digest#digests/}"); done
           docker buildx imagetools create "${args[@]}"
-          docker buildx imagetools inspect "$IMAGE:$(jq -r '.labels["org.opencontainers.image.version"]' <<<"$DOCKER_METADATA_OUTPUT_JSON")"
+          version="$(jq -r '.labels["org.opencontainers.image.version"]' <<<"$DOCKER_METADATA_OUTPUT_JSON")"
+          docker buildx imagetools inspect "$IMAGE:$version"
+          echo "digest=$(docker buildx imagetools inspect "$IMAGE:$version" --format '{{.Manifest.Digest}}')" >> "$GITHUB_OUTPUT"
+      # Verify with: gh attestation verify oci://ghcr.io/atlastodo/atlas-todo:<tag> --repo atlastodo/atlas-todo
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.tag.outputs.digest }}
+          push-to-registry: true
