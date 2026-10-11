@@ -153,7 +153,7 @@ These are read by compose, not by the server.
 | `POSTGRES_PASSWORD` | none, required                        | Database password. It goes into a URL, so use URL-safe characters. PostgreSQL only reads it when the volume is first created. |
 | `POSTGRES_USER`     | `atlas`                               | Database user.                                                                                                                |
 | `POSTGRES_DB`       | `atlas`                               | Database name.                                                                                                                |
-| `PORT_BIND`         | `8080`                                | Host port. Inside the container the server always listens on 8080.                                                            |
+| `PORT_BIND`         | `127.0.0.1:8080`                      | Host address and port. Localhost only by default; `8080` listens on every interface. Inside, the server always uses 8080.     |
 | `ATLAS_IMAGE`       | `ghcr.io/atlastodo/atlas-todo:latest` | Image to pull, or the name to tag a local build with.                                                                         |
 | `ATLAS_DB_VOLUME`   | `docker_atlas_db`                     | Name of the database volume. The default keeps the name older installs already have.                                          |
 
@@ -250,8 +250,9 @@ Without this, every client shares the proxy's IP address, and one client's faile
 lock everyone out for a minute. Don't turn it on if clients can also reach port 8080 directly:
 they could then forge the header.
 
-It also helps to bind the port to localhost so only the proxy can reach it:
-`PORT_BIND=127.0.0.1:8080`.
+Compose publishes the port on localhost only (`PORT_BIND=127.0.0.1:8080`), so only a proxy on the
+same host can reach it. Keep it that way when you trust the header; widen it (`PORT_BIND=8080`)
+only for a proxy on another machine, and then firewall the port to that machine.
 
 ### Caddy
 
@@ -372,9 +373,13 @@ Migrations run when the new server starts. Read the release notes before a minor
 they list any manual steps. A client that is too old for the server is refused with
 `426 Upgrade Required` and asks the user to update.
 
+From 0.1.10, compose publishes the port on localhost only. If clients reach port 8080 directly
+rather than through a proxy on the same host, set `PORT_BIND=8080` in `.env` before upgrading.
+
 ### Upgrading from a pre-public build
 
-Versions up to 0.28 used a different compose setup. If you run one of those, do this once:
+Builds from before the public 0.1.0 release (versioned up to 0.28) used a different compose
+setup. If you run one of those, do this once:
 
 - Copy the attachment blobs out of the old container before you upgrade, because recreating it
   deletes them: `docker cp <server-container>:/app/data ./atlas-data-backup`. They now live in

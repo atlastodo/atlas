@@ -120,6 +120,10 @@ Open <http://localhost:8080> and create an account. One container serves the web
 API, and applies database migrations when it starts. Run compose commands from the repository
 root so it reads the root `.env`.
 
+The port is published on localhost only. To use it from other devices, put a TLS reverse proxy in
+front ([Caddy takes three lines](./docs/self-hosting.md#caddy)), or set `PORT_BIND=8080` in
+`.env` to listen on every interface.
+
 Signing up never makes anyone an admin. Create your account, then promote it:
 
 ```sh
