@@ -809,9 +809,8 @@ pub(super) fn scheduled_deletion_error(scheduled_at: OffsetDateTime) -> AppError
     if account_purge::is_past_grace(scheduled_at) {
         return AppError::AccountDeleted;
     }
-    let elapsed = OffsetDateTime::now_utc() - scheduled_at;
     AppError::AccountScheduledDeletion {
-        days_remaining: (account_purge::DELETION_GRACE_DAYS - elapsed.whole_days()).max(1),
+        days_remaining: account_purge::days_remaining(scheduled_at),
     }
 }
 

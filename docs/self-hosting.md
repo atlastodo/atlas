@@ -310,7 +310,7 @@ The server pings WebSocket clients every 30 seconds, so nginx's default read tim
 
   `ADMIN_EMAILS` does the same at every startup for accounts that already exist.
 
-- The admin panel is at `/admin` in the web app. It lists accounts; an admin can promote,
+- The admin panel is the Admin section of Settings (shown only to admins). It lists accounts; an admin can promote,
   disable, delete or sign out a user. It also shows bug reports and the audit log, and holds the instance settings.
 - To close registration, use the toggle in the admin panel or `SIGNUP_ENABLED=false`. To admit
   one person to a closed instance, create a signup invite in the admin panel.

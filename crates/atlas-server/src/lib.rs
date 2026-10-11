@@ -140,9 +140,10 @@ pub fn app(state: AppState) -> Router {
         .layer(cors_layer())
 }
 
-/// The web app's `/admin/*` pages share paths with the admin API, so a page load (GET/HEAD
-/// asking for HTML with no bearer token) gets the SPA before routing; everything else reaches
-/// the API. Only when a static dir is served.
+/// The admin API shares `/admin/*` with what used to be the web app's admin pages (now a Settings
+/// section), so a page load there (GET/HEAD asking for HTML with no bearer token) still gets the
+/// SPA, which shows its not-found page, rather than a JSON 401; everything else reaches the API.
+/// Only when a static dir is served.
 async fn spa_navigation(
     State(state): State<AppState>,
     req: axum::extract::Request,

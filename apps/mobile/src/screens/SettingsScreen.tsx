@@ -91,7 +91,6 @@ import {
   Pencil,
   RefreshCw,
   Server,
-  ShieldCheck,
   Smartphone,
   SlidersHorizontal,
   Sparkles,
@@ -110,6 +109,7 @@ import { CloseToTrayRow } from "../ui/CloseToTrayRow";
 import { DesktopUpdateSection } from "../ui/DesktopUpdateSection";
 import { PersistentStorageRow } from "../ui/PersistentStorageRow";
 import { useSignOut } from "../auth/useSignOut";
+import { AdminPanel, type AdminTab } from "./AdminPanel";
 
 /**
  * Settings. Every value is a field on the synced preference entity, written through
@@ -1121,13 +1121,16 @@ function SettingsPane({
 export function SettingsScreen({
   section,
   onSelectSection,
-  onOpenAdmin,
+  adminTab,
+  onSelectAdminTab,
   onOpenAbout,
 }: {
   section?: string | string[];
   /** Select a section; the route writes it to `?section=`, which comes back as `section`. */
   onSelectSection: (id: SettingsSectionId) => void;
-  onOpenAdmin: () => void;
+  /** The Admin section's `?tab=`, and how to select one. */
+  adminTab?: string | string[];
+  onSelectAdminTab: (tab: AdminTab) => void;
   onOpenAbout?: () => void;
 }) {
   const { t } = useTranslation();
@@ -1690,41 +1693,26 @@ export function SettingsScreen({
           </>
         )}
       </SettingsPane>
-
-      {/* Admin */}
-      {isAdmin(session) && (
-        <SettingsPane id="admin" active={active}>
-          <Section icon={ShieldCheck} title={t("settings.admin")}>
-            <Row label={t("settings.adminPanel")} description={t("settings.adminPanelDesc")}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t("settings.openAdmin")}
-                onPress={onOpenAdmin}
-                className="flex-row items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-2 dark:border-neutral-800"
-              >
-                <ShieldCheck size={18} className="text-neutral-600 dark:text-neutral-300" />
-                <Text className="text-sm text-neutral-600 dark:text-neutral-300">
-                  {t("settings.openAdmin")}
-                </Text>
-              </Pressable>
-            </Row>
-          </Section>
-        </SettingsPane>
-      )}
     </View>
   );
 
-  // One section per page: a fresh ScrollView per id starts each at the top.
-  const page = (contentClassName: string) => (
-    <ScrollView
-      key={active}
-      className="flex-1 bg-white dark:bg-zinc-950"
-      contentContainerClassName={contentClassName}
-      keyboardShouldPersistTaps="handled"
-    >
-      {renderSections()}
-    </ScrollView>
-  );
+  // One section per page: a fresh ScrollView per id starts each at the top. Admin's tabs scroll
+  // themselves (virtualized lists), so it gets no page ScrollView around it.
+  const page = (contentClassName: string) =>
+    active === "admin" ? (
+      <View className="flex-1 bg-white dark:bg-zinc-950">
+        <AdminPanel tab={adminTab} onSelectTab={onSelectAdminTab} />
+      </View>
+    ) : (
+      <ScrollView
+        key={active}
+        className="flex-1 bg-white dark:bg-zinc-950"
+        contentContainerClassName={contentClassName}
+        keyboardShouldPersistTaps="handled"
+      >
+        {renderSections()}
+      </ScrollView>
+    );
 
   return (
     <ScreenFade>

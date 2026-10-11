@@ -44,6 +44,13 @@ pub fn is_past_grace(scheduled_at: OffsetDateTime) -> bool {
     OffsetDateTime::now_utc() - scheduled_at >= time::Duration::days(DELETION_GRACE_DAYS)
 }
 
+/// Whole days left before a deletion scheduled at `scheduled_at` is purged; at least 1 while the
+/// account still exists (the purge runs every [`PURGE_INTERVAL`], so it can trail the expiry).
+pub fn days_remaining(scheduled_at: OffsetDateTime) -> i64 {
+    let elapsed = OffsetDateTime::now_utc() - scheduled_at;
+    (DELETION_GRACE_DAYS - elapsed.whole_days()).max(1)
+}
+
 /// Delete every account whose grace period has run out, in batches, each audited with a NULL
 /// actor. Returns how many were purged.
 pub async fn purge_expired_accounts(state: &AppState) -> AppResult<u64> {

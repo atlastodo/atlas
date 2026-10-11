@@ -41,6 +41,11 @@ pub struct AdminUserView {
     pub is_admin: bool,
     pub disabled: bool,
     pub deletion_scheduled: bool,
+    /// Days until the scheduled deletion is purged; `None` when none is scheduled.
+    #[sqlx(skip)]
+    pub deletion_days_remaining: Option<i64>,
+    #[serde(skip)]
+    pub deletion_scheduled_at: Option<time::OffsetDateTime>,
     pub created_at_ms: i64,
     pub last_login_at_ms: Option<i64>,
     /// Listed in `ADMIN_EMAILS`: startup promotes it again, so a panel demotion lasts until restart.
@@ -49,9 +54,12 @@ pub struct AdminUserView {
 }
 
 impl AdminUserView {
-    fn with_env_flag(mut self, state: &AppState) -> Self {
+    fn with_derived(mut self, state: &AppState) -> Self {
         let email = self.email.to_lowercase();
         self.managed_by_env = state.config.admin_emails.contains(&email);
+        self.deletion_days_remaining = self
+            .deletion_scheduled_at
+            .map(crate::auth::account_purge::days_remaining);
         self
     }
 }
@@ -59,7 +67,7 @@ impl AdminUserView {
 /// Wire columns for [`AdminUserView`]: boolean flags, timestamps as Unix ms.
 const USER_SUMMARY: &str = "u.id, u.email, u.display_name, u.is_admin, \
      (u.disabled_at IS NOT NULL) AS disabled, \
-     (u.deletion_scheduled_at IS NOT NULL) AS deletion_scheduled, \
+     (u.deletion_scheduled_at IS NOT NULL) AS deletion_scheduled, u.deletion_scheduled_at, \
      (EXTRACT(EPOCH FROM u.created_at) * 1000)::BIGINT AS created_at_ms, \
      (EXTRACT(EPOCH FROM u.last_login_at) * 1000)::BIGINT AS last_login_at_ms";
 
@@ -107,7 +115,7 @@ async fn fetch_user_view(state: &AppState, id: Uuid) -> AppResult<Option<AdminUs
         .bind(id)
         .fetch_optional(&state.pool)
         .await?
-        .map(|view| view.with_env_flag(state)))
+        .map(|view| view.with_derived(state)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -151,7 +159,7 @@ async fn list_users(
         .fetch_all(&state.pool)
         .await?;
     Ok(Json(
-        rows.into_iter().map(|r| r.with_env_flag(&state)).collect(),
+        rows.into_iter().map(|r| r.with_derived(&state)).collect(),
     ))
 }
 
@@ -285,12 +293,13 @@ async fn force_logout(
 }
 
 /// `DELETE /admin/users/:id`: trigger the 30-day scheduled deletion on the user's behalf
-/// (sessions revoked, members notified). Reversible within the window.
+/// (sessions revoked, members notified). Reversible within the window. Answers with the updated
+/// account, so the panel shows the days left without reloading the list.
 async fn delete_user(
     State(state): State<AppState>,
     admin: AdminUser,
     Path(id): Path<Uuid>,
-) -> AppResult<StatusCode> {
+) -> AppResult<Json<AdminUserView>> {
     if id == admin.user_id {
         return Err(AppError::BadRequest(
             "an admin cannot delete their own account from the panel".into(),
@@ -327,5 +336,8 @@ async fn delete_user(
     if let Err(e) = crate::members::broadcast_members_for_user_projects(&state, id).await {
         tracing::warn!(error = ?e, user_id = %id, "could not broadcast a membership change");
     }
-    Ok(StatusCode::NO_CONTENT)
+    fetch_user_view(&state, id)
+        .await?
+        .ok_or(AppError::NotFound)
+        .map(Json)
 }

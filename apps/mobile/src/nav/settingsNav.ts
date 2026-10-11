@@ -65,10 +65,11 @@ const ALL_SECTIONS: SettingsSection[] = [
 ];
 
 /**
- * The sections this user can open. Admin is only listed for an administrator (`isAdmin`, a UI hint
- * -- the server re-checks every `/admin/*` request). Server section is hidden when using the app
- * online via web, as the app defaults to the active website URL. Local-only mode has no server and
- * no sessions, so neither Server nor Devices. Desktop app only shows inside the desktop app.
+ * The sections this user can open. Admin (accounts, error reports, instance settings) is only
+ * listed for an administrator (`isAdmin`, a UI hint -- the server re-checks every `/admin/*`
+ * request). Server section is hidden when using the app online via web, as the app defaults to the
+ * active website URL. Local-only mode has no server and no sessions, so neither Server nor Devices.
+ * Desktop app only shows inside the desktop app.
  */
 export function settingsSections(admin: boolean, localOnly = false): SettingsSection[] {
   return ALL_SECTIONS.filter((s) => {

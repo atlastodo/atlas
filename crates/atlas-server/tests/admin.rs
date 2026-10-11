@@ -931,6 +931,8 @@ async fn an_admin_lists_searches_and_paginates_users() {
     assert_eq!(list[0]["is_admin"], false);
     assert_eq!(list[0]["disabled"], false);
     assert_eq!(list[0]["deletion_scheduled"], false);
+    assert!(list[0]["deletion_days_remaining"].is_null());
+    assert!(list[0].get("deletion_scheduled_at").is_none());
     assert!(list[0]["created_at_ms"].is_i64());
     assert!(
         list[0]["last_login_at_ms"].is_i64(),
@@ -1268,7 +1270,7 @@ async fn admin_delete_schedules_the_users_own_deletion_flow() {
     let (router, admin) = setup_with_fresh_admin().await;
     let user = signup_user(&router, &format!("r-{}@example.com", Uuid::now_v7())).await;
 
-    let (status, _) = send(
+    let (status, view) = send(
         &router,
         "DELETE",
         &format!("/admin/users/{}", user.id),
@@ -1276,7 +1278,9 @@ async fn admin_delete_schedules_the_users_own_deletion_flow() {
         Value::Null,
     )
     .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(view["deletion_scheduled"], true);
+    assert_eq!(view["deletion_days_remaining"], 30);
 
     // The user sees exactly what a self-service deletion looks like: the typed 30-day window.
     let (status, body) = send(
@@ -1307,7 +1311,12 @@ async fn admin_delete_schedules_the_users_own_deletion_flow() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(list.as_array().unwrap()[0]["deletion_scheduled"], true);
+    let row = &list.as_array().unwrap()[0];
+    assert_eq!(row["deletion_scheduled"], true);
+    assert_eq!(
+        row["deletion_days_remaining"], 30,
+        "just scheduled: the full grace period"
+    );
 
     // Re-deleting an already-scheduled account is idempotent; self-delete stays refused.
     let (status, _) = send(
@@ -1318,7 +1327,7 @@ async fn admin_delete_schedules_the_users_own_deletion_flow() {
         Value::Null,
     )
     .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::OK);
     let (status, _) = send(
         &router,
         "DELETE",

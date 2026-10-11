@@ -854,7 +854,8 @@ export class ApiClient {
   logoutUserDevices(id: string): Promise<void> {
     return this.request("POST", `/admin/users/${id}/logout`);
   }
-  deleteUser(id: string): Promise<void> {
+  /** Schedules the 30-day deletion; answers with the updated account. */
+  deleteUser(id: string): Promise<AdminUserView> {
     return this.request("DELETE", `/admin/users/${id}`);
   }
 

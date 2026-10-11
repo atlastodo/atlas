@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { AdminUserView } from "@atlas/client-core";
 import { useFormat } from "../hooks/useFormat";
 import { BottomSheet } from "./BottomSheet";
@@ -33,6 +34,13 @@ const CONFIRM: Record<Confirmable, { title: string; message: string; label: stri
  * grants admin) asks first. Self-actions are disabled in the UI and refused by the server, as is
  * changing an admin the server's configuration manages.
  */
+/** A scheduled deletion, with the days left when the server sent them. */
+export function deletionLabel(user: AdminUserView, t: TFunction): string {
+  return user.deletion_days_remaining != null
+    ? t("admin.deletionInDays", { count: user.deletion_days_remaining })
+    : t("admin.deletionScheduled");
+}
+
 export function AdminUserDetail({
   user,
   isSelf,
@@ -79,7 +87,7 @@ export function AdminUserDetail({
             label={t("admin.statusLabel")}
             value={
               user.deletion_scheduled
-                ? t("admin.deletionScheduled")
+                ? deletionLabel(user, t)
                 : user.disabled
                   ? t("admin.disabledBadge")
                   : user.is_admin

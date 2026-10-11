@@ -10,7 +10,7 @@ import { SkeletonRows } from "../ui/Skeleton";
 import { EmptyState } from "../ui/EmptyState";
 import { CircleAlert, Search } from "../ui/icons";
 import { ADMIN_CARD, AdminBadge, AdminRow } from "../ui/AdminRow";
-import { AdminUserDetail } from "../ui/AdminUserDetail";
+import { AdminUserDetail, deletionLabel } from "../ui/AdminUserDetail";
 
 /**
  * The admin panel's account section: who is on this instance, and the lifecycle actions on each
@@ -144,7 +144,7 @@ function UserRow({
           {user.is_admin ? <AdminBadge label={t("admin.adminBadge")} tone="accent" /> : null}
           {user.disabled ? <AdminBadge label={t("admin.disabledBadge")} tone="red" /> : null}
           {user.deletion_scheduled ? (
-            <AdminBadge label={t("admin.deletionScheduled")} tone="amber" />
+            <AdminBadge label={deletionLabel(user, t)} tone="amber" />
           ) : null}
         </>
       }

@@ -27,7 +27,7 @@ async function mountAuth(
   auth: Parameters<typeof fakeAuth>[0] = {},
 ) {
   await render(
-    <SettingsScreen section={section} onSelectSection={() => {}} onOpenAdmin={() => {}} />,
+    <SettingsScreen section={section} onSelectSection={() => {}} onSelectAdminTab={() => {}} />,
     { wrapper: withApp(store, fakeAuth({ session: SESSION, ...auth })) },
   );
 }

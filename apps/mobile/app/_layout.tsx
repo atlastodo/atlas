@@ -280,8 +280,6 @@ function Gate() {
                                       name="(drawer)"
                                       options={{ headerShown: false }}
                                     />
-                                    {/* The admin area owns its header; the root one would stack a second. */}
-                                    <Stack.Screen name="admin" options={{ headerShown: false }} />
                                   </Stack>
                                   <FocusBar onOpen={() => router.push("/focus")} />
                                   <GlobalCommandPalette />
