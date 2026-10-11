@@ -5,8 +5,23 @@ the web and the desktop, and a TypeScript client core. This guide covers the set
 and how changes get merged. For a map of the code, start with
 [docs/architecture.md](./docs/architecture.md).
 
+**Open pull requests against the `dev` branch**, not `main` (GitHub's default): `main` only
+receives releases. See [Branches and releases](#branches-and-releases).
+
 For anything larger than a small fix, open an issue first so we can agree on the approach before
-you write code. Everyone taking part follows the [Code of Conduct](./CODE_OF_CONDUCT.md).
+you write code. Questions and ideas that are not bugs go to
+[Discussions](https://github.com/atlastodo/atlas-todo/discussions). The project has one
+maintainer, so a review can take a few days. Everyone taking part follows the
+[Code of Conduct](./CODE_OF_CONDUCT.md).
+
+## Good first contributions
+
+- Issues labelled [`good first issue`](https://github.com/atlastodo/atlas-todo/labels/good%20first%20issue)
+  are small and self-contained; [`help wanted`](https://github.com/atlastodo/atlas-todo/labels/help%20wanted)
+  ones are bigger.
+- Translations: improving a catalog, or adding a language
+  ([Adding or changing UI text](#adding-or-changing-ui-text)), needs no Rust and little setup.
+- Docs: anything in the self-hosting guide that tripped you up is worth a fix.
 
 ## Development environment
 
@@ -30,6 +45,30 @@ dev                    # API on :8080 + the web app with live reload
   are both `atlas`.
 - The server refuses to start without `DATABASE_URL` and a valid `JWT_SECRET`.
 - The web app talks to `EXPO_PUBLIC_API_URL`, which defaults to `http://localhost:8080`.
+
+### Without Nix
+
+devenv is the supported setup, but nothing requires it. You need Rust 1.94 or later, Node 26,
+Bun 1.4.2, PostgreSQL 16 or later and [cargo-nextest](https://nexte.st). The server applies its
+migrations when it starts, so sqlx-cli is optional.
+
+```sh
+# PostgreSQL with the dev and test databases, here in Docker:
+docker run -d --name atlas-pg -p 5432:5432 \
+  -e POSTGRES_USER=atlas -e POSTGRES_PASSWORD=atlas -e POSTGRES_DB=atlas_dev postgres:16
+docker exec atlas-pg createdb -U atlas atlas_test
+
+export DATABASE_URL=postgres://atlas:atlas@localhost:5432/atlas_dev
+export TEST_DATABASE_URL=postgres://atlas:atlas@localhost:5432/atlas_test
+export JWT_SECRET=$(openssl rand -hex 32)
+
+bun install
+cargo run -p atlas-server            # API on :8080, migrates on start
+cd apps/mobile && bun run web        # the web app, in a second terminal
+```
+
+The devenv scripts are short shell in `devenv.nix`; read one to see the plain commands behind it.
+`test:all` and `lint` are spelled out under [Tests](#tests).
 
 ### Android SDK (optional)
 
@@ -90,17 +129,16 @@ Each package has its own runner. To run one test:
 
 Where the tests live:
 
-- `crates/atlas-core`: unit tests next to the code, and `tests/` for the shared vectors. No
-  database needed.
+- `crates/atlas-core`: unit tests next to the code. No database needed.
 - `crates/atlas-server/tests/`: integration tests over HTTP. They need PostgreSQL running
   (`devenv up`) and migrate `TEST_DATABASE_URL` themselves.
 - `packages/*/src/*.test.ts`, `apps/electron/src/*.test.ts` and `apps/mobile/src/**/*.test.tsx`:
   next to the code they test.
-- `test-vectors/`: JSON fixtures that both the Rust and the TypeScript tests read, so the two
-  sides agree on conflict resolution, recurrence, recovery challenges and the plaintext field
-  list. The merge rules exist in Rust (`crates/atlas-core`) and in TypeScript
-  (`packages/client-core`), and both sides read `test-vectors/plaintext_fields.json`. If you
-  change one side of that logic, change the other and extend the vectors.
+- `test-vectors/`: JSON fixtures. Conflict resolution, recovery challenges and the plaintext
+  field list are read by both the Rust and the TypeScript tests, so the two sides agree; the
+  recurrence vectors are TypeScript only. The merge rule exists in TypeScript
+  (`packages/client-core`) and in the server's SQL fold (`crates/atlas-server/src/sync.rs`). If
+  you change one side of that logic, change the other and extend the vectors.
 
 ## Adding or changing UI text
 
@@ -142,7 +180,9 @@ language; they must parse.
 ### Branches and releases
 
 Work lands on the long-lived `dev` branch; open pull requests against `dev`. `main` holds stable
-releases only. A push publishes nothing: the maintainer tags pre-releases (`v0.1.4-rc.1`) on `dev`,
+releases only. As a contributor that is all you need: target `dev` and follow Conventional
+Commits; the rest of this section is what the maintainer does. A push to `dev` only refreshes
+the moving `dev` Docker image. The maintainer tags pre-releases (`v0.1.4-rc.1`) on `dev`,
 and when one is good, merges `dev` into `main` through a pull request (`main` takes no direct pushes)
 and tags the stable `v0.1.4`. Pre-releases go to
 GitHub as prereleases, to Docker as `0.1.4-rc.1` and `dev`, and to the Play internal track. Details
@@ -150,8 +190,9 @@ in [apps/mobile/RELEASE.md](./apps/mobile/RELEASE.md).
 
 ### What CI runs
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main` (pushes to `dev`
-run nothing; an rc tag runs the full suite):
+GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`. A
+push to `dev` runs it for the changed paths before building the `dev` image, and a tag runs
+the full suite. Pull requests from forks need no secrets, so they get the same checks:
 
 | Check             | What it runs                                                                  |
 | ----------------- | ----------------------------------------------------------------------------- |
@@ -164,7 +205,7 @@ run nothing; an rc tag runs the full suite):
 | Audit (Rust)      | `cargo deny check` (allowed to fail)                                          |
 | Audit (JS)        | `bun audit` (allowed to fail)                                                 |
 
-The audits are informational. A known, unfixable advisory is explained under `//audit-known`
+The audits are informational, so a red audit check on a pull request does not block it. A known, unfixable advisory is explained under `//audit-known`
 in the root `package.json`. Fixable advisories are fixed with `overrides`, not ignored.
 
 ## Bug reports from the app
