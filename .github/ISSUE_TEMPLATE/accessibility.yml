@@ -1,0 +1,64 @@
+name: Accessibility problem
+description: Something in Atlas Todo is hard or impossible to use with a keyboard, screen reader, zoom or other assistive technology.
+labels: [accessibility]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. [ACCESSIBILITY.md](https://github.com/atlastodo/atlas-todo/blob/main/ACCESSIBILITY.md) lists what is already known.
+  - type: textarea
+    id: task
+    attributes:
+      label: What were you trying to do?
+      placeholder: e.g. Add a due date to a task using only the keyboard.
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you heard, saw or couldn't reach, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Press Tab until …
+        3. The screen reader says …
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where does it happen?
+      multiple: true
+      options:
+        - Android app
+        - Web app (browser)
+        - Desktop app (Electron)
+    validations:
+      required: true
+  - type: input
+    id: assistive-tech
+    attributes:
+      label: Assistive technology and versions
+      description: Screen reader, magnifier, voice control, switch access, browser zoom level, high-contrast mode …
+      placeholder: e.g. NVDA 2026.1 with Firefox 142 on Windows 11 / TalkBack on Android 16
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      placeholder: e.g. 0.1.10
+  - type: dropdown
+    id: impact
+    attributes:
+      label: How much does it block you?
+      options:
+        - I can't do the task at all
+        - I can do it, but with a lot of effort
+        - It is annoying but I can work around it
+    validations:
+      required: true
