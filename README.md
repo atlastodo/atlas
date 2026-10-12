@@ -4,6 +4,7 @@
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/atlastodo/atlas-todo)](https://github.com/atlastodo/atlas-todo/releases/latest)
 ![Status: pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange.svg)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/atlastodo/atlas-todo/badge)](https://scorecard.dev/viewer/?uri=github.com/atlastodo/atlas-todo)
 
 Atlas Todo is a self-hostable, end-to-end-encrypted to-do app. Your tasks, notes and attachments
 are encrypted on your device, and the server you run (Rust + PostgreSQL) stores and
