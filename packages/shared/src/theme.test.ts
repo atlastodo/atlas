@@ -69,7 +69,7 @@ describe("accent presets", () => {
 // WCAG 2 contrast ratio between two sRGB hex colours.
 function contrast(a: string, b: string): number {
   const luminance = (hex: string) => {
-    const [r, g, b] = hexToRgbTriad(hex)
+    const [r = 0, g = 0, b = 0] = hexToRgbTriad(hex)
       .split(" ")
       .map((c) => {
         const s = Number(c) / 255;
@@ -77,8 +77,8 @@ function contrast(a: string, b: string): number {
       });
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   };
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
+  const [la, lb] = [luminance(a), luminance(b)];
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
 describe("accent contrast", () => {
