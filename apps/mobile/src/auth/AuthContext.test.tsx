@@ -224,6 +224,21 @@ describe("AuthProvider", () => {
     expect(persisted().refreshToken).toBe("refresh-1");
   });
 
+  it("checks the account password on this device, without asking the server", async () => {
+    const { session } = await unlockedAccount();
+    mockKeychain.set("atlas.session", JSON.stringify(session));
+    routes["/auth/me"] = () => [200, USER];
+
+    const auth = await renderProvider();
+    calls.length = 0;
+    expect(await auth.current().verifyPassword("not the password")).toBe(false);
+    expect(await auth.current().verifyPassword(PASSWORD)).toBe(true);
+    // Neither the salt lookup nor any credential check: the session holds what the check needs.
+    const paths = calls.map((c) => c.path);
+    expect(paths).not.toContain("/auth/salt");
+    expect(paths).not.toContain("/auth/login");
+  });
+
   it("changes the password with the derived hash, never the plaintext", async () => {
     const { salt, session } = await unlockedAccount();
     mockKeychain.set("atlas.session", JSON.stringify(session));

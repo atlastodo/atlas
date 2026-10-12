@@ -6,6 +6,7 @@ import {
   buildRecoveryPhraseReplacement,
   buildRecoveryRequest,
   RecoveryPhraseError,
+  verifyAccountPassword,
 } from "./password";
 import {
   LEGACY_KDF,
@@ -396,5 +397,31 @@ describe("buildRecoveryPhraseReplacement", () => {
     await expect(
       buildRecoveryRequest(recoveryKeys, other.phrase, "new password", "a@b.dev", TEST_ARGON2ID),
     ).rejects.toBeInstanceOf(RecoveryPhraseError);
+  });
+});
+
+describe("verifyAccountPassword", () => {
+  async function account(password: string) {
+    const salt = generateSalt();
+    const dek = generateDek();
+    const { mek } = await deriveAuthAndMekAsync(password, salt, TEST_ARGON2ID);
+    return { material: { salt, kdf: TEST_ARGON2ID, encryptedDek: wrapKey(dek, mek) }, dek };
+  }
+
+  it("accepts the password that wraps the session's DEK", async () => {
+    const { material, dek } = await account("correct horse");
+    expect(await verifyAccountPassword(material, "correct horse")).toBe(true);
+    expect(await verifyAccountPassword(material, "correct horse", dek)).toBe(true);
+  });
+
+  it("refuses any other password", async () => {
+    const { material, dek } = await account("correct horse");
+    expect(await verifyAccountPassword(material, "correct horsE", dek)).toBe(false);
+    expect(await verifyAccountPassword(material, "", dek)).toBe(false);
+  });
+
+  it("refuses a blob that does not hold the unlocked DEK", async () => {
+    const { material } = await account("correct horse");
+    expect(await verifyAccountPassword(material, "correct horse", generateDek())).toBe(false);
   });
 });

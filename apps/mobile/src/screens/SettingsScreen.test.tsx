@@ -13,6 +13,14 @@ jest.mock("../../modules/atlas-exact-alarm", () => ({
   },
 }));
 
+// The export's platform glue (share sheet / browser download); the tests only ask whether it ran.
+jest.mock("../lib/dataTransfer", () => ({
+  saveBundle: jest.fn(async () => {}),
+  pickBundleText: jest.fn(async () => null),
+  pickCsvText: jest.fn(async () => null),
+}));
+const { saveBundle } = jest.requireMock("../lib/dataTransfer") as { saveBundle: jest.Mock };
+
 const SESSION = {
   accessToken: "a",
   refreshToken: "r",
@@ -522,6 +530,104 @@ describe("SettingsScreen", () => {
     );
     expect(await screen.findByText("Device renamed")).toBeTruthy();
     expect(await screen.findByText("Work Laptop")).toBeTruthy();
+  });
+});
+
+describe("SettingsScreen export", () => {
+  beforeEach(() => saveBundle.mockClear());
+
+  const exportButton = () => screen.getByRole("button", { name: "Export" });
+  /** The dialog's own Export button, rendered after the section's. */
+  const confirmButton = () => {
+    const buttons = screen.getAllByRole("button", { name: "Export" });
+    return buttons[buttons.length - 1]!;
+  };
+
+  it("exports only once the account password checks out", async () => {
+    const verifyPassword = jest.fn(async (p: string) => p === "hunter2hunter");
+    await mountAuth("data", new LocalStore("test"), { verifyPassword });
+
+    await fireEvent.press(exportButton());
+    expect(screen.getByText("Enter your password")).toBeTruthy();
+    expect(saveBundle).not.toHaveBeenCalled();
+
+    await fireEvent.changeText(screen.getByLabelText("Password"), "hunter2hunter");
+    await fireEvent.press(confirmButton());
+
+    await waitFor(() => expect(saveBundle).toHaveBeenCalledTimes(1));
+    expect(verifyPassword).toHaveBeenCalledWith("hunter2hunter");
+    expect(screen.queryByText("Enter your password")).toBeNull();
+  });
+
+  it("keeps the dialog open with an inline error on a wrong password, and exports nothing", async () => {
+    const verifyPassword = jest.fn(async () => false);
+    await mountAuth("data", new LocalStore("test"), { verifyPassword });
+
+    await fireEvent.press(exportButton());
+    // An empty field is refused before any key derivation.
+    await fireEvent.press(confirmButton());
+    expect(screen.getByText("Enter your password to confirm")).toBeTruthy();
+    expect(verifyPassword).not.toHaveBeenCalled();
+
+    await fireEvent.changeText(screen.getByLabelText("Password"), "wrong-password");
+    await fireEvent(screen.getByLabelText("Password"), "submitEditing");
+
+    expect(await screen.findByText("Password is incorrect")).toBeTruthy();
+    expect(verifyPassword).toHaveBeenCalledWith("wrong-password");
+    expect(screen.getByText("Enter your password")).toBeTruthy();
+    expect(saveBundle).not.toHaveBeenCalled();
+  });
+
+  it("says so when the password cannot be checked, and exports nothing", async () => {
+    const verifyPassword = jest.fn(async () => {
+      throw new Error("no wrapped keys");
+    });
+    await mountAuth("data", new LocalStore("test"), { verifyPassword });
+
+    await fireEvent.press(exportButton());
+    await fireEvent.changeText(screen.getByLabelText("Password"), "hunter2hunter");
+    await fireEvent.press(confirmButton());
+
+    expect(await screen.findByText("Could not check your password")).toBeTruthy();
+    expect(saveBundle).not.toHaveBeenCalled();
+  });
+
+  it("exports nothing when the dialog is cancelled, even mid-check", async () => {
+    let resolve: (ok: boolean) => void = () => {};
+    const verifyPassword = jest.fn(() => new Promise<boolean>((r) => (resolve = r)));
+    await mountAuth("data", new LocalStore("test"), { verifyPassword });
+
+    await fireEvent.press(exportButton());
+    await fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("Enter your password")).toBeNull();
+
+    // A cancel while the key derivation runs: its late success must not export.
+    await fireEvent.press(exportButton());
+    await fireEvent.changeText(screen.getByLabelText("Password"), "hunter2hunter");
+    await fireEvent.press(confirmButton());
+    expect(await screen.findByRole("button", { name: "Checking…" })).toBeTruthy();
+    await fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+    resolve(true);
+    await waitFor(() => expect(screen.queryByText("Enter your password")).toBeNull());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(saveBundle).not.toHaveBeenCalled();
+  });
+
+  it("exports directly in local-only mode, with no password to ask for", async () => {
+    const verifyPassword = jest.fn(async () => true);
+    await render(
+      <SettingsScreen section="data" onSelectSection={() => {}} onSelectAdminTab={() => {}} />,
+      {
+        wrapper: withApp(new LocalStore("test"), fakeAuth({ verifyPassword }), undefined, {
+          localOnly: true,
+        }),
+      },
+    );
+
+    await fireEvent.press(exportButton());
+    await waitFor(() => expect(saveBundle).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Enter your password")).toBeNull();
+    expect(verifyPassword).not.toHaveBeenCalled();
   });
 });
 

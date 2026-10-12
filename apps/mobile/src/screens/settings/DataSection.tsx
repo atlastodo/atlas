@@ -1,4 +1,5 @@
-import { Pressable, Text } from "react-native";
+import { useRef, useState } from "react";
+import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import {
   bundleFilename,
@@ -15,9 +16,11 @@ import { useStore } from "../../data/StoreProvider";
 import { useToast } from "../../data/ToastProvider";
 import { saveBundle, pickBundleText, pickCsvText } from "../../lib/dataTransfer";
 import { usePreferences } from "../../hooks/usePreferences";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { Row, Section } from "../../ui/Section";
 import { PersistentStorageRow } from "../../ui/PersistentStorageRow";
 import { Database, Download, Upload } from "../../ui/icons";
+import { PasswordInput } from "./shared";
 
 const TICKTICK_WARNING_KEYS: Record<TicktickWarningCode, string> = {
   folder: "settings.ticktickWarnFolder",
@@ -32,20 +35,74 @@ const TICKTICK_WARNING_KEYS: Record<TicktickWarningCode, string> = {
 /**
  * Backup & restore. Import merges a bundle back in via LWW with fresh HLCs, so an imported value
  * wins on an id conflict and nothing is deleted.
+ *
+ * The export is the whole store in plaintext, so a signed-in account confirms its password first,
+ * every time: an unlocked device left open is not enough to walk away with everything. The check
+ * is local (`verifyPassword` re-derives the key that opens the session's wrapped DEK), so it works
+ * offline. Local-only mode has no account password and exports directly.
  */
 export function DataSection() {
   const { t } = useTranslation();
-  const { store, kick } = useStore();
+  const { store, kick, localOnly } = useStore();
   const { timezone } = usePreferences();
-  const { session } = useAuth();
+  const { session, verifyPassword } = useAuth();
   const toast = useToast();
+  const [askPassword, setAskPassword] = useState(false);
+  const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  // Bumped whenever the prompt opens or closes, so a slow check that finishes after Cancel is
+  // dropped instead of exporting.
+  const attempt = useRef(0);
 
-  const doExport = async () => {
+  const runExport = async () => {
     try {
       await saveBundle(serializeBundle(exportData(store)), bundleFilename());
     } catch {
       toast.show(t("settings.exportError"));
     }
+  };
+
+  const resetPrompt = (open: boolean) => {
+    attempt.current++;
+    setAskPassword(open);
+    setPassword("");
+    setPasswordError(null);
+    setChecking(false);
+  };
+
+  const doExport = () => {
+    if (localOnly === true) void runExport();
+    else resetPrompt(true);
+  };
+
+  const confirmPassword = async () => {
+    if (checking) return;
+    if (password === "") {
+      setPasswordError(t("settings.deletePasswordHint"));
+      return;
+    }
+    const id = attempt.current;
+    setPasswordError(null);
+    setChecking(true);
+    let ok: boolean;
+    try {
+      ok = await verifyPassword(password);
+    } catch {
+      if (id === attempt.current) {
+        setChecking(false);
+        setPasswordError(t("settings.exportPasswordFailed"));
+      }
+      return;
+    }
+    if (id !== attempt.current) return;
+    if (!ok) {
+      setChecking(false);
+      setPasswordError(t("settings.passwordIncorrect"));
+      return;
+    }
+    resetPrompt(false);
+    await runExport();
   };
 
   const doImport = async () => {
@@ -90,7 +147,7 @@ export function DataSection() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t("settings.exportAction")}
-          onPress={() => void doExport()}
+          onPress={doExport}
           className="flex-row items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-2 dark:border-neutral-800"
         >
           <Download size={18} className="text-neutral-600 dark:text-neutral-300" />
@@ -128,6 +185,35 @@ export function DataSection() {
       {/* Browser-only: it renders nothing on native, Electron and hardened private modes (see
           its header), so the phone's Data section is unchanged. */}
       <PersistentStorageRow />
+      <ConfirmDialog
+        visible={askPassword}
+        title={t("settings.exportPasswordTitle")}
+        message={t("settings.exportPasswordMessage")}
+        confirmLabel={checking ? t("settings.exportPasswordChecking") : t("settings.exportAction")}
+        confirmDisabled={checking}
+        onConfirm={() => void confirmPassword()}
+        onCancel={() => resetPrompt(false)}
+      >
+        <View className="gap-1">
+          <PasswordInput
+            accessibilityLabel={t("auth.password")}
+            value={password}
+            onChangeText={(v) => {
+              setPassword(v);
+              setPasswordError(null);
+            }}
+            autoFocus
+            textContentType="password"
+            onSubmitEditing={() => void confirmPassword()}
+            placeholder={t("settings.recoveryPasswordPlaceholder")}
+          />
+          {passwordError !== null && (
+            <Text accessibilityRole="alert" className="text-xs text-red-600 dark:text-red-400">
+              {passwordError}
+            </Text>
+          )}
+        </View>
+      </ConfirmDialog>
     </Section>
   );
 }

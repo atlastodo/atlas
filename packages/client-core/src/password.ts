@@ -14,6 +14,7 @@ import {
   unsealKey,
   unwrapKey,
   wrapKey,
+  type EncryptedPayload,
   type PasswordKdf,
 } from "./crypto";
 import type {
@@ -182,6 +183,28 @@ export async function buildRecoveryPhraseReplacement(
   };
 }
 
+/**
+ * Whether `password` is the account's current password, checked on this device alone: the MEK it
+ * derives must open the session's password-wrapped DEK (AES-GCM refuses any other key) and, when
+ * the session is unlocked, yield the very DEK in memory. For confirming a local action (a plaintext
+ * export) without a server round trip; nothing new is stored.
+ */
+export async function verifyAccountPassword(
+  material: { salt: string; kdf: PasswordKdf; encryptedDek: EncryptedPayload },
+  password: string,
+  unlockedDek?: Uint8Array,
+): Promise<boolean> {
+  const { mek } = await deriveAuthAndMekAsync(password, material.salt, material.kdf);
+  let dek: Uint8Array;
+  try {
+    dek = unwrapKey(material.encryptedDek, mek);
+  } catch {
+    return false;
+  }
+  return unlockedDek === undefined || sameBytes(dek, unlockedDek);
+}
+
+/** Constant-time: a byte-by-byte early exit would time how much of a secret matched. */
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
