@@ -1359,7 +1359,7 @@
     "archPrivacyTitle": "Sin rastreo, cero telemetría",
     "archPrivacyDesc": "No hay rastreadores, cookies publicitarias ni analíticas de terceros. Tus datos te pertenecen solo a ti, con exportación e importación JSON en un clic.",
     "licenseTitle": "Código abierto y software libre",
-    "licenseDesc": "Atlas Todo se distribuye bajo la licencia GNU Affero General Public License (AGPL-3.0).",
+    "licenseDesc": "Atlas Todo se distribuye bajo la licencia GNU Affero General Public License (AGPL-3.0-only).",
     "sourceCode": "Ver código fuente",
     "acknowledgements": "Creada con aprecio por el ecosistema del código abierto, incluidos React Native, Expo, SQLite, Lucide Icons, NativeWind e i18next."
   },

@@ -1318,7 +1318,7 @@
     "archPrivacyTitle": "Ingen sporing, nul telemetri",
     "archPrivacyDesc": "Ingen sporingsmekanismer, reklamecookies eller tredjepartsanalyse er integreret. Dine data tilhører udelukkende dig, med JSON-eksport og import med ét klik.",
     "licenseTitle": "Open Source og fri software",
-    "licenseDesc": "Atlas Todo er licenseret under GNU Affero General Public License (AGPL-3.0).",
+    "licenseDesc": "Atlas Todo er licenseret under GNU Affero General Public License (AGPL-3.0-only).",
     "sourceCode": "Se kildekode",
     "acknowledgements": "Bygget med taknemmelighed for open source-fællesskabet, herunder React Native, Expo, SQLite, Lucide Icons, NativeWind og i18next."
   },

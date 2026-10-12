@@ -1359,7 +1359,7 @@
     "archPrivacyTitle": "Nessun tracciamento, zero telemetria",
     "archPrivacyDesc": "Nessun tracker, cookie pubblicitario o strumento di analisi di terze parti incorporato. I tuoi dati appartengono esclusivamente a te, con esportazione e importazione JSON con un clic.",
     "licenseTitle": "Open source e software libero",
-    "licenseDesc": "Atlas Todo è distribuito con licenza GNU Affero General Public License (AGPL-3.0).",
+    "licenseDesc": "Atlas Todo è distribuito con licenza GNU Affero General Public License (AGPL-3.0-only).",
     "sourceCode": "Vedi il codice sorgente",
     "acknowledgements": "Realizzata con gratitudine verso l'ecosistema open source, tra cui React Native, Expo, SQLite, Lucide Icons, NativeWind e i18next."
   },
