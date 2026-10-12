@@ -9,10 +9,27 @@ and how changes get merged. For a map of the code, start with
 receives releases. See [Branches and releases](#branches-and-releases).
 
 For anything larger than a small fix, open an issue first so we can agree on the approach before
-you write code. Questions and ideas that are not bugs go to
-[Discussions](https://github.com/atlastodo/atlas-todo/discussions). The project has one
-maintainer, so a review can take a few days. Everyone taking part follows the
-[Code of Conduct](./CODE_OF_CONDUCT.md).
+you write code; a draft pull request early on is welcome too. A feature PR without an agreed
+issue may be closed with a pointer here. Questions and ideas that are not bugs go to
+[Discussions](https://github.com/atlastodo/atlas-todo/discussions). Everyone taking part follows
+the [Code of Conduct](./CODE_OF_CONDUCT.md).
+
+The project has one maintainer, who decides what is merged. Issues and pull requests are triaged
+about once a week; if your pull request has had no response after 7 days, comment on it to ping.
+[.github/SUPPORT.md](./.github/SUPPORT.md) has the rest of what to expect.
+
+## Scope
+
+[ROADMAP.md](./ROADMAP.md) says where the project is going. Some things are out of scope for good,
+so please don't start on them without asking:
+
+- Anything that needs the server to read task content (server-side search, a server CalDAV
+  endpoint): see [decision 0002](./docs/decisions/0002-no-caldav.md) and
+  [0003](./docs/decisions/0003-plaintext-routing-fields.md).
+- A separate native UI for one platform: see [decision 0005](./docs/decisions/0005-one-react-native-ui.md).
+- Running several server instances, and telemetry or analytics of any kind.
+- Weakening the sync protocol floor for old clients: see
+  [decision 0004](./docs/decisions/0004-protocol-floor-only-rises.md).
 
 ## Good first contributions
 
@@ -22,6 +39,9 @@ maintainer, so a review can take a few days. Everyone taking part follows the
 - Translations: improving a catalog, or adding a language
   ([Adding or changing UI text](#adding-or-changing-ui-text)), needs no Rust and little setup.
 - Docs: anything in the self-hosting guide that tripped you up is worth a fix.
+- Not code: testing a pre-release (the Android closed test, a `-rc` Docker tag), reproducing
+  someone else's bug report, or answering a question in Discussions all help.
+- Accessibility: [ACCESSIBILITY.md](./ACCESSIBILITY.md) lists the known gaps.
 
 ## Development environment
 
@@ -31,6 +51,9 @@ Bun 1.4.2, PostgreSQL, sqlx-cli and the other tools.
 ```sh
 git clone https://github.com/<you>/atlas-todo.git
 cd atlas-todo
+git remote add upstream https://github.com/atlastodo/atlas-todo.git
+git fetch upstream
+git switch -c my-change upstream/dev   # branch from dev: PRs target it
 cp .env.example .env   # set JWT_SECRET (openssl rand -hex 32)
 devenv shell           # enter the environment
 devenv up              # start PostgreSQL; leave it running in its own terminal
@@ -67,8 +90,30 @@ cargo run -p atlas-server            # API on :8080, migrates on start
 cd apps/mobile && bun run web        # the web app, in a second terminal
 ```
 
-The devenv scripts are short shell in `devenv.nix`; read one to see the plain commands behind it.
-`test:all` and `lint` are spelled out under [Tests](#tests).
+The exports last only for that terminal: run the server and the tests where you set them, or
+put `JWT_SECRET` (not the database URLs) in `.env`. Install cargo-nextest with
+`cargo install cargo-nextest --locked`.
+
+The devenv scripts are short shell in `devenv.nix`. Without devenv, `test:all` and `lint` are:
+
+```sh
+# test:all (PostgreSQL running, TEST_DATABASE_URL set)
+cargo nextest run --workspace
+(cd packages/client-core && bunx --bun vitest run)
+(cd packages/shared && bunx --bun vitest run)
+(cd apps/electron && bunx --bun vitest run)
+(cd apps/mobile && bun run test)
+
+# lint, plus the two typechecks only CI runs
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --no-deps -- -D warnings
+bun run --parallel --filter '*' typecheck
+bunx eslint .
+bunx prettier --check .
+```
+
+If you change dependencies without Nix, `nix/bun.nix` can't be regenerated (`nix:bun-lock`). Say
+so in the pull request and the maintainer will regenerate it.
 
 ### Android SDK (optional)
 
@@ -85,7 +130,8 @@ off.
 
 ## Scripts
 
-All of these run inside `devenv shell`. The root `package.json` has no scripts.
+All of these run inside `devenv shell` (without it, see [Without Nix](#without-nix)). The root
+`package.json` has no scripts.
 
 | Script                             | What it does                                                     |
 | ---------------------------------- | ---------------------------------------------------------------- |
@@ -131,7 +177,8 @@ Where the tests live:
 
 - `crates/atlas-core`: unit tests next to the code. No database needed.
 - `crates/atlas-server/tests/`: integration tests over HTTP. They need PostgreSQL running
-  (`devenv up`) and migrate `TEST_DATABASE_URL` themselves.
+  (`devenv up`, or the container from [Without Nix](#without-nix)) and migrate
+  `TEST_DATABASE_URL` themselves.
 - `packages/*/src/*.test.ts`, `apps/electron/src/*.test.ts` and `apps/mobile/src/**/*.test.tsx`:
   next to the code they test.
 - `test-vectors/`: JSON fixtures. Conflict resolution, recovery challenges and the plaintext
@@ -166,7 +213,8 @@ language; they must parse.
 
 - Commit messages and PR titles follow [Conventional Commits](https://www.conventionalcommits.org):
   `feat:`, `fix(mobile):`, `refactor(sync):`, `docs:`, … Release notes are generated from the
-  commit log, so write the subject for users.
+  commit log, so write the subject for users. The notes of each release also thank its
+  contributors by name.
 - Keep a PR to one change. Explain what and why, and how you tested it (platforms, screenshots
   for UI changes). The PR template has a short checklist.
 - Run `lint` and `test:all` before you open the PR. CI runs the same checks.
