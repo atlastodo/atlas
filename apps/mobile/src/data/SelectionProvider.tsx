@@ -83,6 +83,24 @@ export interface SelectionApi {
 
 const SelectionContext = createContext<SelectionApi | null>(null);
 
+/**
+ * What a task row needs from the selection: paint and row-height plumbing, all stable callbacks. A
+ * separate context because the full {@link SelectionApi} changes with every selection change, and a
+ * row reading it would re-render on each one; a row's own `selected` and `selectMode` come as props.
+ */
+export type SelectionRowApi = Pick<
+  SelectionApi,
+  | "paintBegin"
+  | "paintOver"
+  | "paintMove"
+  | "paintEnd"
+  | "registerRowHeight"
+  | "unregisterRowHeight"
+  | "paintConsumeClick"
+>;
+
+const SelectionRowContext = createContext<SelectionRowApi | null>(null);
+
 export function SelectionProvider({ children }: { children: ReactNode }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [mode, setModeState] = useState(false);
@@ -338,7 +356,32 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>;
+  const rowValue = useMemo<SelectionRowApi>(
+    () => ({
+      paintBegin,
+      paintOver,
+      paintMove,
+      paintEnd,
+      registerRowHeight,
+      unregisterRowHeight,
+      paintConsumeClick,
+    }),
+    [
+      paintBegin,
+      paintOver,
+      paintMove,
+      paintEnd,
+      registerRowHeight,
+      unregisterRowHeight,
+      paintConsumeClick,
+    ],
+  );
+
+  return (
+    <SelectionContext.Provider value={value}>
+      <SelectionRowContext.Provider value={rowValue}>{children}</SelectionRowContext.Provider>
+    </SelectionContext.Provider>
+  );
 }
 
 export function useSelection(): SelectionApi {
@@ -353,4 +396,9 @@ export function useSelection(): SelectionApi {
  */
 export function useSelectionOptional(): SelectionApi | null {
   return useContext(SelectionContext);
+}
+
+/** The row-facing part of the selection ({@link SelectionRowApi}), or `null` without a provider. */
+export function useSelectionRow(): SelectionRowApi | null {
+  return useContext(SelectionRowContext);
 }

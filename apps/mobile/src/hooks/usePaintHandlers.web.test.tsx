@@ -19,7 +19,7 @@ const handlers: Record<string, PaintHandlers> = {};
 let api: SelectionApi | null = null;
 
 function Row({ id }: { id: string }) {
-  handlers[id] = usePaintHandlers(id);
+  handlers[id] = usePaintHandlers(id, useSelection().mode);
   return <View />;
 }
 function Capture() {

@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -19,10 +20,8 @@ import {
 import { useTranslation } from "react-i18next";
 import type { Label, Task } from "@atlas/client-core";
 import {
-  PREFERENCES_ID,
   PRIORITY_COLOR,
   isOverdue,
-  isTaskSwipeAction,
   resolveTaskSwipe,
   type AvatarColor,
   type TaskSwipeAction,
@@ -43,7 +42,6 @@ import {
   Repeat,
   Trash2,
 } from "./icons";
-import { useStoreOptional } from "../data/StoreProvider";
 import { useCanHover } from "../hooks/useCanHover";
 import { useIsWide } from "../hooks/useIsWide";
 
@@ -55,7 +53,7 @@ import { GestureDetector } from "react-native-gesture-handler";
 import { LabelChips } from "./LabelChips";
 import { SwipeableRow } from "./SwipeableRow";
 import { usePaintHandlers, useCheckboxPaintGesture } from "../hooks/usePaintHandlers";
-import { useSelectionOptional } from "../data/SelectionProvider";
+import { useSelectionRow } from "../data/SelectionProvider";
 import { useContextMenu, type MenuPos } from "../hooks/useContextMenu";
 import { isEscapeKey } from "../hooks/useCancelOnEscape";
 import { haptics } from "../lib/haptics";
@@ -85,6 +83,10 @@ export interface RowAssignee {
  *     the list's `onDragEnd`. The row only reports its press position (`onPressIn`).
  *   - Non-reorderable lists: a plain `Pressable` long-press opens the menu (`enableLongPressMenu`).
  * Web uses right-click (`useContextMenu`).
+ *
+ * Memoised (see {@link sameRowProps}): a list re-renders only the rows whose props changed, so a
+ * list must pass stable callbacks. The row reads no context that changes with the list's data; the
+ * swipe preferences and selection state arrive as props for that reason.
  */
 
 import { defaultFormatDue } from "../lib/dueFormat";
@@ -170,6 +172,10 @@ export interface TaskRowProps {
   canIndent?: boolean;
   /** Whether the task can be outdented. */
   canOutdent?: boolean;
+  /** The swipe-right action preference (default indent). */
+  swipeRightAction?: TaskSwipeAction;
+  /** The swipe-left action preference (default schedule). */
+  swipeLeftAction?: TaskSwipeAction;
 }
 
 /** Imperative handle for a row in inline rename mode: lets a parent commit the draft title. */
@@ -182,7 +188,7 @@ export interface TaskRowHandle {
   commitRename: () => string;
 }
 
-export function TaskRow({
+function TaskRowView({
   task,
   now,
   onToggle,
@@ -217,6 +223,8 @@ export function TaskRow({
   showCompletedAt = false,
   expanded = true,
   onToggleExpand,
+  swipeRightAction = "indent",
+  swipeLeftAction = "schedule",
   ref,
 }: TaskRowProps & { ref?: Ref<TaskRowHandle> }) {
   const { t } = useTranslation();
@@ -331,9 +339,9 @@ export function TaskRow({
 
   const hasOrigin = origin && (origin.project || origin.section);
   const overdue = isOverdue(task, now);
-  const paint = usePaintHandlers(task.id);
+  const paint = usePaintHandlers(task.id, selectMode);
   const checkboxGesture = useCheckboxPaintGesture(task.id, selectMode);
-  const selection = useSelectionOptional();
+  const selection = useSelectionRow();
   useEffect(() => {
     return () => {
       selection?.unregisterRowHeight(task.id);
@@ -394,18 +402,6 @@ export function TaskRow({
   const columns = useIsWide();
   const dateMs = showCompletedAt ? task.completed_at : task.due_at;
 
-  const storeCtx = useStoreOptional();
-  const rawPrefs = (storeCtx?.store.get("preference", PREFERENCES_ID) ?? {}) as Record<
-    string,
-    unknown
-  >;
-  const swipeRightPref: TaskSwipeAction = isTaskSwipeAction(rawPrefs.swipe_right_action)
-    ? (rawPrefs.swipe_right_action as TaskSwipeAction)
-    : "indent";
-  const swipeLeftPref: TaskSwipeAction = isTaskSwipeAction(rawPrefs.swipe_left_action)
-    ? (rawPrefs.swipe_left_action as TaskSwipeAction)
-    : "schedule";
-
   const isSubtask = task.parent_id !== null || depth > 0;
 
   const resolveSwipe = (action: TaskSwipeAction): { handler?: () => void; icon?: ReactNode } => {
@@ -446,8 +442,8 @@ export function TaskRow({
     }
   };
 
-  const rightSwipe = resolveSwipe(swipeRightPref);
-  const leftSwipe = resolveSwipe(swipeLeftPref);
+  const rightSwipe = resolveSwipe(swipeRightAction);
+  const leftSwipe = resolveSwipe(swipeLeftAction);
 
   return (
     // Swipe is off in select mode.
@@ -894,3 +890,41 @@ export function TaskRow({
     </SwipeableRow>
   );
 }
+
+/** Props compared by value: lists build them fresh on every render. */
+const VALUE_PROPS = new Set(["task", "origin", "assignee", "subtaskProgress"]);
+
+/**
+ * Equal plain data: primitives by `Object.is`, arrays and objects member by member. Only for the
+ * small JSON-like values in {@link VALUE_PROPS}.
+ */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every(
+    (k) =>
+      Object.prototype.hasOwnProperty.call(b, k) &&
+      sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
+  );
+}
+
+/**
+ * The row's `memo` comparison. The store re-derives every `Task` object on any change, and lists
+ * build `origin`, `assignee` and `subtaskProgress` per render, so those compare by value; every
+ * other prop, callbacks included, by identity, which is why lists keep their callbacks stable.
+ */
+function sameRowProps(prev: Record<string, unknown>, next: Record<string, unknown>): boolean {
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+  for (const key of keys) {
+    const a = prev[key];
+    const b = next[key];
+    if (Object.is(a, b)) continue;
+    if (!VALUE_PROPS.has(key) || !sameValue(a, b)) return false;
+  }
+  return true;
+}
+
+export const TaskRow = memo(TaskRowView, sameRowProps);

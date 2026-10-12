@@ -30,10 +30,13 @@ export interface UseLabels {
 }
 
 export function useLabels(): UseLabels {
-  const { store, version, kick } = useStore();
+  const { store, kick } = useStore();
   const { session } = useAuth();
   const ownerId = session?.user.id ?? "";
 
+  // Keyed on the label revision rather than `version`, so `byId` keeps its identity across task
+  // edits: task rows take it as a prop and are memoised on it.
+  const labelRevision = store.revision("label");
   const labels = useMemo(
     () =>
       store
@@ -42,7 +45,7 @@ export function useLabels(): UseLabels {
         .map((e) => toLabel(e.id, e.fields))
         .sort((a, b) => a.name.localeCompare(b.name)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [store, version],
+    [store, labelRevision],
   );
 
   const map = useMemo(() => {

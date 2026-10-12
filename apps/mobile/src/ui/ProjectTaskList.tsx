@@ -29,6 +29,8 @@ import { useDragPan } from "../hooks/useDragPan";
 import { useLabels } from "../hooks/useLabels";
 import { useProjects } from "../hooks/useProjects";
 import { useAllSections } from "../hooks/useAllSections";
+import { usePreferences } from "../hooks/usePreferences";
+import { useStableCallback } from "../hooks/useStableCallback";
 import { LIST_WIDTH_STYLE } from "./listWidth";
 import type { MenuPos } from "../hooks/useContextMenu";
 import { resolveSectionReorder, type SectionRow } from "../lib/sectionReorder";
@@ -215,6 +217,7 @@ export function ProjectTaskList({
   const { labels, createLabel } = useLabels();
   const { projects, createProject } = useProjects();
   const allSections = useAllSections();
+  const { swipeRightAction, swipeLeftAction } = usePreferences();
 
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const editingTask = editingTaskId ? tasks.find((t) => t.id === editingTaskId) : null;
@@ -249,79 +252,78 @@ export function ProjectTaskList({
   } as const;
   const ordered = useMemo(() => sortTasks(tasks, "manual"), [tasks]);
 
+  // The row handlers are stable (`useStableCallback`): `TaskRow` is memoised, and a handler that
+  // changed with the task list or a caller's inline prop would re-render every row on any change.
   // A blank row is dropped by the draft effect below; a locked task's "" title is a placeholder, so nothing is written.
-  const handleSaveRename = useCallback(
-    (task: Task, newTitle: string) => {
-      const trimmed = newTitle.trim();
-      if (!task.locked && trimmed && task.title !== trimmed && onUpdateTask) {
-        onUpdateTask(task, { title: trimmed });
-      }
-      setEditingTaskId((curr) => (curr === task.id ? null : curr));
-    },
-    [onUpdateTask],
-  );
+  const handleSaveRename = useStableCallback((task: Task, newTitle: string) => {
+    const trimmed = newTitle.trim();
+    if (!task.locked && trimmed && task.title !== trimmed && onUpdateTask) {
+      onUpdateTask(task, { title: trimmed });
+    }
+    setEditingTaskId((curr) => (curr === task.id ? null : curr));
+  });
 
   const handleCancelRename = useCallback((task?: Task) => {
     setEditingTaskId((curr) => (task ? (curr === task.id ? null : curr) : null));
   }, []);
 
   const [collapsedTasks, setCollapsedTasks] = useState<Set<string>>(() => new Set());
-  const toggleTaskExpand = (task: Task) =>
-    setCollapsedTasks((prev) => {
-      const next = new Set(prev);
-      if (next.has(task.id)) next.delete(task.id);
-      else next.add(task.id);
-      return next;
-    });
+  const toggleTaskExpand = useCallback(
+    (task: Task) =>
+      setCollapsedTasks((prev) => {
+        const next = new Set(prev);
+        if (next.has(task.id)) next.delete(task.id);
+        else next.add(task.id);
+        return next;
+      }),
+    [],
+  );
   const orderedRows = useMemo(
     () => flattenTree(ordered, collapsedTasks),
     [ordered, collapsedTasks],
   );
   const orderedFlat = useMemo(() => orderedRows.map((r) => r.task), [orderedRows]);
 
-  const handleCreateTaskBelow = useCallback(
-    (currentTask: Task, newTitle: string) => {
-      const trimmed = newTitle.trim();
-      if (currentTask.locked || (!trimmed && !currentTask.title.trim())) {
-        setEditingTaskId(null);
-        return;
-      }
+  const handleCreateTaskBelow = useStableCallback((currentTask: Task, newTitle: string) => {
+    const trimmed = newTitle.trim();
+    if (currentTask.locked || (!trimmed && !currentTask.title.trim())) {
+      setEditingTaskId(null);
+      return;
+    }
 
-      if (trimmed && currentTask.title !== trimmed && onUpdateTask) {
-        onUpdateTask(currentTask, { title: trimmed });
-      }
-      if (!onCreateTask) {
-        setEditingTaskId(null);
-        return;
-      }
-      const currentIndex = orderedFlat.findIndex((t) => t.id === currentTask.id);
-      const nextTask =
-        currentIndex !== -1 && currentIndex + 1 < orderedFlat.length
-          ? orderedFlat[currentIndex + 1]
-          : undefined;
-      let newSortOrder: number;
-      if (
-        nextTask &&
-        nextTask.parent_id === currentTask.parent_id &&
-        nextTask.section_id === currentTask.section_id
-      ) {
-        newSortOrder = rankBetween(currentTask.sort_order, nextTask.sort_order);
-      } else {
-        newSortOrder = currentTask.sort_order + 1;
-      }
-      const newId = onCreateTask({
-        title: "",
-        project_id: currentTask.project_id,
-        section_id: currentTask.section_id,
-        parent_id: currentTask.parent_id,
-        due_at: currentTask.due_at,
-        priority: 4,
-        sort_order: newSortOrder,
-      });
-      setEditingTaskId(newId);
-    },
-    [orderedFlat, onUpdateTask, onCreateTask],
-  );
+    if (trimmed && currentTask.title !== trimmed && onUpdateTask) {
+      onUpdateTask(currentTask, { title: trimmed });
+    }
+    if (!onCreateTask) {
+      setEditingTaskId(null);
+      return;
+    }
+    const currentIndex = orderedFlat.findIndex((t) => t.id === currentTask.id);
+    const nextTask =
+      currentIndex !== -1 && currentIndex + 1 < orderedFlat.length
+        ? orderedFlat[currentIndex + 1]
+        : undefined;
+    let newSortOrder: number;
+    if (
+      nextTask &&
+      nextTask.parent_id === currentTask.parent_id &&
+      nextTask.section_id === currentTask.section_id
+    ) {
+      newSortOrder = rankBetween(currentTask.sort_order, nextTask.sort_order);
+    } else {
+      newSortOrder = currentTask.sort_order + 1;
+    }
+    const newId = onCreateTask({
+      title: "",
+      project_id: currentTask.project_id,
+      section_id: currentTask.section_id,
+      parent_id: currentTask.parent_id,
+      due_at: currentTask.due_at,
+      priority: 4,
+      sort_order: newSortOrder,
+    });
+    setEditingTaskId(newId);
+  });
 
   const rowMeta = useMemo(() => {
     const m = new Map<string, FlatTaskRow>();
@@ -497,16 +499,13 @@ export function ProjectTaskList({
     [],
   );
 
-  const handleStartRename = useCallback(
-    (targetTask: Task) => {
-      if (targetTask.locked) return;
-      setEditingTaskId(targetTask.id);
-      requestAnimationFrame(() => {
-        scrollToTask(targetTask.id);
-      });
-    },
-    [scrollToTask],
-  );
+  const handleStartRename = useStableCallback((targetTask: Task) => {
+    if (targetTask.locked) return;
+    setEditingTaskId(targetTask.id);
+    requestAnimationFrame(() => {
+      scrollToTask(targetTask.id);
+    });
+  });
 
   useEffect(() => {
     if (editingTaskId && Platform.OS !== "web") {
@@ -664,13 +663,29 @@ export function ProjectTaskList({
     sections.length > 0
       ? ((task.section_id ? bySection.get(task.section_id) : undefined) ?? none)
       : tasks;
+  // A row's siblings follow from the task itself (its section), so one handler serves every row.
+  const toggleRow = useStableCallback((task: Task) => onToggle(task));
+  const openRow = useStableCallback((task: Task) => onOpen?.(task));
+  const selectRow = useStableCallback((task: Task) => {
+    if (!selection.paintConsumeClick(task.id)) selection.toggle(task.id);
+  });
+  const scheduleRow = useCallback((task: Task) => setRescheduling(task), []);
+  const deleteRow = useStableCallback((task: Task) => onBulkDelete([task.id]));
+  const indentRow = useStableCallback((task: Task) => indentTask(task, siblingsOf(task)));
+  const outdentRow = useStableCallback((task: Task) => outdentTask(task, siblingsOf(task)));
+  const openRowMenu = useStableCallback((task: Task, pos: MenuPos) =>
+    setMenu({ task, pos, siblings: siblingsOf(task) }),
+  );
+  const notePressPos = useCallback((pos: MenuPos) => {
+    pressPos.current = pos;
+  }, []);
+
   const renderTask = (
     task: Task,
     meta: FlatTaskRow | undefined = rowMeta.get(task.id),
     startDrag?: () => void,
-    sectionTasks?: Task[],
   ) => {
-    const activeTasks = sectionTasks ?? siblingsOf(task);
+    const activeTasks = siblingsOf(task);
     const hasChildren = meta?.hasChildren ?? false;
     const lift = task.locked ? undefined : startDrag;
     const row = (
@@ -680,8 +695,8 @@ export function ProjectTaskList({
             ref={editingTaskId === task.id ? editingRowRef : null}
             task={task}
             now={now}
-            onToggle={onToggle}
-            onOpen={onOpen}
+            onToggle={toggleRow}
+            onOpen={onOpen ? openRow : undefined}
             // The row a context menu is open for stays highlighted while the menu shows.
             focused={task.id === cursorId || task.id === menu?.task.id}
             isEditing={editingTaskId === task.id}
@@ -705,21 +720,22 @@ export function ProjectTaskList({
             onToggleExpand={hasChildren ? toggleTaskExpand : undefined}
             selectMode={selection.mode}
             selected={selection.has(task.id)}
-            onSelect={(t) => {
-              if (!selection.paintConsumeClick(t.id)) selection.toggle(t.id);
-            }}
-            onSchedule={(t) => setRescheduling(t)}
-            onDelete={(t) => onBulkDelete([t.id])}
-            onIndent={onReparent ? (t) => indentTask(t, activeTasks) : undefined}
-            onOutdent={onReparent ? (t) => outdentTask(t, activeTasks) : undefined}
+            onSelect={selectRow}
+            onSchedule={scheduleRow}
+            onDelete={deleteRow}
+            onIndent={onReparent ? indentRow : undefined}
+            onOutdent={onReparent ? outdentRow : undefined}
             canIndent={onReparent ? indentTarget(activeTasks, task.id, tasks) !== null : false}
             canOutdent={onReparent ? outdentTarget(activeTasks, task.id) !== null : false}
-            onContextMenu={(x, pos) => setMenu({ task: x, pos, siblings: activeTasks })}
-            onLongPress={lift ? () => lift() : undefined}
+            onContextMenu={openRowMenu}
+            // The library's lift is stable per cell and ignores the task argument.
+            onLongPress={lift}
             // Derived from this row's own drag: `dragDisabled` is only true on web, where TaskRow's
             // `Platform.OS !== "web"` guard would kill the prop.
             enableLongPressMenu={!lift}
-            onPressIn={(p) => (pressPos.current = p)}
+            onPressIn={notePressPos}
+            swipeRightAction={swipeRightAction}
+            swipeLeftAction={swipeLeftAction}
           />
         </View>
       </AnimatedRow>

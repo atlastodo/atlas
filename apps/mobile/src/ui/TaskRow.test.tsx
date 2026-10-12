@@ -1,9 +1,7 @@
 import { fireEvent, render, screen, act } from "@testing-library/react-native";
-import { LocalStore, type Task } from "@atlas/client-core";
-import { PREFERENCES_ID } from "@atlas/shared";
+import type { Task } from "@atlas/client-core";
 import { createRef } from "react";
 import { Platform } from "react-native";
-import { withApp } from "../testutil";
 import { TaskRow, type TaskRowHandle } from "./TaskRow";
 
 /** A task with every field set, so each test only states what it actually cares about. */
@@ -317,17 +315,20 @@ describe("TaskRow", () => {
     expect(toJSON()).toBeTruthy();
   });
 
-  it("supports configurable swipe actions from store preferences", async () => {
-    const store = new LocalStore("test");
-    store.set("preference", PREFERENCES_ID, "swipe_right_action", "delete");
-    store.set("preference", PREFERENCES_ID, "swipe_left_action", "complete");
+  it("supports configurable swipe actions from the list's preferences", async () => {
     const onDelete = jest.fn();
     const onToggle = jest.fn();
     const t = task();
 
     const { toJSON } = await render(
-      <TaskRow task={t} now={NOW} onToggle={onToggle} onDelete={onDelete} />,
-      { wrapper: withApp(store) },
+      <TaskRow
+        task={t}
+        now={NOW}
+        onToggle={onToggle}
+        onDelete={onDelete}
+        swipeRightAction="delete"
+        swipeLeftAction="complete"
+      />,
     );
     expect(toJSON()).toBeTruthy();
   });
