@@ -1,6 +1,6 @@
 {
   "name": "@atlas/electron",
-  "version": "0.1.10",
+  "version": "0.1.11-rc.1",
   "private": true,
   "description": "Atlas Todo desktop application powered by Electron",
   "license": "AGPL-3.0-only",
