@@ -9,12 +9,15 @@ import {
   serializeBundle,
   ticktickLegacyIdReusable,
   ticktickToBundle,
+  readTodoistFiles,
+  todoistToBundle,
   type TicktickWarningCode,
+  type TodoistWarningCode,
 } from "@atlas/shared";
 import { useAuth } from "../../auth/AuthContext";
 import { useStore } from "../../data/StoreProvider";
 import { useToast } from "../../data/ToastProvider";
-import { saveBundle, pickBundleText, pickCsvText } from "../../lib/dataTransfer";
+import { saveBundle, pickBundleText, pickCsvText, pickTodoistFile } from "../../lib/dataTransfer";
 import { usePreferences } from "../../hooks/usePreferences";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { Row, Section } from "../../ui/Section";
@@ -30,6 +33,17 @@ const TICKTICK_WARNING_KEYS: Record<TicktickWarningCode, string> = {
   reminders: "settings.ticktickWarnReminders",
   checklist: "settings.ticktickWarnChecklist",
   timezone: "settings.ticktickWarnTimezone",
+};
+
+const TODOIST_WARNING_KEYS: Record<TodoistWarningCode, string> = {
+  notTodoist: "settings.todoistWarnNotTodoist",
+  recurrence: "settings.todoistWarnRecurrence",
+  date: "settings.todoistWarnDate",
+  deadline: "settings.todoistWarnDeadline",
+  duration: "settings.todoistWarnDuration",
+  assignee: "settings.todoistWarnAssignee",
+  projectNote: "settings.todoistWarnProjectNote",
+  timezone: "settings.todoistWarnTimezone",
 };
 
 /**
@@ -141,6 +155,28 @@ export function DataSection() {
     }
   };
 
+  const doImportTodoist = async () => {
+    try {
+      const file = await pickTodoistFile();
+      if (file == null) return;
+      const { bundle, counts, warnings } = todoistToBundle(
+        readTodoistFiles(file.name, file.bytes),
+        {
+          userId: session?.user.id ?? "",
+          timeZone: timezone,
+        },
+      );
+      importBundle(store, kick, bundle);
+      toast.show(t("settings.todoistDone", { tasks: counts.tasks, projects: counts.projects }));
+      // What the mapping could not carry over; the import itself succeeded, so these are notices, not errors.
+      for (const warning of warnings) {
+        toast.show(t(TODOIST_WARNING_KEYS[warning.code], { detail: warning.detail ?? "" }));
+      }
+    } catch {
+      toast.show(t("settings.todoistError"));
+    }
+  };
+
   return (
     <Section icon={Database} title={t("settings.data")}>
       <Row label={t("settings.export")} description={t("settings.exportDesc")}>
@@ -179,6 +215,19 @@ export function DataSection() {
           <Upload size={18} className="text-neutral-600 dark:text-neutral-300" />
           <Text className="text-sm text-neutral-600 dark:text-neutral-300">
             {t("settings.ticktickAction")}
+          </Text>
+        </Pressable>
+      </Row>
+      <Row label={t("settings.todoist")} description={t("settings.todoistDesc")}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("settings.todoistAction")}
+          onPress={() => void doImportTodoist()}
+          className="flex-row items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-2 dark:border-neutral-800"
+        >
+          <Upload size={18} className="text-neutral-600 dark:text-neutral-300" />
+          <Text className="text-sm text-neutral-600 dark:text-neutral-300">
+            {t("settings.todoistAction")}
           </Text>
         </Pressable>
       </Row>

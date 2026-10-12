@@ -54,7 +54,6 @@ Not there yet:
 
 - No iOS build is published, and the desktop app is Linux only (Electron).
 - No CalDAV: the server cannot read tasks, so it cannot serve them to calendar apps.
-- No Todoist import yet (TickTick CSV import exists).
 - Two devices editing the same note offline keep the later edit whole, not a merge of both.
 - One server instance only; it does not scale out.
 
@@ -79,7 +78,8 @@ Not there yet:
 - Habits: Scheduled habits with check-ins and streaks.
 - Focus: A pomodoro timer that logs focus time against tasks, plus productivity stats.
 - Attachments: Files and images on tasks, encrypted before upload.
-- Import and export: Import a TickTick CSV export. Back up and restore your data as JSON.
+- Import and export: Import a TickTick CSV export, or a Todoist project CSV or full backup zip.
+  Back up and restore your data as JSON.
 - Admin panel: Manage accounts, close signups, create signup invites, read bug reports and
   review the audit log.
 - Languages: English, Danish, German, Spanish, French, Italian, Dutch, Polish and Brazilian

@@ -13,11 +13,14 @@ jest.mock("../../modules/atlas-exact-alarm", () => ({
   },
 }));
 
-// The export's platform glue (share sheet / browser download); the tests only ask whether it ran.
+// The data transfer's platform glue (share sheet / browser download, file pickers); the tests only
+// ask whether the export ran, and feed the Todoist import its file. Everything after the picker
+// (unzip, mapping, store merge) runs for real.
 jest.mock("../lib/dataTransfer", () => ({
   saveBundle: jest.fn(async () => {}),
   pickBundleText: jest.fn(async () => null),
   pickCsvText: jest.fn(async () => null),
+  pickTodoistFile: jest.fn(),
 }));
 const { saveBundle } = jest.requireMock("../lib/dataTransfer") as { saveBundle: jest.Mock };
 
@@ -339,6 +342,36 @@ describe("SettingsScreen", () => {
 
       expect(await screen.findByText(/Could not create a new recovery phrase/)).toBeTruthy();
     });
+  });
+
+  it("imports a Todoist project CSV from the Data section and says what was skipped", async () => {
+    const { pickTodoistFile } = jest.requireMock("../lib/dataTransfer");
+    // The zip path differs only in unpacking, covered by the shared importer's tests.
+    const csv = "TYPE,CONTENT,DATE\ntask,Ship it @deploy,every 3rd friday\nnote,Before noon\n";
+    pickTodoistFile.mockResolvedValueOnce({
+      name: "Work [2203306141].csv",
+      bytes: Uint8Array.from(csv, (c) => c.charCodeAt(0)),
+    });
+    const store = await mount("data");
+    await fireEvent.press(screen.getByLabelText("Import CSV or ZIP"));
+
+    await waitFor(() => expect(screen.getByText("Imported 1 tasks into 1 projects")).toBeTruthy());
+    expect(store.list("project").map((p) => p.fields.name)).toEqual(["Work"]);
+    expect(store.list("task").map((t) => t.fields.title)).toEqual(["Ship it"]);
+    expect(store.list("label").map((l) => l.fields.name)).toEqual(["deploy"]);
+    expect(store.list("comment").map((c) => c.fields.body)).toEqual(["Before noon"]);
+    expect(screen.getByText(/The repeat "every 3rd friday" is not supported/)).toBeTruthy();
+  });
+
+  it("says so when the picked file is not a Todoist export", async () => {
+    const { pickTodoistFile } = jest.requireMock("../lib/dataTransfer");
+    pickTodoistFile.mockResolvedValueOnce({ name: "x.csv", bytes: new Uint8Array([97, 44, 98]) });
+    const store = await mount("data");
+    await fireEvent.press(screen.getByLabelText("Import CSV or ZIP"));
+    await waitFor(() =>
+      expect(screen.getByText(/is it a Todoist CSV export or backup/)).toBeTruthy(),
+    );
+    expect(store.list("task")).toEqual([]);
   });
 
   it("toggles smart view visibility in menu", async () => {

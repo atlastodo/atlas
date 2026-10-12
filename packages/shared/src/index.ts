@@ -43,6 +43,7 @@ export * from "./duplicateProject";
 export * from "./duplicateSection";
 export * from "./dataTransfer";
 export * from "./importTicktick";
+export * from "./importTodoist";
 
 export * from "./recurrence";
 export * from "./reminders";
