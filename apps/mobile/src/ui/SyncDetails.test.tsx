@@ -317,3 +317,72 @@ describe("projects without a key", () => {
 });
 
 describe("changes to projects the user left", () => {});
+
+describe("changes the server rejected", () => {
+  const rejected = (opId: string, entityKind: string, entityId: string, at: number) => ({
+    opId,
+    entityKind,
+    entityId,
+    status: 403,
+    message: "no edit access to this project",
+    at,
+  });
+
+  function rejectedWrapper(store: LocalStore, dismissQuarantined: (opId?: string) => void) {
+    return function Wrapper({ children }: { children: ReactNode }) {
+      return (
+        <StoreContext.Provider
+          value={{
+            store,
+            status: "idle",
+            version: 0,
+            kick: () => {},
+            resync: async () => {},
+            diagnostics: {
+              lastError: null,
+              lastSyncAt: null,
+              quarantined: [
+                rejected("op-1", "task", "t-kept", 2000),
+                rejected("op-2", "task", "t-gone", 1000),
+              ],
+              pending: 0,
+            },
+            dismissQuarantined,
+            attachments: null,
+            initialSyncDone: true,
+          }}
+        >
+          {children}
+        </StoreContext.Provider>
+      );
+    };
+  }
+
+  it("names the task when this device still holds it, the id otherwise", async () => {
+    const store = new LocalStore("test");
+    store.set("task", "t-kept", "title", "Book the venue");
+    await render(<SyncDetails open onClose={() => {}} />, {
+      wrapper: rejectedWrapper(store, () => {}),
+    });
+
+    expect(screen.getByText("2 rejected changes")).toBeTruthy();
+    expect(screen.getByText("Book the venue")).toBeTruthy();
+    // A rejected create was taken back: only the generic description is left.
+    expect(screen.getByText(/t-gone/)).toBeTruthy();
+    expect(screen.queryByText(/t-kept/)).toBeNull();
+  });
+
+  it("dismisses one entry, or all of them", async () => {
+    const dismiss = jest.fn();
+    await render(<SyncDetails open onClose={() => {}} />, {
+      wrapper: rejectedWrapper(new LocalStore("test"), dismiss),
+    });
+
+    await fireEvent.press(
+      screen.getAllByLabelText("Remove this rejected change from the list")[1]!,
+    );
+    expect(dismiss).toHaveBeenLastCalledWith("op-2");
+    await fireEvent.press(screen.getByText("Clear all"));
+    expect(dismiss).toHaveBeenLastCalledWith();
+  });
+});

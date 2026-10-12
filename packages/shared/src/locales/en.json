@@ -998,6 +998,8 @@
     "serverUnreachableDetail": "The app can't reach the server. Check your connection or the server address; it will keep retrying automatically.",
     "syncNow": "Sync now",
     "quarantinedTooLarge": "Too large to sync: the server accepts less in one request. The change was undone on this device.",
+    "quarantinedClearAll": "Clear all",
+    "quarantinedDismiss": "Remove this rejected change from the list",
     "clockSkew": "This device's clock is {{minutes}} min fast",
     "clockSkewDetail": "Changes made here wait to sync until the real time catches up. Set the clock to update automatically to fix this.",
     "storageBlocked": "Atlas is open in another tab with an older version. Close or reload that tab to continue.",

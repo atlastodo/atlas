@@ -1,7 +1,7 @@
 import { useContext, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { batchLinksOf, resolveScope } from "@atlas/client-core";
+import { batchLinksOf, resolveScope, type EntityKind, type LocalStore } from "@atlas/client-core";
 import { AuthContext } from "../auth/AuthContext";
 import { useStore } from "../data/StoreProvider";
 import { useOnline } from "../hooks/useOnline";
@@ -11,18 +11,18 @@ import { BottomSheet } from "./BottomSheet";
 import { SheetScrollView } from "./SheetScroll";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Field } from "./Field";
-import { RefreshCw, RotateCcw } from "./icons";
+import { RefreshCw, RotateCcw, X } from "./icons";
 import { SpinningSyncIcon } from "./SpinningSyncIcon";
 
 /**
  * The "Sync details" panel: current status, last successful sync, ops waiting to push, content
  * waiting for a project key, the last error (HTTP status and server message) and permanently
- * rejected ops. "Sync now" runs a cycle immediately; "Resync" (after a confirm) rebuilds this
+ * rejected ops (kept until dismissed). "Sync now" runs a cycle immediately; "Resync" (after a confirm) rebuilds this
  * device's copy from the server snapshot, keeping unpushed changes. Opened by the sync badge.
  */
 export function SyncDetails({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
-  const { status, diagnostics, kick, resync } = useStore();
+  const { store, status, diagnostics, kick, resync, dismissQuarantined } = useStore();
   const online = useOnline();
   const format = useFormat();
 
@@ -235,24 +235,64 @@ export function SyncDetails({ open, onClose }: { open: boolean; onClose: () => v
 
           {diagnostics.quarantined.length > 0 && (
             <View className="mt-2 gap-2">
-              <Text className="text-xs font-medium text-neutral-500">
-                {t("sync.quarantined", { count: diagnostics.quarantined.length })}
-              </Text>
-              {diagnostics.quarantined.map((q) => (
-                <View
-                  key={q.opId}
-                  className="gap-0.5 rounded-md border border-red-200 bg-red-50 p-2 dark:border-red-900 dark:bg-red-950"
-                >
-                  <Text className="text-xs font-medium text-red-700 dark:text-red-300">
-                    {q.entityKind}
-                    {q.status != null ? ` - HTTP ${q.status}` : ""}
-                  </Text>
-                  <Text className="text-sm text-neutral-800 dark:text-neutral-100">
-                    {q.status === 413 ? t("sync.quarantinedTooLarge") : q.message}
-                  </Text>
-                  <Text className="text-xs text-neutral-400">{q.entityId}</Text>
-                </View>
-              ))}
+              <View className="flex-row items-center justify-between gap-2">
+                <Text className="flex-1 text-xs font-medium text-neutral-500">
+                  {t("sync.quarantined", { count: diagnostics.quarantined.length })}
+                </Text>
+                {dismissQuarantined && (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => dismissQuarantined()}
+                    className="px-1 web:cursor-pointer"
+                  >
+                    <Text className="text-xs text-neutral-600 dark:text-neutral-300">
+                      {t("sync.quarantinedClearAll")}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+              {diagnostics.quarantined.map((q) => {
+                const title = entityTitle(store, q.entityKind, q.entityId);
+                return (
+                  <View
+                    key={q.opId}
+                    className="gap-0.5 rounded-md border border-red-200 bg-red-50 p-2 dark:border-red-900 dark:bg-red-950"
+                  >
+                    <View className="flex-row items-start gap-2">
+                      <Text className="flex-1 text-xs font-medium text-red-700 dark:text-red-300">
+                        {q.entityKind}
+                        {q.status != null ? ` - HTTP ${q.status}` : ""}
+                      </Text>
+                      {dismissQuarantined && (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={t("sync.quarantinedDismiss")}
+                          hitSlop={8}
+                          onPress={() => dismissQuarantined(q.opId)}
+                          className="web:cursor-pointer"
+                        >
+                          <X size={14} className="text-neutral-500 dark:text-neutral-400" />
+                        </Pressable>
+                      )}
+                    </View>
+                    {title !== null && (
+                      <Text
+                        numberOfLines={2}
+                        className="text-sm font-medium text-neutral-900 dark:text-neutral-100"
+                      >
+                        {title}
+                      </Text>
+                    )}
+                    <Text className="text-sm text-neutral-800 dark:text-neutral-100">
+                      {q.status === 413 ? t("sync.quarantinedTooLarge") : q.message}
+                    </Text>
+                    <Text className="text-xs text-neutral-400">
+                      {title === null ? `${q.entityId} · ` : ""}
+                      {format.dateTime(q.at)}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
           )}
         </SheetScrollView>
@@ -397,6 +437,17 @@ function KeylessProjects() {
       )}
     </View>
   );
+}
+
+/**
+ * The rejected change's entity as the user named it (a task's title, a project's name, ...), while
+ * this device still holds it readable; null for one it never kept (a rejected create was taken
+ * back) or can't open (no key yet).
+ */
+function entityTitle(store: LocalStore, kind: string, id: string): string | null {
+  const fields = store.get(kind as EntityKind, id);
+  const value = fields?.title ?? fields?.name;
+  return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
 function KeyWait({ title, hint }: { title: string; hint: string }) {

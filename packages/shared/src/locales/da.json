@@ -998,6 +998,8 @@
     "serverUnreachableDetail": "Appen kan ikke nå serveren. Tjek din forbindelse eller serveradressen; den prøver automatisk igen.",
     "syncNow": "Synkronisér nu",
     "quarantinedTooLarge": "For stor til at blive synkroniseret: serveren modtager mindre i én forespørgsel. Ændringen blev fortrudt på denne enhed.",
+    "quarantinedClearAll": "Ryd alle",
+    "quarantinedDismiss": "Fjern denne afviste ændring fra listen",
     "clockSkew": "Enhedens ur går {{minutes}} min. for hurtigt",
     "clockSkewDetail": "Ændringer herfra venter med at blive synkroniseret, til den rigtige tid indhenter dem. Indstil uret til at opdatere automatisk for at løse det.",
     "storageBlocked": "Atlas er åben i en anden fane med en ældre version. Luk eller genindlæs den fane for at fortsætte.",

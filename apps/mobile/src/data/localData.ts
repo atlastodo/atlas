@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createPersistence, deleteDatabase } from "./persistence";
+import { quarantineKey } from "./quarantineLog";
 
 /** AsyncStorage keys of the one-time local database migrations `StoreProvider` runs per user. */
 export function migrationKeys(userId: string) {
@@ -13,11 +14,12 @@ export function migrationKeys(userId: string) {
 
 /**
  * Delete what this device keeps of `userId`'s data: the local database, which holds every synced
- * value decrypted plus the changes not yet pushed, and the migration markers that describe it.
+ * value decrypted plus the changes not yet pushed, the migration markers that describe it, and the
+ * list of changes the server rejected.
  */
 export async function deleteLocalData(userId: string): Promise<void> {
   await deleteDatabase(userId);
-  await AsyncStorage.multiRemove(Object.values(migrationKeys(userId)));
+  await AsyncStorage.multiRemove([...Object.values(migrationKeys(userId)), quarantineKey(userId)]);
 }
 
 /**

@@ -1064,6 +1064,8 @@
     "serverUnreachableDetail": "Aplikacja nie może połączyć się z serwerem. Sprawdź połączenie lub adres serwera; będzie ponawiać próby automatycznie.",
     "syncNow": "Synchronizuj teraz",
     "quarantinedTooLarge": "Za duże do synchronizacji: serwer przyjmuje mniej w jednym żądaniu. Zmianę cofnięto na tym urządzeniu.",
+    "quarantinedClearAll": "Wyczyść wszystko",
+    "quarantinedDismiss": "Usuń tę odrzuconą zmianę z listy",
     "clockSkew": "Zegar tego urządzenia spieszy się o {{minutes}} min",
     "clockSkewDetail": "Zmiany wprowadzone tutaj czekają z synchronizacją, aż prawdziwy czas je dogoni. Ustaw automatyczną aktualizację zegara, aby to naprawić.",
     "storageBlocked": "Atlas jest otwarty w innej karcie w starszej wersji. Zamknij lub odśwież tamtą kartę, aby kontynuować.",

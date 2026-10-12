@@ -998,6 +998,8 @@
     "serverUnreachableDetail": "Die App kann den Server nicht erreichen. Prüfe deine Verbindung oder die Serveradresse; es wird automatisch weiter versucht.",
     "syncNow": "Jetzt synchronisieren",
     "quarantinedTooLarge": "Zu groß zum Synchronisieren: Der Server akzeptiert pro Anfrage weniger. Die Änderung wurde auf diesem Gerät rückgängig gemacht.",
+    "quarantinedClearAll": "Alle leeren",
+    "quarantinedDismiss": "Diese abgelehnte Änderung aus der Liste entfernen",
     "clockSkew": "Die Uhr dieses Geräts geht {{minutes}} Min. vor",
     "clockSkewDetail": "Hier vorgenommene Änderungen warten mit der Synchronisierung, bis die echte Zeit aufgeholt hat. Stelle die Uhr auf automatische Aktualisierung, um das zu beheben.",
     "storageBlocked": "Atlas ist in einem anderen Tab mit einer älteren Version geöffnet. Schließe oder lade diesen Tab neu, um fortzufahren.",

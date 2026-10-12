@@ -998,6 +998,8 @@
     "serverUnreachableDetail": "De app kan de server niet bereiken. Controleer je verbinding of het serveradres; er wordt automatisch opnieuw geprobeerd.",
     "syncNow": "Nu synchroniseren",
     "quarantinedTooLarge": "Te groot om te synchroniseren: de server accepteert minder per verzoek. De wijziging is op dit apparaat ongedaan gemaakt.",
+    "quarantinedClearAll": "Alles wissen",
+    "quarantinedDismiss": "Deze geweigerde wijziging uit de lijst verwijderen",
     "clockSkew": "De klok van dit apparaat loopt {{minutes}} min voor",
     "clockSkewDetail": "Wijzigingen die hier worden gemaakt, wachten met synchroniseren tot de echte tijd is ingehaald. Stel de klok in op automatisch bijwerken om dit te verhelpen.",
     "storageBlocked": "Atlas is geopend in een ander tabblad met een oudere versie. Sluit of herlaad dat tabblad om verder te gaan.",

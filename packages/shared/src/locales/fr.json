@@ -1031,6 +1031,8 @@
     "serverUnreachableDetail": "L’application ne parvient pas à joindre le serveur. Vérifiez votre connexion ou l’adresse du serveur ; elle réessaiera automatiquement.",
     "syncNow": "Synchroniser maintenant",
     "quarantinedTooLarge": "Trop volumineuse pour être synchronisée : le serveur en accepte moins par requête. La modification a été annulée sur cet appareil.",
+    "quarantinedClearAll": "Tout effacer",
+    "quarantinedDismiss": "Retirer cette modification rejetée de la liste",
     "clockSkew": "L’horloge de cet appareil avance de {{minutes}} min",
     "clockSkewDetail": "Les modifications faites ici attendent, pour être synchronisées, que l’heure réelle les rattrape. Réglez l’horloge sur la mise à jour automatique pour corriger cela.",
     "storageBlocked": "Atlas est ouvert dans un autre onglet avec une version plus ancienne. Fermez ou rechargez cet onglet pour continuer.",

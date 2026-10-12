@@ -39,6 +39,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { CIPHERTEXT_AS_BLOB, createPersistence } from "./persistence";
 import { deleteLocalData, migrationKeys } from "./localData";
 import { markLocalDataUsed } from "./localUpgrade";
+import { loadQuarantined, mergeQuarantined, saveQuarantined } from "./quarantineLog";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { clearSharedFiles } from "../lib/attachmentFiles";
 import { AppSkeleton } from "../ui/AppSkeleton";
@@ -77,7 +78,10 @@ export interface SyncDiagnostics {
   lastError: SyncErrorInfo | null;
   /** When the last sync cycle succeeded (Unix ms), or null if none yet this session. */
   lastSyncAt: number | null;
-  /** Ops the server permanently rejected (403/400/422) and dropped from the outbox. */
+  /**
+   * Ops the server permanently rejected (403/400/422/413) and dropped from the outbox, newest
+   * first. Kept on this device across restarts (see `quarantineLog`) until the user dismisses them.
+   */
   quarantined: QuarantinedOp[];
   /** Unsynced ops still waiting to push. */
   pending: number;
@@ -139,6 +143,8 @@ export interface StoreContextValue {
   resync: () => Promise<"postponed" | void>;
   /** Sync diagnostics for the "Sync details" panel. */
   diagnostics: SyncDiagnostics;
+  /** Drop one rejected change from the list (by op id), or every one without an id. */
+  dismissQuarantined?: (opId?: string) => void;
   /** Whether the store has completed its initial sync pull or loaded existing persisted data. */
   initialSyncDone: boolean;
   /** The attachment queue, or null until the store and an unlocked keyring exist (no plaintext path). */
@@ -249,6 +255,9 @@ export function StoreProvider({
   keyringRef.current = keyring;
   /** Reload project keys (single-flight); set by the sync effect once the store exists. */
   const hydrateKeysRef = useRef<(() => Promise<void>) | null>(null);
+  // The account whose saved list of rejected changes has been read: until then the (empty or
+  // partial) list in memory must not overwrite it.
+  const quarantineLoadedRef = useRef<string | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -478,17 +487,21 @@ export function StoreProvider({
         onQuarantine: (op: Operation, err) => {
           console.warn("[atlas sync] op quarantined (server rejected it permanently):", op.id, err);
           const info = toErrorInfo(err);
-          setQuarantined((prev) => [
-            {
-              opId: op.id,
-              entityKind: op.entity,
-              entityId: op.entityId,
-              status: info.status,
-              message: info.message,
-              at: info.at,
-            },
-            ...prev,
-          ]);
+          setQuarantined((prev) =>
+            mergeQuarantined(
+              [
+                {
+                  opId: op.id,
+                  entityKind: op.entity,
+                  entityId: op.entityId,
+                  status: info.status,
+                  message: info.message,
+                  at: info.at,
+                },
+              ],
+              prev,
+            ),
+          );
         },
         // The server pushes pull-shaped payloads over `/sync/ws`. The poll below remains the
         // fallback: the hub can drop messages for a lagging device.
@@ -613,6 +626,32 @@ export function StoreProvider({
       cleanup?.();
     };
   }, [deviceId, userId, api, openPersistence, loadAttempt]);
+
+  // The rejected changes an earlier run listed. Merged, not replaced: a cycle may already have
+  // rejected more by the time the read returns. Local-only mode never pushes, so has none.
+  const hasServer = api !== null;
+  useEffect(() => {
+    quarantineLoadedRef.current = null;
+    setQuarantined([]);
+    if (!hasServer) return;
+    let cancelled = false;
+    void loadQuarantined(userId).then((saved) => {
+      if (cancelled) return;
+      quarantineLoadedRef.current = userId;
+      setQuarantined((prev) => mergeQuarantined(prev, saved));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, hasServer]);
+
+  useEffect(() => {
+    if (quarantineLoadedRef.current === userId) void saveQuarantined(userId, quarantined);
+  }, [quarantined, userId]);
+
+  const dismissQuarantined = useCallback((opId?: string) => {
+    setQuarantined((prev) => (opId === undefined ? [] : prev.filter((q) => q.opId !== opId)));
+  }, []);
 
   // A re-unlocked session brings a fresh keyring with no project keys in it.
   useEffect(() => {
@@ -756,6 +795,7 @@ export function StoreProvider({
               storage: storage === "closed" ? "closed" : null,
               saveError,
             },
+            dismissQuarantined,
             initialSyncDone,
             attachments: attachmentsValue,
             localOnly: ready.sync === null,
@@ -770,6 +810,7 @@ export function StoreProvider({
       lastError,
       lastSyncAt,
       quarantined,
+      dismissQuarantined,
       initialSyncDone,
       attachmentsValue,
       e2ee,

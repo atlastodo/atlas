@@ -1031,6 +1031,8 @@
     "serverUnreachableDetail": "O app não consegue acessar o servidor. Verifique sua conexão ou o endereço do servidor; ele continuará tentando automaticamente.",
     "syncNow": "Sincronizar agora",
     "quarantinedTooLarge": "Grande demais para sincronizar: o servidor aceita menos em uma única requisição. A alteração foi desfeita neste dispositivo.",
+    "quarantinedClearAll": "Limpar tudo",
+    "quarantinedDismiss": "Remover esta alteração rejeitada da lista",
     "clockSkew": "O relógio deste dispositivo está {{minutes}} min adiantado",
     "clockSkewDetail": "As alterações feitas aqui esperam para sincronizar até a hora real alcançar o relógio. Configure o relógio para atualizar automaticamente para corrigir isso.",
     "storageBlocked": "O Atlas está aberto em outra aba com uma versão mais antiga. Feche ou recarregue essa aba para continuar.",
