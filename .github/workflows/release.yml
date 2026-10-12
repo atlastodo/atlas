@@ -40,6 +40,8 @@ jobs:
   prepare:
     name: Prepare
     runs-on: ubuntu-24.04
+    # The signing and Play secrets can live in the `release` environment, which only v* tags may use.
+    environment: release
     outputs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
@@ -128,6 +130,7 @@ jobs:
     name: Android APK + AAB
     needs: [ci, prepare]
     runs-on: ubuntu-24.04
+    environment: release
     timeout-minutes: 90
     env:
       VERSION: ${{ needs.prepare.outputs.version }}

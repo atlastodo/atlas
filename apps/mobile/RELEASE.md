@@ -199,7 +199,12 @@ Hub, but only from a public repository, because Docker Hub creates a new reposit
 
 ### Secrets
 
-Set these under Settings → Secrets and variables → Actions.
+Set these under Settings → Secrets and variables → Actions. The `ANDROID_*` and
+`GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` secrets belong in the `release` environment (Settings →
+Environments), limited to `v*` tags, so only a tag run can sign or upload: the Prepare and
+Android jobs run in it. Repository secrets of the same name work too, but any workflow can read
+those. The `DOCKERHUB_*` secrets stay repository secrets, since the `dev` image pushes use them.
+A ruleset keeps `v*` tags from being moved or deleted.
 
 | Secret                             | Required | What it is                                                              |
 | ---------------------------------- | -------- | ----------------------------------------------------------------------- |
