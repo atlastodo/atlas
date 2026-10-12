@@ -7,9 +7,20 @@ Please report vulnerabilities privately, not in a public issue or pull request.
 [Open a private advisory](https://github.com/atlastodo/atlas-todo/security/advisories/new) through
 GitHub's private vulnerability reporting.
 
-Include a description, the affected version or commit, and steps or a proof of concept. You will
-get an acknowledgement. Once a fix is released, you are credited in the release notes if you
-want to be.
+Include a description, the affected version or commit, and steps or a proof of concept. Once a fix
+is released, you are credited in the release notes and the advisory if you want to be.
+
+### What happens next
+
+Atlas Todo has one maintainer, who reads every report.
+
+- **Within 7 days:** an acknowledgement in the advisory.
+- **Within 14 days:** an assessment: whether it is a vulnerability, how severe (CVSS), and a plan.
+- **The fix** ships in a patch release (a new Docker tag, APK and desktop tarball). The advisory
+  is then published on GitHub, with a CVE requested through GitHub when it applies, and linked
+  from the release notes. Self-hosters learn of it there and from GitHub's security alerts.
+- **Disclosure:** please keep the details private until the fix is released, or for 90 days from
+  your report, whichever comes first. If a fix needs longer, we agree on a date in the advisory.
 
 ## Supported versions
 
