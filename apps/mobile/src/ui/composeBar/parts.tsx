@@ -128,7 +128,7 @@ export function Panel({
           hitSlop={isWeb ? 8 : 10}
           className="web:cursor-pointer"
         >
-          <ChevronLeft size={isWeb ? 14 : 18} className="text-neutral-400" />
+          <ChevronLeft size={isWeb ? 14 : 18} className="text-neutral-500" />
         </Pressable>
         <Text
           className={
@@ -226,7 +226,7 @@ export function ListRow({
         {label}
       </Text>
       {selected && <Check size={isWeb ? 14 : 16} className="text-accent-600" />}
-      {chevron && <ChevronRight size={isWeb ? 14 : 16} className="text-neutral-400" />}
+      {chevron && <ChevronRight size={isWeb ? 14 : 16} className="text-neutral-500" />}
     </Pressable>
   );
 }
@@ -343,7 +343,7 @@ export function NewItemRow({
       }
     >
       {compact ? (
-        <Icon size={14} className="ml-1 text-neutral-400" />
+        <Icon size={14} className="ml-1 text-neutral-500" />
       ) : (
         <View className="pl-1">
           <Icon size={22} className="text-neutral-500 dark:text-neutral-400" />
@@ -354,7 +354,7 @@ export function NewItemRow({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={compact ? "#a1a1aa" : "#9ca3af"}
+        placeholderTextColor="#737373"
         autoCapitalize={compact ? undefined : autoCapitalize}
         onSubmitEditing={onSubmit}
         returnKeyType={compact ? undefined : "done"}

@@ -139,8 +139,8 @@ function Group<T extends GroupBy | SortBy>({
   return (
     <View className="gap-1">
       <View className="mb-1 flex-row items-center gap-2">
-        <Icon size={14} className="text-neutral-400" />
-        <Text className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+        <Icon size={14} className="text-neutral-500" />
+        <Text className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
           {title}
         </Text>
       </View>
@@ -158,7 +158,7 @@ function Group<T extends GroupBy | SortBy>({
               onPress={() => onSelect(opt.value)}
               className="flex-row items-center gap-2 py-2.5"
             >
-              <OptIcon size={16} className={active ? "text-accent-600" : "text-neutral-400"} />
+              <OptIcon size={16} className={active ? "text-accent-600" : "text-neutral-500"} />
               <Text className="flex-1 text-sm text-neutral-900 dark:text-neutral-100">
                 {opt.label}
               </Text>

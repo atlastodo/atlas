@@ -90,7 +90,7 @@ export function StyleEditor({
             onChangeText={setBuffer}
             onBlur={commitName}
             placeholder={nameLabel}
-            placeholderTextColor="#a1a1aa"
+            placeholderTextColor="#737373"
             className="flex-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100"
           />
           <Pressable
@@ -131,7 +131,7 @@ export function StyleEditor({
               <Text
                 className={
                   "text-xs font-semibold " +
-                  (isFavorite ? "text-amber-600 dark:text-amber-400" : "text-neutral-400")
+                  (isFavorite ? "text-amber-600 dark:text-amber-400" : "text-neutral-500")
                 }
               >
                 {isFavorite ? t("common.added") : t("common.add")}

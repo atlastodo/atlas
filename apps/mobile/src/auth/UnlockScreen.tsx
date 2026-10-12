@@ -67,7 +67,7 @@ export function UnlockScreen() {
             </Text>
           </View>
           <Text className="text-sm text-neutral-600 dark:text-neutral-400">{t("unlock.body")}</Text>
-          <Text className="mt-1 text-sm text-neutral-500 dark:text-neutral-500">
+          <Text className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
             {t("unlock.signedInAs", { email: session.user.email })}
           </Text>
 

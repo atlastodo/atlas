@@ -52,7 +52,7 @@ export function FolderPicker({
             onPress={() => choose(null)}
             className="flex-row items-center gap-3 py-3 web:cursor-pointer"
           >
-            <Folder size={18} className="text-neutral-400" />
+            <Folder size={18} className="text-neutral-500" />
             <Text className="flex-1 text-sm text-neutral-900 dark:text-neutral-100">
               {t("projects.noFolder")}
             </Text>

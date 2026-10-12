@@ -20,7 +20,7 @@ export function EmptyState({
 }) {
   return (
     <View className="flex-1 items-center bg-white px-8 pb-8 pt-16 dark:bg-zinc-950">
-      <Icon size={32} className="text-neutral-400 dark:text-neutral-500" />
+      <Icon size={32} className="text-neutral-500 dark:text-neutral-400" />
       <Text className="mt-4 max-w-sm text-center text-base font-medium text-neutral-700 dark:text-neutral-200">
         {title}
       </Text>

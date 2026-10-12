@@ -116,7 +116,7 @@ function InviteCard({ notification }: { notification: InviteNotification }) {
           <Icon size={20} color={color} />
         ) : (
           <View accessible accessibilityLabel={t("invites.lockedLabel")}>
-            <Lock size={20} className="text-neutral-400" />
+            <Lock size={20} className="text-neutral-500" />
           </View>
         )}
         <View className="min-w-0 flex-1 gap-0.5">

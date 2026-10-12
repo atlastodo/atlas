@@ -91,7 +91,7 @@ export function HabitMonthCalendar({
 
       <View className="flex-row">
         {labels.map((label, i) => (
-          <Text key={i} className="flex-1 text-center text-xs text-neutral-400">
+          <Text key={i} className="flex-1 text-center text-xs text-neutral-500">
             {label}
           </Text>
         ))}
@@ -157,7 +157,7 @@ export function HabitMonthCalendar({
                         ? "text-neutral-800 dark:text-neutral-100"
                         : "font-medium text-white"
                       : outside || future
-                        ? "text-neutral-400 dark:text-neutral-500"
+                        ? "text-neutral-500 dark:text-neutral-400"
                         : "text-neutral-700 dark:text-neutral-200")
                   }
                 >

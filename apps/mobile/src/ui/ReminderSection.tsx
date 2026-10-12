@@ -105,7 +105,7 @@ export function ReminderSection({ task }: { task: Task }) {
             }}
             hitSlop={8}
           >
-            <X size={14} className="text-neutral-400" />
+            <X size={14} className="text-neutral-500" />
           </Pressable>
         </View>
       ) : (

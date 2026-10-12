@@ -817,8 +817,8 @@ export function ProjectTaskList({
               hitSlop={6}
               className="flex-row items-center gap-2.5 rounded-xl px-2 py-2 active:bg-neutral-100 dark:active:bg-neutral-800/60"
             >
-              <Plus size={18} className="text-neutral-400 dark:text-neutral-500 shrink-0" />
-              <Text className="text-sm font-normal text-neutral-400 dark:text-neutral-500">
+              <Plus size={18} className="text-neutral-500 dark:text-neutral-400 shrink-0" />
+              <Text className="text-sm font-normal text-neutral-500 dark:text-neutral-400">
                 {t("board.addTask")}
               </Text>
             </Pressable>
@@ -829,8 +829,8 @@ export function ProjectTaskList({
 
   const empty = (
     <View className="items-center gap-2 py-16">
-      <Inbox size={32} className="text-neutral-400" />
-      <Text className="text-sm text-neutral-400">{t("workspace.emptyTasks")}</Text>
+      <Inbox size={32} className="text-neutral-500" />
+      <Text className="text-sm text-neutral-500">{t("workspace.emptyTasks")}</Text>
     </View>
   );
 
@@ -1032,7 +1032,7 @@ export function ProjectTaskList({
 
   const addSectionRow = (
     <View style={LIST_WIDTH_STYLE} className="flex-row items-center gap-1 px-3 py-3">
-      <Plus size={isWeb ? 16 : 18} className="text-neutral-400" />
+      <Plus size={isWeb ? 16 : 18} className="text-neutral-500" />
       <TextInput
         accessibilityLabel={t("board.addSection")}
         placeholder={t("board.addSection")}
@@ -1301,13 +1301,13 @@ function DoneSection({
       </Pressable>
       {/* An empty footer always shows its hint, even collapsed: it is the toggle's feedback. */}
       {tasks.length === 0 ? (
-        <Text className="px-3 py-1 text-xs text-neutral-400">{t("board.noCompleted")}</Text>
+        <Text className="px-3 py-1 text-xs text-neutral-500">{t("board.noCompleted")}</Text>
       ) : (
         collapsed ||
         groups.map(({ section, tasks: groupTasks }) => (
           <View key={section?.id ?? "none"}>
             {section !== null && (
-              <Text className="px-3 pb-1 pt-2 font-medium text-xs uppercase text-neutral-400">
+              <Text className="px-3 pb-1 pt-2 font-medium text-xs uppercase text-neutral-500">
                 {section.name}
               </Text>
             )}

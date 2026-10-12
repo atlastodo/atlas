@@ -123,7 +123,7 @@ export function KeyboardPinnedRenameBar({
             hitSlop={8}
             className="flex-row items-center gap-1 rounded-xl p-2 active:bg-neutral-100 dark:active:bg-neutral-800"
           >
-            <Flag size={20} className={flagColor || "text-neutral-400"} />
+            <Flag size={20} className={flagColor || "text-neutral-500"} />
             {priority < 4 && (
               <Text
                 className={

@@ -459,7 +459,7 @@ export function ShareDialog({
                       <ShieldCheck
                         size={16}
                         className={
-                          verified ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-400"
+                          verified ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-500"
                         }
                       />
                     </Pressable>
@@ -499,7 +499,7 @@ export function ShareDialog({
                       onPress={() => void remove(m.user_id)}
                       hitSlop={8}
                     >
-                      <Trash2 size={16} className="text-neutral-400" />
+                      <Trash2 size={16} className="text-neutral-500" />
                     </Pressable>
                   )}
                 </View>

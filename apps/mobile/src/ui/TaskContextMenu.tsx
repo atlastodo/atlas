@@ -195,7 +195,7 @@ export function TaskContextMenu({
             style={{ position: "absolute", left: placed.x, top: placed.y, opacity: size ? 1 : 0 }}
             className={"w-60 " + MENU_SURFACE}
           >
-            <Text className="px-2 py-1.5 text-sm italic text-neutral-400">
+            <Text className="px-2 py-1.5 text-sm italic text-neutral-500">
               {t("task.lockedTitle")}
             </Text>
             {onSelect && (
@@ -327,7 +327,7 @@ export function TaskContextMenu({
             )}
 
             <View className="my-1 border-t border-neutral-100 dark:border-neutral-800" />
-            <Text className="px-2 pb-1 text-xs font-medium text-neutral-400">
+            <Text className="px-2 pb-1 text-xs font-medium text-neutral-500">
               {t("context.priority")}
             </Text>
             {/* Each flag carries its P1–P3/None label (as the task detail does); the current one gets
@@ -357,7 +357,7 @@ export function TaskContextMenu({
                   >
                     <Flag
                       size={14}
-                      className={p < 4 ? (PRIORITY_COLOR[p] ?? "") : "text-neutral-400"}
+                      className={p < 4 ? (PRIORITY_COLOR[p] ?? "") : "text-neutral-500"}
                     />
                     <Text
                       className={
@@ -377,7 +377,7 @@ export function TaskContextMenu({
             <View className="my-1 border-t border-neutral-100 dark:border-neutral-800" />
             {/* T opens the full reschedule picker for the cursor task; the presets below are its shortcuts. */}
             <View className="flex-row items-center justify-between px-2 pb-1">
-              <Text className="text-xs font-medium text-neutral-400">{t("context.due")}</Text>
+              <Text className="text-xs font-medium text-neutral-500">{t("context.due")}</Text>
               {!bulk && rescheduleHint != null && <ShortcutHint keys={rescheduleHint} />}
             </View>
             {quickScheduleOptions(now, timeZone).map((o) => (

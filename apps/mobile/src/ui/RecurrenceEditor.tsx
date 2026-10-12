@@ -186,7 +186,7 @@ export function RecurrenceEditor({ value, onChange }: RecurrenceEditorProps) {
         </Pressable>
       )}
 
-      {summary != null && <Text className="text-xs text-neutral-400">{summary}</Text>}
+      {summary != null && <Text className="text-xs text-neutral-500">{summary}</Text>}
     </View>
   );
 }

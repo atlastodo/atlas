@@ -47,7 +47,7 @@ export function DraggableTaskRow({
             (dragging ? "opacity-100" : "")
           }
         >
-          <GripVertical size={14} className="text-neutral-400" />
+          <GripVertical size={14} className="text-neutral-500" />
         </View>
       )}
 

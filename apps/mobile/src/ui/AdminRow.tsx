@@ -42,7 +42,7 @@ export function AdminRow({
           {detail}
         </Text>
       </View>
-      <ChevronRight size={16} className="text-neutral-400 dark:text-neutral-500" />
+      <ChevronRight size={16} className="text-neutral-500 dark:text-neutral-400" />
     </Pressable>
   );
 }

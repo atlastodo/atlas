@@ -76,7 +76,7 @@ export function FocusSection({
             accessibilityLabel={t("focus.estimateAria")}
             keyboardType="number-pad"
             placeholder={t("focus.estimatePlaceholder")}
-            placeholderTextColor="#a1a1aa"
+            placeholderTextColor="#737373"
             value={task.estimate_min != null ? String(task.estimate_min) : ""}
             onFocus={() => setEstimateFocused(true)}
             onBlur={() => setEstimateFocused(false)}

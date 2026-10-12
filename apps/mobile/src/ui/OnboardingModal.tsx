@@ -143,7 +143,7 @@ function AccountChoice({
           {description}
         </Text>
       </View>
-      <ChevronRight size={16} className="mt-1 text-neutral-400" />
+      <ChevronRight size={16} className="mt-1 text-neutral-500" />
     </Pressable>
   );
 }
@@ -715,7 +715,7 @@ function Wizard({
 
               {/* Live Preview Card */}
               <View className="rounded-xl border border-neutral-200 bg-neutral-50/50 p-4 dark:border-neutral-800 dark:bg-neutral-900/50">
-                <Text className="mb-2 text-xs font-bold uppercase tracking-wider text-neutral-400">
+                <Text className="mb-2 text-xs font-bold uppercase tracking-wider text-neutral-500">
                   {t("onboarding.previewCard")}
                 </Text>
                 <View className="flex-row items-center gap-3 rounded-lg border border-neutral-200 bg-white p-3.5 shadow-sm dark:border-neutral-800 dark:bg-zinc-900">
@@ -741,7 +741,7 @@ function Wizard({
                           {t("onboarding.previewTaskProject")}
                         </Text>
                       </View>
-                      <Text className="text-xs text-neutral-400">{t("nav.today")}</Text>
+                      <Text className="text-xs text-neutral-500">{t("nav.today")}</Text>
                     </View>
                   </View>
                 </View>
@@ -1030,7 +1030,7 @@ function Wizard({
                   returnKeyType="done"
                   onSubmitEditing={() => handleFinish(false)}
                   className="rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-                  placeholderTextColor="#a1a1aa"
+                  placeholderTextColor="#737373"
                 />
               </View>
             </View>

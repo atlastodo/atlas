@@ -43,7 +43,7 @@ export function TrashScreen() {
   return (
     <View className="flex-1 bg-white dark:bg-zinc-950">
       <View className="flex-row items-center justify-between border-b border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-        <Text className="flex-1 pr-2 text-xs text-neutral-400">{t("trash.retentionNote")}</Text>
+        <Text className="flex-1 pr-2 text-xs text-neutral-500">{t("trash.retentionNote")}</Text>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t("trash.emptyTrash")}
@@ -145,7 +145,7 @@ function Row({
           <Text numberOfLines={1} className="text-sm text-neutral-800 dark:text-neutral-100">
             {item.label || kindLabel}
           </Text>
-          <Text className="text-xs text-neutral-400">
+          <Text className="text-xs text-neutral-500">
             {kindLabel} - {when}
           </Text>
         </View>

@@ -670,7 +670,7 @@ export function QuickAdd(props: QuickAddProps) {
             >
               <Plus
                 size={isWeb ? 16 : 18}
-                className="text-neutral-400 dark:text-neutral-500 shrink-0"
+                className="text-neutral-500 dark:text-neutral-400 shrink-0"
               />
             </Pressable>
           )}
@@ -694,7 +694,7 @@ export function QuickAdd(props: QuickAddProps) {
               autoFocus={autoFocus}
               accessibilityLabel={effectiveLabel}
               placeholder={effectivePlaceholder}
-              placeholderTextColor={engaged ? "#64748b" : "#94a3b8"}
+              placeholderTextColor="#64748b"
               value={text}
               onChangeText={(v) => {
                 if (Platform.OS !== "web" && v.length === text.length - 1) {
@@ -773,7 +773,7 @@ export function QuickAdd(props: QuickAddProps) {
                 " " +
                 (engaged
                   ? "text-neutral-900 dark:text-white"
-                  : "text-neutral-800 placeholder:text-neutral-400 dark:text-white dark:placeholder:text-neutral-500")
+                  : "text-neutral-800 placeholder:text-neutral-500 dark:text-white dark:placeholder:text-neutral-500")
               }
             />
           </View>
@@ -809,7 +809,7 @@ export function QuickAdd(props: QuickAddProps) {
                 },
                 isWeb ? ({ outline: "none", resize: "none" } as object) : undefined,
               ]}
-              className="w-full border-none bg-transparent text-sm text-neutral-700 placeholder:text-neutral-400 focus:outline-none dark:text-neutral-300 dark:placeholder:text-neutral-500"
+              className="w-full border-none bg-transparent text-sm text-neutral-700 placeholder:text-neutral-500 focus:outline-none dark:text-neutral-300 dark:placeholder:text-neutral-500"
             />
           </View>
         )}

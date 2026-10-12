@@ -159,9 +159,9 @@ function HabitGroupHeader({
         className="p-1"
       >
         {expanded ? (
-          <ChevronUp size={16} className="text-neutral-400" />
+          <ChevronUp size={16} className="text-neutral-500" />
         ) : (
-          <ChevronDown size={16} className="text-neutral-400" />
+          <ChevronDown size={16} className="text-neutral-500" />
         )}
       </Pressable>
 
@@ -174,7 +174,7 @@ function HabitGroupHeader({
         hitSlop={8}
         className="p-1"
       >
-        <EllipsisVertical size={16} className="text-neutral-400" />
+        <EllipsisVertical size={16} className="text-neutral-500" />
       </Pressable>
     </View>
   );
@@ -364,9 +364,9 @@ function HabitCard({
                 className="p-1"
               >
                 {expanded ? (
-                  <ChevronUp size={16} className="text-neutral-400" />
+                  <ChevronUp size={16} className="text-neutral-500" />
                 ) : (
-                  <ChevronDown size={16} className="text-neutral-400" />
+                  <ChevronDown size={16} className="text-neutral-500" />
                 )}
               </Pressable>
             )}
@@ -380,7 +380,7 @@ function HabitCard({
               hitSlop={8}
               className="p-1"
             >
-              <EllipsisVertical size={16} className="text-neutral-400" />
+              <EllipsisVertical size={16} className="text-neutral-500" />
             </Pressable>
           </View>
 
@@ -723,7 +723,7 @@ export function HabitsScreen({
               <View className="pb-6">
                 <HabitDayLegend />
                 {hiddenByScope > 0 && (
-                  <Text className="px-4 pt-1 text-xs text-neutral-400">
+                  <Text className="px-4 pt-1 text-xs text-neutral-500">
                     {t(yesterday ? "habits.hiddenYesterday" : "habits.hiddenToday", {
                       count: hiddenByScope,
                     })}

@@ -28,7 +28,7 @@ export function SidebarSection() {
         <Text className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
           {t("settings.smartLists")}
         </Text>
-        <Text className="text-xs text-neutral-400 dark:text-neutral-500">
+        <Text className="text-xs text-neutral-500 dark:text-neutral-400">
           {t("settings.smartListsDesc")}
         </Text>
       </View>
@@ -61,7 +61,7 @@ export function SidebarSection() {
               </Text>
             </View>
           </View>
-          <Text className="text-xs text-neutral-400 dark:text-neutral-500">
+          <Text className="text-xs text-neutral-500 dark:text-neutral-400">
             {t("settings.projectsInMenuDesc")}
           </Text>
         </View>
@@ -82,7 +82,7 @@ export function SidebarSection() {
           style={{ marginTop: 8, paddingLeft: 8, overflow: "hidden" }}
         >
           {projects.length === 0 ? (
-            <Text className="py-2 text-sm italic text-neutral-400 dark:text-neutral-500">
+            <Text className="py-2 text-sm italic text-neutral-500 dark:text-neutral-400">
               {t("nav.noProjects")}
             </Text>
           ) : (

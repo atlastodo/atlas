@@ -124,7 +124,7 @@ export function CommandPalette({
             className={`max-h-full w-full max-w-[640px] overflow-hidden rounded-xl ${ELEVATED_SURFACE_CLASS}`}
           >
             <View className="flex-row items-center gap-2 border-b border-neutral-100 px-3 dark:border-neutral-800">
-              <Search size={16} className="text-neutral-400" />
+              <Search size={16} className="text-neutral-500" />
               <TextInput
                 accessibilityLabel={t("palette.search")}
                 placeholder={t("palette.placeholder")}
@@ -148,13 +148,13 @@ export function CommandPalette({
               onScrollToIndexFailed={() => {}}
               ListHeaderComponent={
                 showingTasks ? (
-                  <Text className="px-3 pb-1 pt-3 text-xs font-medium uppercase tracking-wide text-neutral-400">
+                  <Text className="px-3 pb-1 pt-3 text-xs font-medium uppercase tracking-wide text-neutral-500">
                     {t("palette.taskResults")}
                   </Text>
                 ) : null
               }
               ListEmptyComponent={
-                <Text className="px-3 py-6 text-center text-sm text-neutral-400">
+                <Text className="px-3 py-6 text-center text-sm text-neutral-500">
                   {t("palette.noMatches")}
                 </Text>
               }
@@ -174,7 +174,7 @@ export function CommandPalette({
                         {displayTitle(task, t)}
                       </Text>
                       {search && (
-                        <Text className="ml-2 text-xs text-neutral-400">
+                        <Text className="ml-2 text-xs text-neutral-500">
                           {search.context(task)}
                         </Text>
                       )}
@@ -191,7 +191,7 @@ export function CommandPalette({
                   >
                     <Text className={rowLabelClass(active)}>{item.command.label}</Text>
                     {item.command.hint != null && (
-                      <Text className="text-xs text-neutral-400">{item.command.hint}</Text>
+                      <Text className="text-xs text-neutral-500">{item.command.hint}</Text>
                     )}
                   </Pressable>
                 );

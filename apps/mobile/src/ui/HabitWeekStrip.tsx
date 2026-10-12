@@ -107,7 +107,7 @@ export function HabitWeekStrip({
                   ? "font-medium text-white"
                   : scheduled
                     ? "text-neutral-700 dark:text-neutral-100"
-                    : "text-neutral-400 dark:text-neutral-600")
+                    : "text-neutral-500 dark:text-neutral-600")
               }
             >
               {Number(day.slice(8, 10))}
@@ -130,7 +130,7 @@ export function HabitWeekStrip({
                 "text-xs " +
                 (current
                   ? "font-semibold text-accent-600 dark:text-accent-400"
-                  : "text-neutral-400")
+                  : "text-neutral-500")
               }
             >
               {names[weekdayOfKey(day)]}

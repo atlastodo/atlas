@@ -6,7 +6,7 @@ import { Text } from "react-native";
  */
 export function SectionHeading({ children }: { children: string }) {
   return (
-    <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+    <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
       {children}
     </Text>
   );

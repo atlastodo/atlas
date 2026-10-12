@@ -27,12 +27,12 @@ export function LabelsManager() {
   return (
     <View className="gap-1 py-1">
       <View className="mb-1 flex-row items-center gap-1">
-        <Plus size={16} className="text-neutral-400" />
+        <Plus size={16} className="text-neutral-500" />
         <TextInput
           ref={escapeDraft.ref}
           accessibilityLabel={t("label.add")}
           placeholder={t("label.newPlaceholder")}
-          placeholderTextColor="#a1a1aa"
+          placeholderTextColor="#737373"
           value={draft}
           onChangeText={setDraft}
           onSubmitEditing={addLabel}
@@ -42,7 +42,7 @@ export function LabelsManager() {
         />
       </View>
       {labels.length === 0 ? (
-        <Text className="py-1 text-sm text-neutral-400">{t("label.empty")}</Text>
+        <Text className="py-1 text-sm text-neutral-500">{t("label.empty")}</Text>
       ) : (
         labels.map((l) => <LabelRow key={l.id} label={l} />)
       )}
@@ -94,7 +94,7 @@ function LabelRow({ label }: { label: Label }) {
           hitSlop={8}
           className="rounded p-1 web:cursor-pointer"
         >
-          <Trash2 size={16} className="text-neutral-400" />
+          <Trash2 size={16} className="text-neutral-500" />
         </Pressable>
       </View>
       {pickOpen && (

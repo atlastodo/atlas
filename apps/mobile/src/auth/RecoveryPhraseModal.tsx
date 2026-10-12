@@ -67,7 +67,7 @@ export function RecoveryPhraseModal({
                 key={idx}
                 className="flex-row items-center gap-1.5 rounded-md bg-white px-2.5 py-1.5 shadow-sm dark:bg-neutral-700"
               >
-                <Text className="text-xs text-neutral-400 dark:text-neutral-400">{idx + 1}.</Text>
+                <Text className="text-xs text-neutral-500 dark:text-neutral-400">{idx + 1}.</Text>
                 <Text className="font-mono text-xs font-bold text-neutral-900 dark:text-neutral-100">
                   {w}
                 </Text>

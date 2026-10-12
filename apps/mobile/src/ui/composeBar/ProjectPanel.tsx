@@ -171,7 +171,7 @@ export function ProjectSheetBody({
                       <ChevronRight
                         size={20}
                         className={
-                          selected ? "text-accent-600 dark:text-accent-400" : "text-neutral-400"
+                          selected ? "text-accent-600 dark:text-accent-400" : "text-neutral-500"
                         }
                       />
                     )}

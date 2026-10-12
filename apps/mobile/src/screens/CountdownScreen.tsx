@@ -87,7 +87,7 @@ export function CountdownScreen({ now: nowOverride }: { now?: number }) {
         contentContainerClassName="gap-6 p-4"
       >
         <View className="flex-row flex-wrap items-center gap-2">
-          <Text className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+          <Text className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
             {t("countdown.presets")}
           </Text>
           {COUNTDOWN_PRESETS.map((id) => {
@@ -132,7 +132,7 @@ export function CountdownScreen({ now: nowOverride }: { now?: number }) {
                       onPress={() => togglePreset(id)}
                       className="rounded p-1"
                     >
-                      <X size={16} className="text-neutral-400" />
+                      <X size={16} className="text-neutral-500" />
                     </Pressable>
                   }
                 />

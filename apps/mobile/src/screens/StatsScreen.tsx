@@ -294,7 +294,7 @@ export function StatsScreen({ now }: { now?: number }) {
         <View>
           <SectionHeading>{t("stats.byProject")}</SectionHeading>
           {byProject.length === 0 ? (
-            <Text className="text-sm text-neutral-400">{t("stats.noCompletions")}</Text>
+            <Text className="text-sm text-neutral-500">{t("stats.noCompletions")}</Text>
           ) : (
             <View className="gap-1.5">
               {byProject.map((p) => (

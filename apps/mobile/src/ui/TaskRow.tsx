@@ -522,7 +522,7 @@ function TaskRowView({
 
         {locked && !selectMode ? (
           <View className="p-1.5 -m-1.5">
-            <KeyRound size={isWeb ? 20 : 24} className="text-neutral-400" />
+            <KeyRound size={isWeb ? 20 : 24} className="text-neutral-500" />
           </View>
         ) : (
           <GestureDetector gesture={checkboxGesture}>
@@ -565,7 +565,7 @@ function TaskRowView({
               ) : task.is_completed ? (
                 <CircleCheckBig size={isWeb ? 20 : 24} className="text-accent-500" />
               ) : (
-                <Circle size={isWeb ? 20 : 24} className="text-neutral-400" />
+                <Circle size={isWeb ? 20 : 24} className="text-neutral-500" />
               )}
             </Pressable>
           </GestureDetector>
@@ -613,9 +613,9 @@ function TaskRowView({
                 className={
                   (isWeb ? "text-sm " : "text-lg font-normal leading-snug ") +
                   (locked
-                    ? "italic text-neutral-400"
+                    ? "italic text-neutral-500"
                     : task.is_completed
-                      ? "text-neutral-400 line-through"
+                      ? "text-neutral-500 line-through"
                       : "text-neutral-800 dark:text-neutral-100") +
                   (!isEditing ? " web:select-none" : "")
                 }
@@ -627,7 +627,7 @@ function TaskRowView({
               <Text
                 numberOfLines={1}
                 className={
-                  isWeb ? "mt-0.5 text-xs text-neutral-400" : "mt-1 text-base text-neutral-400"
+                  isWeb ? "mt-0.5 text-xs text-neutral-500" : "mt-1 text-base text-neutral-500"
                 }
               >
                 {firstNoteLine}
@@ -647,8 +647,8 @@ function TaskRowView({
                     numberOfLines={1}
                     className={
                       isWeb
-                        ? "shrink text-xs text-neutral-400"
-                        : "shrink text-base text-neutral-400"
+                        ? "shrink text-xs text-neutral-500"
+                        : "shrink text-base text-neutral-500"
                     }
                   >
                     {origin!.project}
@@ -666,8 +666,8 @@ function TaskRowView({
                     numberOfLines={1}
                     className={
                       isWeb
-                        ? "shrink text-xs text-neutral-400"
-                        : "shrink text-base text-neutral-400"
+                        ? "shrink text-xs text-neutral-500"
+                        : "shrink text-base text-neutral-500"
                     }
                   >
                     {origin!.section}
@@ -741,9 +741,9 @@ function TaskRowView({
                 })}
                 className="flex-row items-center gap-1"
               >
-                <CircleCheckBig size={isWeb ? 13 : 16} className="text-neutral-400" />
+                <CircleCheckBig size={isWeb ? 13 : 16} className="text-neutral-500" />
                 <Text
-                  className={(isWeb ? "text-xs " : "text-base ") + "tabular-nums text-neutral-400"}
+                  className={(isWeb ? "text-xs " : "text-base ") + "tabular-nums text-neutral-500"}
                 >
                   {subtaskProgress.done}/{subtaskProgress.total}
                 </Text>
@@ -752,13 +752,13 @@ function TaskRowView({
 
             {task.recurrence !== null && (
               <Marker label={t("task.recurring")}>
-                <Repeat size={iconSize} className="text-neutral-400" />
+                <Repeat size={iconSize} className="text-neutral-500" />
               </Marker>
             )}
 
             {hasReminder && (
               <Marker label={t("task.hasReminder")}>
-                <Bell size={iconSize} className="text-neutral-400" />
+                <Bell size={iconSize} className="text-neutral-500" />
               </Marker>
             )}
 
@@ -803,12 +803,12 @@ function TaskRowView({
                 {expanded ? (
                   <ChevronDown
                     size={isWeb ? 16 : 18}
-                    className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+                    className="text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200"
                   />
                 ) : (
                   <ChevronRight
                     size={isWeb ? 16 : 18}
-                    className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+                    className="text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200"
                   />
                 )}
               </Pressable>
@@ -845,7 +845,7 @@ function TaskRowView({
               >
                 <Info
                   size={16}
-                  className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+                  className="text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200"
                 />
               </Pressable>
             )}
@@ -861,7 +861,7 @@ function TaskRowView({
               >
                 <CalendarClock
                   size={16}
-                  className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+                  className="text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200"
                 />
               </Pressable>
             )}
@@ -878,9 +878,9 @@ function TaskRowView({
                 className="p-1 rounded web:cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800"
               >
                 {expanded ? (
-                  <ChevronDown size={16} className="text-neutral-400" />
+                  <ChevronDown size={16} className="text-neutral-500" />
                 ) : (
-                  <ChevronRight size={16} className="text-neutral-400" />
+                  <ChevronRight size={16} className="text-neutral-500" />
                 )}
               </Pressable>
             )}

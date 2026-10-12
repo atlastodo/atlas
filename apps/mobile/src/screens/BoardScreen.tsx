@@ -611,7 +611,7 @@ export function BoardScreen({ projectId, onOpenTask }: BoardScreenProps) {
               onSubmitEditing={addSection}
               onKeyPress={escapeSection.onKeyPress}
               placeholder={t("board.addSection")}
-              placeholderTextColor="#a1a1aa"
+              placeholderTextColor="#737373"
               returnKeyType="done"
               {...KEEP_FOCUS_SUBMIT}
               className="flex-1 py-1 text-sm text-neutral-900 dark:text-neutral-100"
@@ -940,7 +940,7 @@ function BoardColumn({
               hitSlop={8}
               className="p-1 web:cursor-pointer opacity-70 hover:opacity-100"
             >
-              <Pencil size={14} className="text-neutral-400" />
+              <Pencil size={14} className="text-neutral-500" />
             </Pressable>
           )}
 
@@ -954,7 +954,7 @@ function BoardColumn({
               hitSlop={8}
               className="p-1 web:cursor-pointer opacity-70 hover:opacity-100"
             >
-              <EllipsisVertical size={15} className="text-neutral-400" />
+              <EllipsisVertical size={15} className="text-neutral-500" />
             </Pressable>
           )}
         </View>
@@ -989,7 +989,7 @@ function BoardColumn({
           {over ? (
             ghost
           ) : (
-            <Text className="text-xs text-neutral-400 dark:text-neutral-500">
+            <Text className="text-xs text-neutral-500 dark:text-neutral-400">
               {t("board.noTasks", "No tasks")}
             </Text>
           )}

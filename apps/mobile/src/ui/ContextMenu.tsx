@@ -176,7 +176,7 @@ export function MenuItem({
             ? "text-red-500"
             : selected
               ? "text-accent-600 dark:text-accent-300"
-              : "text-neutral-400"
+              : "text-neutral-500"
         }
       />
       <Text
@@ -201,7 +201,7 @@ export function MenuItem({
 /** A right-aligned key hint on a menu row or heading. Hidden from screen readers: it repeats the hotkey help. */
 export function ShortcutHint({ keys }: { keys: string }) {
   return (
-    <Text aria-hidden className="text-xs text-neutral-400 dark:text-neutral-500">
+    <Text aria-hidden className="text-xs text-neutral-500 dark:text-neutral-400">
       {keys}
     </Text>
   );

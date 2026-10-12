@@ -183,7 +183,7 @@ function ToastItem({
               hitSlop={8}
               className="rounded p-1 web:cursor-pointer"
             >
-              <X size={14} className="text-neutral-400" />
+              <X size={14} className="text-neutral-500" />
             </Pressable>
           </View>
         </View>

@@ -203,7 +203,7 @@ export function ProjectScreen({
   if (!project) {
     return (
       <View className="flex-1 items-center justify-center bg-white dark:bg-zinc-950">
-        <Text className="text-sm text-neutral-400">{t("common.nothingHere")}</Text>
+        <Text className="text-sm text-neutral-500">{t("common.nothingHere")}</Text>
       </View>
     );
   }

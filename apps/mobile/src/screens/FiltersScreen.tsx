@@ -105,7 +105,7 @@ function FilterRow({
           {filter.name}
         </Text>
         <Text
-          className={"font-mono text-neutral-400 " + (isWeb ? "text-xs" : "text-base")}
+          className={"font-mono text-neutral-500 " + (isWeb ? "text-xs" : "text-base")}
           numberOfLines={1}
         >
           {filter.query}
@@ -124,7 +124,7 @@ function FilterRow({
       >
         <Star
           size={isWeb ? 16 : 18}
-          className={isFav ? "text-amber-500 fill-amber-500" : "text-neutral-400"}
+          className={isFav ? "text-amber-500 fill-amber-500" : "text-neutral-500"}
         />
       </Pressable>
       <Pressable
@@ -134,7 +134,7 @@ function FilterRow({
         hitSlop={8}
         className="p-1"
       >
-        <Trash2 size={isWeb ? 16 : 18} className="text-neutral-400" />
+        <Trash2 size={isWeb ? 16 : 18} className="text-neutral-500" />
       </Pressable>
     </View>
   );

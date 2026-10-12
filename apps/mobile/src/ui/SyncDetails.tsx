@@ -286,7 +286,7 @@ export function SyncDetails({ open, onClose }: { open: boolean; onClose: () => v
                     <Text className="text-sm text-neutral-800 dark:text-neutral-100">
                       {q.status === 413 ? t("sync.quarantinedTooLarge") : q.message}
                     </Text>
-                    <Text className="text-xs text-neutral-400">
+                    <Text className="text-xs text-neutral-500">
                       {title === null ? `${q.entityId} · ` : ""}
                       {format.dateTime(q.at)}
                     </Text>

@@ -45,7 +45,7 @@ export function ArchiveScreen() {
     >
       {archivedProjects.length > 0 && (
         <View className="gap-1.5">
-          <Text className="mb-1 text-xs font-semibold uppercase text-neutral-400">
+          <Text className="mb-1 text-xs font-semibold uppercase text-neutral-500">
             {t("archive.projects")}
           </Text>
           {archivedProjects.map((p) => (
@@ -55,9 +55,9 @@ export function ArchiveScreen() {
               // An archived folder is listed too; restoring it brings its subtree back through the read cascade.
               icon={
                 p.kind === "folder" ? (
-                  <Folder size={16} className="text-neutral-400" />
+                  <Folder size={16} className="text-neutral-500" />
                 ) : (
-                  <Hash size={16} className="text-neutral-400" />
+                  <Hash size={16} className="text-neutral-500" />
                 )
               }
               restoreLabel={t("archive.restore")}
@@ -68,7 +68,7 @@ export function ArchiveScreen() {
       )}
       {archivedTasks.length > 0 && (
         <View className="gap-1.5">
-          <Text className="mb-1 text-xs font-semibold uppercase text-neutral-400">
+          <Text className="mb-1 text-xs font-semibold uppercase text-neutral-500">
             {t("archive.tasks")}
           </Text>
           {archivedTasks.map((task: Task) => (
@@ -83,7 +83,7 @@ export function ArchiveScreen() {
       )}
       {archivedRoutines.length > 0 && (
         <View className="gap-1.5">
-          <Text className="mb-1 text-xs font-semibold uppercase text-neutral-400">
+          <Text className="mb-1 text-xs font-semibold uppercase text-neutral-500">
             {t("archive.routines")}
           </Text>
           {archivedRoutines.map((group) => {
@@ -102,7 +102,7 @@ export function ArchiveScreen() {
       )}
       {archivedMembers.length > 0 && (
         <View className="gap-1.5">
-          <Text className="mb-1 text-xs font-semibold uppercase text-neutral-400">
+          <Text className="mb-1 text-xs font-semibold uppercase text-neutral-500">
             {t("archive.habits")}
           </Text>
           {archivedMembers.map((habit) => {
@@ -146,7 +146,7 @@ function ArchiveRow({
             {title}
           </Text>
           {subtitle !== undefined && (
-            <Text numberOfLines={1} className="text-xs text-neutral-400">
+            <Text numberOfLines={1} className="text-xs text-neutral-500">
               {subtitle}
             </Text>
           )}

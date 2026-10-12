@@ -209,7 +209,7 @@ export function AboutScreen() {
                         {t("about.copySystemInfo")}
                       </Text>
                     </View>
-                    <Text className="text-xs text-neutral-400">
+                    <Text className="text-xs text-neutral-500">
                       {copied ? t("about.copied") : "v" + appVersion}
                     </Text>
                   </Pressable>
@@ -227,7 +227,7 @@ export function AboutScreen() {
                           {t("about.openHosted")}
                         </Text>
                       </View>
-                      <Text className="text-xs text-neutral-400">{t("common.open")}</Text>
+                      <Text className="text-xs text-neutral-500">{t("common.open")}</Text>
                     </Pressable>
                   )}
 
@@ -243,7 +243,7 @@ export function AboutScreen() {
                         {t("about.openReport")}
                       </Text>
                     </View>
-                    <Text className="text-xs text-neutral-400">{t("common.open")}</Text>
+                    <Text className="text-xs text-neutral-500">{t("common.open")}</Text>
                   </Pressable>
 
                   {!localOnly && (
@@ -259,7 +259,7 @@ export function AboutScreen() {
                           {t("about.openSync")}
                         </Text>
                       </View>
-                      <Text className="text-xs text-neutral-400">{t("common.open")}</Text>
+                      <Text className="text-xs text-neutral-500">{t("common.open")}</Text>
                     </Pressable>
                   )}
 
@@ -279,7 +279,7 @@ export function AboutScreen() {
                           {t("about.viewRepo")}
                         </Text>
                       </View>
-                      <Text className="text-xs text-neutral-400">GitHub</Text>
+                      <Text className="text-xs text-neutral-500">GitHub</Text>
                     </Pressable>
                   )}
                 </View>

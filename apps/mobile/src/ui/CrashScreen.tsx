@@ -45,14 +45,14 @@ export function CrashScreen({
           {t("crash.title")}
         </Text>
         <Text className="mt-2 text-center text-sm text-neutral-500">{t("crash.body")}</Text>
-        <Text className="mt-1 text-center text-xs text-neutral-400">{reportLine}</Text>
+        <Text className="mt-1 text-center text-xs text-neutral-500">{reportLine}</Text>
       </View>
 
       <ScrollView className="mt-6 max-h-40 rounded-lg bg-neutral-100 p-3 dark:bg-neutral-900">
         <Text className="text-xs text-neutral-500">{error.message}</Text>
         {/* Stack in development only; in production the redacted copy is already sent. */}
         {__DEV__ && error.stack ? (
-          <Text className="mt-2 text-xs text-neutral-400">{error.stack}</Text>
+          <Text className="mt-2 text-xs text-neutral-500">{error.stack}</Text>
         ) : null}
       </ScrollView>
 

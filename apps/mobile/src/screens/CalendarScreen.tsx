@@ -318,7 +318,7 @@ export function CalendarScreen({ onOpenTask }: { onOpenTask?: (task: Task) => vo
                   {labels.map((d) => (
                     <Text
                       key={d}
-                      className="flex-1 px-1 pb-1 text-center text-xs font-medium text-neutral-400"
+                      className="flex-1 px-1 pb-1 text-center text-xs font-medium text-neutral-500"
                     >
                       {d}
                     </Text>
@@ -330,7 +330,7 @@ export function CalendarScreen({ onOpenTask }: { onOpenTask?: (task: Task) => vo
                     <View key={row[0]!.date} className="flex-row">
                       {weekNumbers && (
                         <View className="w-7 items-center justify-center border border-neutral-100 dark:border-neutral-800">
-                          <Text className="text-xs text-neutral-400">{weekOf(row)}</Text>
+                          <Text className="text-xs text-neutral-500">{weekOf(row)}</Text>
                         </View>
                       )}
                       {row.map((cell) => (
@@ -383,7 +383,7 @@ export function CalendarScreen({ onOpenTask }: { onOpenTask?: (task: Task) => vo
                     {t("calendar.agenda")}
                   </Text>
                   {agenda.length === 0 ? (
-                    <Text className="text-sm text-neutral-400">
+                    <Text className="text-sm text-neutral-500">
                       {t("calendar.nothingScheduled")}
                     </Text>
                   ) : (
@@ -518,7 +518,7 @@ function WeekTimelineView({
               onPress={() => onDayPress(cell.date)}
               className="flex-1 items-center py-1"
             >
-              <Text className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500">
+              <Text className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
                 {labels[idx]}
               </Text>
               <View
@@ -545,7 +545,7 @@ function WeekTimelineView({
       {(hasAnyAllDay || movingId) && (
         <View className="flex-row border-b border-neutral-200 bg-neutral-50/70 px-1 py-1 dark:border-neutral-800 dark:bg-zinc-900/50">
           <View className="w-12 items-center justify-center">
-            <Text className="text-[9px] font-medium text-neutral-400 dark:text-neutral-500">
+            <Text className="text-[9px] font-medium text-neutral-500 dark:text-neutral-400">
               {t("calendar.endOfDay")}
             </Text>
           </View>
@@ -591,7 +591,7 @@ function WeekTimelineView({
                 className="items-end justify-start pr-1"
                 style={{ height: HOUR_HEIGHT }}
               >
-                <Text className="-mt-2 text-[10px] font-medium text-neutral-400 dark:text-neutral-500">
+                <Text className="-mt-2 text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
                   {hourLabels[h]}
                 </Text>
               </View>
@@ -687,7 +687,7 @@ function WeekTimelineView({
             {t("calendar.agenda")}
           </Text>
           {agenda.length === 0 ? (
-            <Text className="text-sm text-neutral-400 dark:text-neutral-500">
+            <Text className="text-sm text-neutral-500 dark:text-neutral-400">
               {t("calendar.nothingScheduled")}
             </Text>
           ) : (
@@ -793,7 +793,7 @@ function DayCellView({
               ? "text-white"
               : cell.inMonth
                 ? "text-neutral-600 dark:text-neutral-300"
-                : "text-neutral-400 dark:text-neutral-600")
+                : "text-neutral-500 dark:text-neutral-600")
           }
         >
           {cell.day}

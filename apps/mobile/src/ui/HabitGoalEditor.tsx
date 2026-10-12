@@ -141,7 +141,7 @@ export function HabitGoalEditor({
                   <Text
                     className={
                       "text-xs " +
-                      (on ? "font-medium text-accent-700 dark:text-accent-300" : "text-neutral-400")
+                      (on ? "font-medium text-accent-700 dark:text-accent-300" : "text-neutral-500")
                     }
                   >
                     {labels[i]}

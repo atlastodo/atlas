@@ -135,7 +135,7 @@ function SidebarRow({
       )}
       {/* Web shows the folder chevron on hover only; native has no hover, so it always shows. */}
       {item.expanded !== undefined && (hovered || Platform.OS !== "web") && (
-        <Chevron size={16} className="text-neutral-400" />
+        <Chevron size={16} className="text-neutral-500" />
       )}
     </Pressable>
   );

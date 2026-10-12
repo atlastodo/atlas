@@ -212,7 +212,7 @@ export function ListPicker<T extends string>({
             >
               {selected?.label ?? ""}
             </Text>
-            <ChevronDown size={14} className="text-neutral-400" />
+            <ChevronDown size={14} className="text-neutral-500" />
           </Pressable>
         </View>
       ) : (
@@ -267,9 +267,9 @@ export function ListPicker<T extends string>({
                 )}
               </View>
               {open ? (
-                <ChevronUp size={14} className="text-neutral-400" />
+                <ChevronUp size={14} className="text-neutral-500" />
               ) : (
-                <ChevronDown size={14} className="text-neutral-400" />
+                <ChevronDown size={14} className="text-neutral-500" />
               )}
             </Pressable>
           </View>
@@ -306,11 +306,11 @@ export function ListPicker<T extends string>({
               </View>
               {searchable && (
                 <View className="mx-5 mb-2 flex-row items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-800/40">
-                  <Search size={16} className="text-neutral-400" />
+                  <Search size={16} className="text-neutral-500" />
                   <TextInput
                     accessibilityLabel={t("common.search")}
                     placeholder={t("common.search")}
-                    placeholderTextColor="#a1a1aa"
+                    placeholderTextColor="#737373"
                     value={query}
                     onChangeText={setQuery}
                     autoFocus
@@ -325,14 +325,14 @@ export function ListPicker<T extends string>({
                       onPress={() => setQuery("")}
                       className="rounded p-0.5"
                     >
-                      <X size={14} className="text-neutral-400" />
+                      <X size={14} className="text-neutral-500" />
                     </Pressable>
                   )}
                 </View>
               )}
               <ScrollView keyboardShouldPersistTaps="handled" className="px-2 pb-2">
                 {shown.length === 0 ? (
-                  <Text className="p-4 text-center text-sm text-neutral-400">
+                  <Text className="p-4 text-center text-sm text-neutral-500">
                     {t("common.nothingHere")}
                   </Text>
                 ) : (
@@ -408,11 +408,11 @@ export function ListPicker<T extends string>({
             >
               {searchable && (
                 <View className="flex-row items-center gap-2 border-b border-neutral-100 px-3 py-2 dark:border-neutral-800">
-                  <Search size={14} className="text-neutral-400" />
+                  <Search size={14} className="text-neutral-500" />
                   <TextInput
                     accessibilityLabel={t("common.search")}
                     placeholder={t("common.search")}
-                    placeholderTextColor="#a1a1aa"
+                    placeholderTextColor="#737373"
                     value={query}
                     onChangeText={setQuery}
                     autoFocus
@@ -427,7 +427,7 @@ export function ListPicker<T extends string>({
                       onPress={() => setQuery("")}
                       className="rounded p-0.5"
                     >
-                      <X size={12} className="text-neutral-400" />
+                      <X size={12} className="text-neutral-500" />
                     </Pressable>
                   )}
                 </View>
@@ -440,7 +440,7 @@ export function ListPicker<T extends string>({
                 className="py-1"
               >
                 {shown.length === 0 ? (
-                  <Text className="p-3 text-center text-xs text-neutral-400">
+                  <Text className="p-3 text-center text-xs text-neutral-500">
                     {t("common.nothingHere")}
                   </Text>
                 ) : (
@@ -475,7 +475,7 @@ export function ListPicker<T extends string>({
                             {item.label}
                           </Text>
                           {item.hint != null && (
-                            <Text className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                            <Text className="text-[11px] text-neutral-500 dark:text-neutral-400">
                               {item.hint}
                             </Text>
                           )}
@@ -513,11 +513,11 @@ export function ListPicker<T extends string>({
 
             {searchable && (
               <View className="my-2 flex-row items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-800/40">
-                <Search size={16} className="text-neutral-400" />
+                <Search size={16} className="text-neutral-500" />
                 <TextInput
                   accessibilityLabel={t("common.search")}
                   placeholder={t("common.search")}
-                  placeholderTextColor="#a1a1aa"
+                  placeholderTextColor="#737373"
                   value={query}
                   onChangeText={setQuery}
                   autoCapitalize="none"
@@ -557,7 +557,7 @@ export function ListPicker<T extends string>({
                 );
               }}
               ListEmptyComponent={
-                <Text className="p-4 text-sm text-neutral-400">{t("common.nothingHere")}</Text>
+                <Text className="p-4 text-sm text-neutral-500">{t("common.nothingHere")}</Text>
               }
             />
           </View>

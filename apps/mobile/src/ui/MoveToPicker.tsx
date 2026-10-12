@@ -216,7 +216,7 @@ function Row({
         {label}
       </Text>
       {selected && <Check size={16} className="text-accent-600" />}
-      {chevron && !selected && !disabled && <ChevronRight size={16} className="text-neutral-400" />}
+      {chevron && !selected && !disabled && <ChevronRight size={16} className="text-neutral-500" />}
     </Pressable>
   );
 }

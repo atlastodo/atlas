@@ -42,7 +42,7 @@ export function LabelWebPanel({
       )}
       <PanelList>
         {labels.length === 0 && (
-          <Text className="px-2 py-2 text-xs text-neutral-400">{t("label.none")}</Text>
+          <Text className="px-2 py-2 text-xs text-neutral-500">{t("label.none")}</Text>
         )}
         {labels.map((l) => (
           <ListRow
@@ -85,7 +85,7 @@ export function LabelSheetBody({
       )}
 
       {labels.length === 0 && (
-        <Text className="py-6 text-center text-sm text-neutral-400">{t("label.none")}</Text>
+        <Text className="py-6 text-center text-sm text-neutral-500">{t("label.none")}</Text>
       )}
       {labels.map((l) => {
         const selected = selectedIds.includes(l.id);

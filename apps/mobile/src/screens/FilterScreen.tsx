@@ -108,7 +108,7 @@ function FilterEditor({ filterId, onOpenTask, onSaved, onDeleted }: FilterScreen
           <TextInput
             accessibilityLabel={t("filter.name")}
             placeholder={t("filter.name")}
-            placeholderTextColor="#a1a1aa"
+            placeholderTextColor="#737373"
             value={name}
             onChangeText={setName}
             className="flex-1 rounded-md border border-neutral-200 px-2 py-1.5 text-sm text-neutral-900 dark:border-neutral-700 dark:text-neutral-100"
@@ -128,13 +128,13 @@ function FilterEditor({ filterId, onOpenTask, onSaved, onDeleted }: FilterScreen
           </Pressable>
         </View>
       ) : existing ? null : (
-        <Text className="text-sm text-neutral-400">{t("common.nothingHere")}</Text>
+        <Text className="text-sm text-neutral-500">{t("common.nothingHere")}</Text>
       )}
 
       <TextInput
         accessibilityLabel={t("filter.query")}
         placeholder={t("filter.queryPlaceholder")}
-        placeholderTextColor="#a1a1aa"
+        placeholderTextColor="#737373"
         value={query}
         onChangeText={setQuery}
         onBlur={commitQuery}
@@ -156,17 +156,17 @@ function FilterEditor({ filterId, onOpenTask, onSaved, onDeleted }: FilterScreen
         className="flex-row items-center gap-1 self-start"
       >
         {helpOpen ? (
-          <ChevronDown size={14} className="text-neutral-400" />
+          <ChevronDown size={14} className="text-neutral-500" />
         ) : (
-          <ChevronRight size={14} className="text-neutral-400" />
+          <ChevronRight size={14} className="text-neutral-500" />
         )}
-        <Text className="text-xs text-neutral-400">{t("filter.help")}</Text>
+        <Text className="text-xs text-neutral-500">{t("filter.help")}</Text>
       </Pressable>
       {helpOpen && <FilterHelp />}
 
       {/* One toolbar row: the match count, then Select and the filter's own actions. */}
       <View className="flex-row items-center gap-2">
-        <Text className="flex-1 text-xs text-neutral-400">
+        <Text className="flex-1 text-xs text-neutral-500">
           {parsed.ok ? t("filter.matching", { count: results.length }) : t("filter.enterValid")}
         </Text>
         {results.length > 0 && <SelectButton />}
@@ -188,7 +188,7 @@ function FilterEditor({ filterId, onOpenTask, onSaved, onDeleted }: FilterScreen
             >
               <Star
                 size={18}
-                className={isFav ? "text-amber-500 fill-amber-500" : "text-neutral-400"}
+                className={isFav ? "text-amber-500 fill-amber-500" : "text-neutral-500"}
               />
             </Pressable>
             <StyleEditButton label={t("filter.editStyle")} onPress={() => setEditing(true)} />
@@ -206,7 +206,7 @@ function FilterEditor({ filterId, onOpenTask, onSaved, onDeleted }: FilterScreen
               hitSlop={8}
               className="p-1"
             >
-              <Trash2 size={18} className="text-neutral-400" />
+              <Trash2 size={18} className="text-neutral-500" />
             </Pressable>
           </>
         )}

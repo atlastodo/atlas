@@ -438,8 +438,8 @@ export function TaskDetailScreen({
         >
           <View className="gap-2">
             <View className="flex-row items-center gap-2">
-              <KeyRound size={isWeb ? 18 : 20} className="text-neutral-400" />
-              <Text className={"flex-1 italic text-neutral-400 " + (isWeb ? "text-lg" : "text-xl")}>
+              <KeyRound size={isWeb ? 18 : 20} className="text-neutral-500" />
+              <Text className={"flex-1 italic text-neutral-500 " + (isWeb ? "text-lg" : "text-xl")}>
                 {t("task.lockedTitle")}
               </Text>
             </View>
@@ -489,7 +489,7 @@ export function TaskDetailScreen({
             {task.is_completed ? (
               <CircleCheckBig size={24} className="text-accent-500" />
             ) : (
-              <Circle size={24} className="text-neutral-400 dark:text-neutral-600" />
+              <Circle size={24} className="text-neutral-500 dark:text-neutral-600" />
             )}
           </Pressable>
         )}
@@ -513,7 +513,7 @@ export function TaskDetailScreen({
           }}
           className={
             "flex-1 font-semibold text-neutral-900 dark:text-neutral-100 " +
-            (task.is_completed ? "line-through text-neutral-400 dark:text-neutral-500 " : "") +
+            (task.is_completed ? "line-through text-neutral-500 dark:text-neutral-400 " : "") +
             (isWide ? "text-2xl font-bold" : isWeb ? "text-lg" : "text-xl font-bold")
           }
         />
@@ -545,7 +545,7 @@ export function TaskDetailScreen({
           numberOfLines={isWide ? 4 : 3}
           textAlignVertical="top"
           placeholder={t("taskDetail.notesPlaceholder")}
-          placeholderTextColor="#a1a1aa"
+          placeholderTextColor="#737373"
           className={
             (isWide ? "min-h-24 " : "min-h-20 ") +
             "rounded-xl border border-neutral-200 px-3.5 py-2.5 text-neutral-900 dark:border-neutral-800 dark:text-neutral-100 " +
@@ -627,7 +627,7 @@ export function TaskDetailScreen({
                 : "border-neutral-200 bg-neutral-100/80 dark:border-neutral-800 dark:bg-neutral-900/60")
         }
       >
-        <Flag size={14} className={PRIORITY_COLOR[task.priority] ?? "text-neutral-400"} />
+        <Flag size={14} className={PRIORITY_COLOR[task.priority] ?? "text-neutral-500"} />
         <Text
           className={
             "text-xs font-medium " +
@@ -713,7 +713,7 @@ export function TaskDetailScreen({
           {subtasks.length > 0 && (
             <Text
               className={
-                (isWeb ? "text-xs " : "text-sm ") + "font-mono tabular-nums text-neutral-400"
+                (isWeb ? "text-xs " : "text-sm ") + "font-mono tabular-nums text-neutral-500"
               }
             >
               {subtasksDone}/{subtasks.length}
@@ -790,7 +790,7 @@ export function TaskDetailScreen({
           onPress={handleOpenSubtaskAdd}
           className="w-full min-w-0 flex-row items-center gap-2 pt-2.5 pb-1 border-t border-neutral-200/60 dark:border-neutral-800/60 web:cursor-pointer"
         >
-          <Plus size={18} className="text-neutral-400 shrink-0" />
+          <Plus size={18} className="text-neutral-500 shrink-0" />
           <Text numberOfLines={1} className="flex-1 min-w-0 text-base font-normal text-neutral-500">
             {t("taskDetail.addSubtask")}
           </Text>
@@ -1106,7 +1106,7 @@ export function TaskDetailScreen({
         >
           {sectionName ? `${projectName} / ${sectionName}` : projectName}
         </Text>
-        <ChevronRight size={16} className="text-neutral-400" />
+        <ChevronRight size={16} className="text-neutral-500" />
       </Pressable>
     </View>
   );
@@ -1237,7 +1237,7 @@ export function TaskDetailScreen({
 
             {/* Right Column: Properties Sidebar */}
             <View className="w-[320px] shrink-0 gap-5 border-l border-neutral-200 pl-6 dark:border-neutral-800">
-              <Text className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+              <Text className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
                 {t("taskDetail.properties")}
               </Text>
               {projectSection}
@@ -1399,7 +1399,7 @@ function SubtaskRow({
     // Undecryptable here: no toggle or rename (both would write placeholder fields); a tap opens the subtask.
     return (
       <View className="group flex-row items-center gap-3 py-0.5">
-        <KeyRound size={18} className="text-neutral-400" />
+        <KeyRound size={18} className="text-neutral-500" />
         <Pressable
           accessibilityRole={Platform.OS !== "web" ? "button" : undefined}
           accessibilityLabel={t("task.lockedTitle")}
@@ -1410,7 +1410,7 @@ function SubtaskRow({
           <Text
             numberOfLines={1}
             className={
-              "italic text-neutral-400 " + (Platform.OS === "web" ? "text-sm" : "text-base")
+              "italic text-neutral-500 " + (Platform.OS === "web" ? "text-sm" : "text-base")
             }
           >
             {t("task.lockedTitle")}
@@ -1432,7 +1432,7 @@ function SubtaskRow({
         {task.is_completed ? (
           <CircleCheckBig size={18} className="text-accent-500" />
         ) : (
-          <Circle size={18} className="text-neutral-400" />
+          <Circle size={18} className="text-neutral-500" />
         )}
       </Pressable>
 
@@ -1469,7 +1469,7 @@ function SubtaskRow({
               className={
                 (Platform.OS === "web" ? "text-sm " : "text-base ") +
                 (task.is_completed
-                  ? "text-neutral-400 line-through"
+                  ? "text-neutral-500 line-through"
                   : "text-neutral-800 dark:text-neutral-100")
               }
             >
@@ -1499,7 +1499,7 @@ function SubtaskRow({
           >
             <Info
               size={16}
-              className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+              className="text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200"
             />
           </Pressable>
         )}

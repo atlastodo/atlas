@@ -20,7 +20,7 @@ export function DesktopUpdateSection() {
   return (
     <View className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
       <View className="mb-3 flex-row items-center justify-between">
-        <Text className="text-xs font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+        <Text className="text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
           {t("desktopUpdate.title")}
         </Text>
         {state.manager && (

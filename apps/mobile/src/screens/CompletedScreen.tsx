@@ -50,7 +50,7 @@ export function CompletedScreen({ onOpenTask }: CompletedScreenProps = {}) {
       <TextInput
         accessibilityLabel={t("stats.search")}
         placeholder={t("stats.search")}
-        placeholderTextColor="#a1a1aa"
+        placeholderTextColor="#737373"
         value={query}
         onChangeText={setQuery}
         className="grow basis-[240px] rounded-md border border-neutral-200 px-3 py-2 text-sm text-neutral-900 dark:border-neutral-800 dark:text-neutral-100"

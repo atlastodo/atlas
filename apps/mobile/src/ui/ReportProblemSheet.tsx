@@ -136,7 +136,7 @@ export function ReportProblemSheet({ open, onClose }: { open: boolean; onClose: 
                     value={String(preview.breadcrumbs.length)}
                   />
                   {showPayload ? (
-                    <Text className="mt-2 text-xs text-neutral-400">
+                    <Text className="mt-2 text-xs text-neutral-500">
                       {JSON.stringify(preview, null, 2)}
                     </Text>
                   ) : null}

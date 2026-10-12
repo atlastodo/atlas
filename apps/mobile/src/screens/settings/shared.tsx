@@ -38,7 +38,7 @@ export function PasswordInput(props: TextInputProps) {
       secureTextEntry
       autoCapitalize="none"
       autoCorrect={false}
-      placeholderTextColor="#a1a1aa"
+      placeholderTextColor="#737373"
       className="min-w-56 rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 dark:border-neutral-600 dark:bg-zinc-900 dark:text-neutral-100"
       {...props}
     />

@@ -428,7 +428,7 @@ function AttachmentRow({
 
   return (
     <View className="flex-row items-center gap-2.5 rounded-lg px-1 py-1.5">
-      <Icon size={18} className="text-neutral-400" />
+      <Icon size={18} className="text-neutral-500" />
       <Pressable
         accessibilityRole={openable ? "button" : undefined}
         accessibilityLabel={t("attachment.open", { name })}
@@ -439,8 +439,8 @@ function AttachmentRow({
           {name}
         </Text>
         <View className="flex-row items-center gap-1.5">
-          {size !== "" && <Text className="text-xs tabular-nums text-neutral-400">{size}</Text>}
-          {badge && <Text className="text-xs text-neutral-400">{badge}</Text>}
+          {size !== "" && <Text className="text-xs tabular-nums text-neutral-500">{size}</Text>}
+          {badge && <Text className="text-xs text-neutral-500">{badge}</Text>}
           {row.detail && (
             <Text numberOfLines={1} className="text-xs text-red-500">
               {row.detail}
@@ -455,7 +455,7 @@ function AttachmentRow({
           onPress={onRetry}
           hitSlop={8}
         >
-          <RotateCcw size={14} className="text-neutral-400" />
+          <RotateCcw size={14} className="text-neutral-500" />
         </Pressable>
       )}
       <Pressable
@@ -464,7 +464,7 @@ function AttachmentRow({
         onPress={onDelete}
         hitSlop={8}
       >
-        <Trash2 size={14} className="text-neutral-400" />
+        <Trash2 size={14} className="text-neutral-500" />
       </Pressable>
     </View>
   );

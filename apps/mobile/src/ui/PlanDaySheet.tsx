@@ -241,7 +241,7 @@ export function PlanDaySheet({
                           {displayTitle(item.task, t)}
                         </Text>
                         {item.bucket === "upcoming" && (
-                          <Text className="text-[11px] text-neutral-400">
+                          <Text className="text-[11px] text-neutral-500">
                             {t("planDay.addedFromUpcoming")}
                           </Text>
                         )}
@@ -337,7 +337,7 @@ export function PlanDaySheet({
                 </Pressable>
               </View>
               {pool.length === 0 ? (
-                <Text className="py-4 text-center text-sm text-neutral-400">
+                <Text className="py-4 text-center text-sm text-neutral-500">
                   {t("planDay.upcomingEmpty")}
                 </Text>
               ) : (

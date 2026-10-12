@@ -82,7 +82,7 @@ export function CommentSection({ task }: { task: Task }) {
       </View>
 
       {feed.length === 0 && (
-        <Text className="text-xs text-neutral-400">{t("comment.noActivity")}</Text>
+        <Text className="text-xs text-neutral-500">{t("comment.noActivity")}</Text>
       )}
 
       {feed.map((item) =>
@@ -92,7 +92,7 @@ export function CommentSection({ task }: { task: Task }) {
               <Text className="text-sm font-medium text-neutral-800 dark:text-neutral-100">
                 {nameOf(item.data.author_id)}
               </Text>
-              <Text className="text-xs text-neutral-400">{fmt.dateTime(item.data.created_at)}</Text>
+              <Text className="text-xs text-neutral-500">{fmt.dateTime(item.data.created_at)}</Text>
               {item.data.author_id === myId && (
                 <Pressable
                   accessibilityRole="button"
@@ -103,7 +103,7 @@ export function CommentSection({ task }: { task: Task }) {
                   }}
                   hitSlop={8}
                 >
-                  <Trash2 size={14} className="text-neutral-400" />
+                  <Trash2 size={14} className="text-neutral-500" />
                 </Pressable>
               )}
             </View>
@@ -114,7 +114,7 @@ export function CommentSection({ task }: { task: Task }) {
             <Text className="text-xs text-neutral-500">
               {nameOf(item.data.actor_id)} {describe(item.data)}
             </Text>
-            <Text className="text-xs text-neutral-400">{fmt.dateTime(item.data.created_at)}</Text>
+            <Text className="text-xs text-neutral-500">{fmt.dateTime(item.data.created_at)}</Text>
           </View>
         ),
       )}
@@ -128,7 +128,7 @@ export function CommentSection({ task }: { task: Task }) {
           onSubmitEditing={submit}
           onKeyPress={escapeDraft.onKeyPress}
           placeholder={t("comment.write")}
-          placeholderTextColor="#a1a1aa"
+          placeholderTextColor="#737373"
           {...KEEP_FOCUS_SUBMIT}
           className="flex-1 rounded-lg border border-neutral-200 px-3.5 py-2 text-sm text-neutral-900 dark:border-neutral-700 dark:text-neutral-100"
         />

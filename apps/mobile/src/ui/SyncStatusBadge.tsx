@@ -59,7 +59,7 @@ export function SyncStatusBadge() {
           <Text
             numberOfLines={1}
             ellipsizeMode="tail"
-            className="text-xs text-neutral-400 shrink min-w-0"
+            className="text-xs text-neutral-500 shrink min-w-0"
           >
             {label}
           </Text>
@@ -96,7 +96,7 @@ export function SyncStatusBadge() {
             <Text
               numberOfLines={1}
               ellipsizeMode="tail"
-              className="text-xs text-neutral-400 shrink min-w-0"
+              className="text-xs text-neutral-500 shrink min-w-0"
             >
               {t("sync.syncing")}
             </Text>
@@ -107,7 +107,7 @@ export function SyncStatusBadge() {
             <Text
               numberOfLines={1}
               ellipsizeMode="tail"
-              className="text-xs text-neutral-400 shrink min-w-0"
+              className="text-xs text-neutral-500 shrink min-w-0"
             >
               {label}
             </Text>

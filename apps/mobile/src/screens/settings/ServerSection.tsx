@@ -51,7 +51,7 @@ export function ServerSection() {
             setSaved(false);
           }}
           placeholder={defaultServerUrl || "http://localhost:8080"}
-          placeholderTextColor="#a1a1aa"
+          placeholderTextColor="#737373"
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"

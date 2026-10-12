@@ -107,7 +107,7 @@ export function SectionHeaderRow({
             >
               {name}
             </Text>
-            <Text className={isWeb ? "text-xs text-neutral-400" : "text-sm text-neutral-400"}>
+            <Text className={isWeb ? "text-xs text-neutral-500" : "text-sm text-neutral-500"}>
               {count}
             </Text>
           </Pressable>
@@ -118,7 +118,7 @@ export function SectionHeaderRow({
             hitSlop={8}
             className="p-1 web:cursor-pointer"
           >
-            <Pencil size={isWeb ? 14 : 16} className="text-neutral-400" />
+            <Pencil size={isWeb ? 14 : 16} className="text-neutral-500" />
           </Pressable>
           {/* A visible 3-dots button opens the full section menu (rename/duplicate/select/move/
               archive/delete) -- the long-press is undiscoverable and has no mouse equivalent. */}
@@ -131,7 +131,7 @@ export function SectionHeaderRow({
             hitSlop={8}
             className="p-1 web:cursor-pointer"
           >
-            <EllipsisVertical size={isWeb ? 16 : 18} className="text-neutral-400" />
+            <EllipsisVertical size={isWeb ? 16 : 18} className="text-neutral-500" />
           </Pressable>
         </>
       )}
@@ -152,7 +152,7 @@ export function NoSectionHeaderRow({ count }: { count: number }) {
       >
         {t("board.noSection")}
       </Text>
-      <Text className={isWeb ? "text-xs text-neutral-400" : "text-sm text-neutral-400"}>
+      <Text className={isWeb ? "text-xs text-neutral-500" : "text-sm text-neutral-500"}>
         {count}
       </Text>
     </View>

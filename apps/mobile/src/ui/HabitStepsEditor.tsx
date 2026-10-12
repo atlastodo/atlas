@@ -58,7 +58,7 @@ function StepRow({
 
   return (
     <View className="flex-row items-center gap-2">
-      <Text className="w-5 text-right text-xs tabular-nums text-neutral-400">{index + 1}.</Text>
+      <Text className="w-5 text-right text-xs tabular-nums text-neutral-500">{index + 1}.</Text>
       <TextInput
         accessibilityLabel={t("habits.stepLabel", { index: index + 1 })}
         ref={esc.ref}
@@ -80,7 +80,7 @@ function StepRow({
         hitSlop={8}
         className="p-1"
       >
-        <EllipsisVertical size={16} className="text-neutral-400" />
+        <EllipsisVertical size={16} className="text-neutral-500" />
       </Pressable>
     </View>
   );
@@ -159,7 +159,7 @@ export function HabitStepsEditor({
 
       {steps.length < MAX_STEPS && (
         <View className="flex-row items-center gap-2">
-          <Plus size={16} className="text-neutral-400" />
+          <Plus size={16} className="text-neutral-500" />
           <TextInput
             accessibilityLabel={t("habits.addStep")}
             ref={esc.ref}
@@ -171,7 +171,7 @@ export function HabitStepsEditor({
             {...KEEP_FOCUS_SUBMIT}
             returnKeyType="done"
             placeholder={t("habits.addStep")}
-            placeholderTextColor="#a1a1aa"
+            placeholderTextColor="#737373"
             className="flex-1 py-1 text-sm text-neutral-900 dark:text-neutral-100"
           />
         </View>

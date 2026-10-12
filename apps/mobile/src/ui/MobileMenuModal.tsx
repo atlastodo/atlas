@@ -165,7 +165,7 @@ export function MobileMenuModal({
                     return (
                       <View key={section.key || idx} className="mb-4">
                         {title !== "" && (
-                          <Text className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+                          <Text className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
                             {title}
                           </Text>
                         )}
@@ -240,7 +240,7 @@ export function MobileMenuModal({
 
                                   {/* Folder expand/collapse or chevron */}
                                   {item.onToggle ? (
-                                    <Chevron size={20} className="text-neutral-400" />
+                                    <Chevron size={20} className="text-neutral-500" />
                                   ) : null}
                                 </View>
                               </Pressable>

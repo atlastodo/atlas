@@ -44,7 +44,7 @@ export function LabelPicker({
     <View className="gap-2">
       <View className="flex-row flex-wrap items-center gap-1">
         {selected.length === 0 && (
-          <Text className="text-xs text-neutral-400">{t("label.none")}</Text>
+          <Text className="text-xs text-neutral-500">{t("label.none")}</Text>
         )}
         {selected.map((l) => (
           <View
@@ -63,7 +63,7 @@ export function LabelPicker({
               hitSlop={8}
               className="web:cursor-pointer"
             >
-              <X size={12} className="text-neutral-400" />
+              <X size={12} className="text-neutral-500" />
             </Pressable>
           </View>
         ))}
@@ -73,7 +73,7 @@ export function LabelPicker({
         ref={escapeQuery.ref}
         accessibilityLabel={t("label.add")}
         placeholder={t("label.addPlaceholder")}
-        placeholderTextColor="#a1a1aa"
+        placeholderTextColor="#737373"
         value={query}
         onChangeText={setQuery}
         onSubmitEditing={() => {

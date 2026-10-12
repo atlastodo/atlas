@@ -154,7 +154,7 @@ export function BoardCard({
       <View className="flex-row items-start gap-2.5">
         {locked ? (
           <View className="mt-0.5 p-0.5">
-            <KeyRound size={18} className="text-neutral-400" />
+            <KeyRound size={18} className="text-neutral-500" />
           </View>
         ) : (
           <Pressable
@@ -170,7 +170,7 @@ export function BoardCard({
             {task.is_completed ? (
               <CircleCheckBig size={18} className="text-accent-500" />
             ) : (
-              <Circle size={18} className="text-neutral-400" />
+              <Circle size={18} className="text-neutral-500" />
             )}
           </Pressable>
         )}
@@ -180,9 +180,9 @@ export function BoardCard({
             className={
               (Platform.OS === "web" ? "text-sm " : "text-base font-normal leading-snug ") +
               (locked
-                ? "italic text-neutral-400"
+                ? "italic text-neutral-500"
                 : task.is_completed
-                  ? "text-neutral-400 line-through"
+                  ? "text-neutral-500 line-through"
                   : "text-neutral-900 dark:text-neutral-100")
             }
           >
@@ -192,7 +192,7 @@ export function BoardCard({
           {firstNoteLine !== "" && (
             <Text
               numberOfLines={1}
-              className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500"
+              className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400"
             >
               {firstNoteLine}
               {hasMoreNotes ? " ..." : ""}
@@ -212,7 +212,7 @@ export function BoardCard({
             hitSlop={8}
             className="p-1 -mr-1 opacity-60 active:opacity-100"
           >
-            <EllipsisVertical size={16} className="text-neutral-400" />
+            <EllipsisVertical size={16} className="text-neutral-500" />
           </Pressable>
         )}
       </View>
@@ -232,7 +232,7 @@ export function BoardCard({
                 (overdue ? "bg-red-50 dark:bg-red-950/40" : "bg-neutral-100 dark:bg-neutral-800")
               }
             >
-              <Calendar size={12} className={overdue ? "text-red-500" : "text-neutral-400"} />
+              <Calendar size={12} className={overdue ? "text-red-500" : "text-neutral-500"} />
               <Text
                 className={
                   "text-xs font-medium " +
@@ -272,22 +272,22 @@ export function BoardCard({
                   : "")
               }
             >
-              <Check size={12} className="text-neutral-400" />
+              <Check size={12} className="text-neutral-500" />
               <Text className="text-xs text-neutral-500 dark:text-neutral-400">
                 {subtaskCount.completed}/{subtaskCount.total}
               </Text>
               {nested &&
                 (expanded ? (
-                  <ChevronDown size={12} className="text-neutral-400" />
+                  <ChevronDown size={12} className="text-neutral-500" />
                 ) : (
-                  <ChevronRight size={12} className="text-neutral-400" />
+                  <ChevronRight size={12} className="text-neutral-500" />
                 ))}
             </Pressable>
           )}
 
           {task.recurrence !== null && (
             <View className="flex-row items-center">
-              <Repeat size={12} className="text-neutral-400" />
+              <Repeat size={12} className="text-neutral-500" />
             </View>
           )}
         </View>
@@ -330,7 +330,7 @@ function SubtaskRow({
     >
       {locked ? (
         <View className="p-0.5">
-          <KeyRound size={14} className="text-neutral-400" />
+          <KeyRound size={14} className="text-neutral-500" />
         </View>
       ) : (
         <Pressable
@@ -343,14 +343,14 @@ function SubtaskRow({
           hitSlop={8}
           className="p-0.5 web:cursor-pointer"
         >
-          <Circle size={14} className="text-neutral-400" />
+          <Circle size={14} className="text-neutral-500" />
         </Pressable>
       )}
       <Text
         numberOfLines={1}
         className={
           "min-w-0 flex-1 text-xs " +
-          (locked ? "italic text-neutral-400" : "text-neutral-700 dark:text-neutral-300")
+          (locked ? "italic text-neutral-500" : "text-neutral-700 dark:text-neutral-300")
         }
       >
         {displayTitle(task, t)}

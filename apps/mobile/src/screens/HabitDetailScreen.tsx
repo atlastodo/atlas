@@ -193,7 +193,7 @@ export function HabitDetailScreen({
               <Text numberOfLines={1} className="shrink text-xs text-neutral-500">
                 {group.name}
               </Text>
-              <ChevronRight size={12} className="shrink-0 text-neutral-400" />
+              <ChevronRight size={12} className="shrink-0 text-neutral-500" />
             </Pressable>
           ) : (
             <Pressable
@@ -202,8 +202,8 @@ export function HabitDetailScreen({
               onPress={() => setChoosingGroup(true)}
               className="min-w-0 flex-1 flex-row items-center gap-1.5"
             >
-              <FolderPlus size={14} className="shrink-0 text-neutral-400" />
-              <Text numberOfLines={1} className="shrink text-xs text-neutral-400">
+              <FolderPlus size={14} className="shrink-0 text-neutral-500" />
+              <Text numberOfLines={1} className="shrink text-xs text-neutral-500">
                 {t("habits.addToAGroup")}
               </Text>
             </Pressable>
@@ -217,7 +217,7 @@ export function HabitDetailScreen({
           onChangeText={setNotes}
           onBlur={commitNotes}
           placeholder={t("habits.notesPlaceholder")}
-          placeholderTextColor="#a1a1aa"
+          placeholderTextColor="#737373"
           multiline
           className="min-h-16 text-sm text-neutral-700 dark:text-neutral-200"
         />
@@ -276,7 +276,7 @@ export function HabitDetailScreen({
         <View>
           <SectionHeading>{t("habits.strength")}</SectionHeading>
           {total === 0 ? (
-            <Text className="text-sm text-neutral-400">{t("habits.strengthEmpty")}</Text>
+            <Text className="text-sm text-neutral-500">{t("habits.strengthEmpty")}</Text>
           ) : (
             <>
               {/* The track matters: the scale is fixed at 1, so a young habit's bars are a few pixels tall. */}
@@ -340,7 +340,7 @@ export function HabitDetailScreen({
                   hitSlop={8}
                   className="p-1"
                 >
-                  <X size={16} className="text-neutral-400" />
+                  <X size={16} className="text-neutral-500" />
                 </Pressable>
               )}
             </View>

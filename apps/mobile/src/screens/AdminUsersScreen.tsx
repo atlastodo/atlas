@@ -54,12 +54,12 @@ export function AdminUsersScreen() {
     <View className="flex-1">
       <View className="flex-row items-center gap-2 px-4 py-3">
         <View className="flex-1 flex-row items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2 dark:border-neutral-700 dark:bg-zinc-900">
-          <Search size={16} className="text-neutral-400" />
+          <Search size={16} className="text-neutral-500" />
           <TextInput
             value={searchInput}
             onChangeText={setSearchInput}
             placeholder={t("admin.userSearch")}
-            placeholderTextColor="rgb(163 163 163)"
+            placeholderTextColor="#737373"
             autoCapitalize="none"
             autoCorrect={false}
             accessibilityLabel={t("admin.userSearch")}

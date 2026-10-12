@@ -103,7 +103,7 @@ function ProjectRow({
           {project.name}
         </Text>
         {folder && hasChildren && (hovered || !isWeb) && (
-          <Chevron size={14} className="text-neutral-400" />
+          <Chevron size={14} className="text-neutral-500" />
         )}
       </Pressable>
     </View>

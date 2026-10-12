@@ -36,7 +36,7 @@ export const PLACEHOLDER_COLOR = "#737373";
 
 /** A primary button with nothing to submit yet: a flat grey fill, not a faded accent that still looks pressable. */
 export const DISABLED_BUTTON_CLASS = "bg-neutral-200 dark:bg-neutral-800";
-export const DISABLED_BUTTON_TEXT_CLASS = "text-neutral-500 dark:text-neutral-500";
+export const DISABLED_BUTTON_TEXT_CLASS = "text-neutral-500 dark:text-neutral-400";
 
 /**
  * Slide-in, pull-down dismissal and animation shared by the bottom sheets. Native slides the

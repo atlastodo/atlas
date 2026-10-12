@@ -160,7 +160,7 @@ export function TaskDetailWebFrame({
           <View className="mb-2 items-center py-1">
             <View className="h-1 w-8 rounded-full bg-neutral-300 dark:bg-neutral-600" />
           </View>
-          <Text className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-neutral-400">
+          <Text className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">
             {t("task.actions", "Task actions")}
           </Text>
 
@@ -293,7 +293,7 @@ export function TaskDetailWebFrame({
                 <Text className="text-xs font-semibold text-neutral-800 dark:text-neutral-200">
                   {projectName ?? title}
                 </Text>
-                <ChevronDown size={14} className="text-neutral-400" />
+                <ChevronDown size={14} className="text-neutral-500" />
               </Pressable>
             ) : (
               <Text className="flex-1 text-lg font-bold text-neutral-900 dark:text-neutral-100">
@@ -384,7 +384,7 @@ export function TaskDetailWebFrame({
                     >
                       {projectName ?? title}
                     </Text>
-                    <ChevronDown size={14} className="text-neutral-400" />
+                    <ChevronDown size={14} className="text-neutral-500" />
                   </Pressable>
                 ) : (
                   <Text className="text-xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
