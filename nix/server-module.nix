@@ -37,6 +37,7 @@ let
   # `settings` keeps a stray entry from silently shadowing an option.
   reservedSettings = [
     "PORT"
+    "BIND_ADDR"
     "BLOB_DIR"
     "STATIC_DIR"
     "ADMIN_EMAILS"
@@ -73,7 +74,19 @@ in
     port = lib.mkOption {
       type = lib.types.port;
       default = 8080;
-      description = "Listening port (the `PORT` env var; the server binds 0.0.0.0).";
+      description = "Listening port (the `PORT` env var).";
+    };
+
+    bindAddress = lib.mkOption {
+      type = lib.types.str;
+      default = "0.0.0.0";
+      example = "127.0.0.1";
+      description = ''
+        Listening address (the `BIND_ADDR` env var): any IPv4 or IPv6 address.
+        `127.0.0.1` keeps the server to a reverse proxy on the same host; `::`
+        listens on every interface, IPv4 included unless the host sets
+        `net.ipv6.bindv6only`. The server refuses anything else at startup.
+      '';
     };
 
     openFirewall = lib.mkOption {
@@ -239,7 +252,7 @@ in
             services.atlas-todo.settings must not set ${
               lib.concatStringsSep ", " shadowedSettings
             }: each is derived from one of the module's own options (port,
-            dataDir, staticDir, adminEmails, database).
+            bindAddress, dataDir, staticDir, adminEmails, database).
           '';
         }
       ];
@@ -281,6 +294,7 @@ in
         environment =
           {
             PORT = toString cfg.port;
+            BIND_ADDR = cfg.bindAddress;
             BLOB_DIR = "${cfg.dataDir}/blobs";
             # Match the container's default log level.
             RUST_LOG = "info";

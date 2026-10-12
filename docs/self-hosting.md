@@ -100,8 +100,8 @@ services.atlas-todo = {
   both together (`staticDir = inputs.atlas-todo.packages.${pkgs.system}.web-dist;`). No API URL
   is baked into it, so each browser types the API URL once on the sign-in screen.
 - The service runs as the system user `atlas-todo` with a hardened unit (`ProtectSystem=strict`,
-  only `dataDir` writable). The port is 8080 by default (`port`); `openFirewall` opens it when
-  nothing proxies in front.
+  only `dataDir` writable). It listens on 0.0.0.0:8080 by default (`bindAddress`, `port`);
+  `openFirewall` opens the port when nothing proxies in front.
 - Maintenance commands need only `DATABASE_URL`. With the default local database:
 
   ```console
@@ -157,8 +157,8 @@ These are read by compose, not by the server.
 | `ATLAS_IMAGE`       | `ghcr.io/atlastodo/atlas-todo:latest` | Image to pull, or the name to tag a local build with.                                                                         |
 | `ATLAS_DB_VOLUME`   | `docker_atlas_db`                     | Name of the database volume. The default keeps the name older installs already have.                                          |
 
-Compose builds `DATABASE_URL` from the `POSTGRES_*` values and pins `PORT=8080`. A
-`DATABASE_URL` in `.env` or in your shell is ignored.
+Compose builds `DATABASE_URL` from the `POSTGRES_*` values and pins `PORT=8080` and
+`BIND_ADDR=0.0.0.0`. A `DATABASE_URL` in `.env` or in your shell is ignored.
 
 ### Server settings
 
@@ -168,6 +168,7 @@ Compose builds `DATABASE_URL` from the `POSTGRES_*` values and pins `PORT=8080`.
 | `DB_MAX_CONNECTIONS`                                            | `10`                                                    | PostgreSQL connections the server pools. Raise it for many concurrent users, within the database's own `max_connections`.                                                                                                                                            |
 | `JWT_SECRET`                                                    | none, required                                          | Signs access tokens and account-recovery challenges. At least 32 bytes, not a placeholder.                                                                                                                                                                           |
 | `PORT`                                                          | `8080`                                                  | Listening port.                                                                                                                                                                                                                                                      |
+| `BIND_ADDR`                                                     | `0.0.0.0`                                               | Listening address, any IPv4 or IPv6 address: `127.0.0.1` for localhost only, `::` for every interface (IPv4 too, unless the host sets `net.ipv6.bindv6only`). Pinned to `0.0.0.0` under compose; use `PORT_BIND` there.                                              |
 | `RUST_LOG`                                                      | `info` in the image, `atlas_server=info,warn` otherwise | Log filter, in `tracing` EnvFilter syntax.                                                                                                                                                                                                                           |
 | `STATIC_DIR`                                                    | `/app/dist` if that directory exists                    | The web app to serve. The image sets it. Without it the server is API only.                                                                                                                                                                                          |
 | `CORS_ALLOWED_ORIGINS`                                          | any origin                                              | Comma-separated exact origins. Auth uses a bearer header, not cookies, so any origin is safe. If you set a list, include `app://atlas-todo` for the desktop app.                                                                                                     |

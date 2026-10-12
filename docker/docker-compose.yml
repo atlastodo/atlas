@@ -56,6 +56,8 @@ services:
       # The container always listens on 8080. PORT_BIND publishes it on localhost only by default, for
       # a reverse proxy on the same host; set it to 8080 to listen on every interface.
       PORT: "8080"
+      # Every interface of the container, whatever BIND_ADDR .env sets for a bare binary.
+      BIND_ADDR: "0.0.0.0"
     ports:
       - "${PORT_BIND:-127.0.0.1:8080}:8080"
     volumes:

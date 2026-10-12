@@ -67,8 +67,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("blob GC task spawned");
     }
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let addr = SocketAddr::new(config::bind_addr()?, port);
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .map_err(|e| format!("cannot listen on {addr}: {e}"))?;
+    // The bound address, not the requested one: SocketAddr brackets IPv6 (`http://[::]:8080`).
+    let addr = listener.local_addr()?;
     tracing::info!("atlas-server listening on http://{addr}");
     // Peer socket info lets the auth rate limiter key by connection IP. On SIGTERM or Ctrl-C,
     // stop accepting and let in-flight requests finish.
