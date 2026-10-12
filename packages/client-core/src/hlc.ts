@@ -54,6 +54,14 @@ export class HlcClock {
     return this.emit(wallMs, counter);
   }
 
+  /**
+   * Sets the last stamp, backwards too. Only for a clock found running fast: the caller must pass
+   * a stamp no lower than any it still has to beat.
+   */
+  rewind(to: Hlc): void {
+    this.last = { wallMs: to.wallMs, counter: to.counter, node: this.node };
+  }
+
   private emit(wallMs: number, counter: number): Hlc {
     this.last =
       counter > MAX_COUNTER

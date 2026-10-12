@@ -83,6 +83,10 @@ export class LocalStore {
   private writeChain: Promise<void> = Promise.resolve();
   /** Ops whose durable write failed. `applied` already holds their ids, so a re-delivery is skipped. */
   private readonly unsaved = new Map<string, PersistedOp>();
+  /** Ops `restampAhead` re-stamped whose rows may still hold the old stamp; `flush` retries them. */
+  private readonly restamped = new Map<string, Operation>();
+  /** The newest stamp of the ops the server holds that this store has seen: pulled or acknowledged. */
+  private acknowledged: Hlc | null = null;
   private lastPersistError: unknown = null;
   private readonly compactAfter: number;
   private batching = false;
@@ -112,6 +116,7 @@ export class LocalStore {
     });
     for (const { op, synced } of persisted) {
       this.observe(op.ts);
+      if (synced) this.noteAcknowledged(op.ts);
       const changed = this.merge(op);
       if (changed && !synced) this.outbox.set(op.id, op);
     }
@@ -247,6 +252,74 @@ export class LocalStore {
     return this.clockOffset;
   }
 
+  private noteAcknowledged(ts: Hlc): void {
+    if (this.acknowledged === null || compareHlc(ts, this.acknowledged) > 0)
+      this.acknowledged = { ...ts };
+  }
+
+  /**
+   * After a `clock_skew` refusal, once `alignClock` has run: gives the unsynced ops stamped past
+   * `serverTimeMs` + {@link MAX_CLOCK_DRIFT_MS} new stamps from the corrected clock, and winds the
+   * clock back. The server never accepted those ops, even in a push whose answer was lost, so they
+   * keep their ids. They are stamped in their old order above a floor (every op the server holds
+   * that this store has seen, and the unsynced ops left alone), so each still beats exactly the
+   * ops it beat before: no value in the read model changes, only the stamps the re-stamped ops
+   * hold there. Returns how many ops were re-stamped; a second call changes nothing.
+   */
+  restampAhead(serverTimeMs: number): number {
+    // A log that cannot take the new stamps would reload the old ones, as acknowledged.
+    if (this.persistence && !this.persistence.restamp) return 0;
+    const limit = serverTimeMs + MAX_CLOCK_DRIFT_MS;
+    const ahead: Operation[] = [];
+    let floor = this.acknowledged;
+    for (const op of this.outbox.values()) {
+      if (op.ts.wallMs > limit) ahead.push(op);
+      else if (floor === null || compareHlc(op.ts, floor) > 0) floor = op.ts;
+    }
+    if (ahead.length === 0 && this.clock.current().wallMs <= limit) return 0;
+    // The server accepted every acknowledged op by an earlier reading of its clock, so the floor is
+    // within the limit unless that clock went back. Then no stamp the server takes beats it.
+    if (floor !== null && floor.wallMs > limit) return 0;
+    this.clock.rewind(floor ?? { wallMs: 0, counter: 0, node: "" });
+    if (ahead.length === 0) return 0;
+
+    ahead.sort((a, b) => compareHlc(a.ts, b.ts));
+    const now = this.now();
+    const ops = ahead.map((op): Operation => ({ ...op, ts: this.clock.now(now) }));
+    for (const op of ops) {
+      this.outbox.set(op.id, op);
+      const unsaved = this.unsaved.get(op.id);
+      if (unsaved) unsaved.op = op;
+      if (this.persistence) this.restamped.set(op.id, op);
+      const state = this.state(op.entity, op.entityId);
+      if (op.op === "delete") {
+        if (state?.deletedOp === op.id) state.deleted = op.ts;
+      } else {
+        const fs = state?.fields.get(op.field);
+        if (fs?.op === op.id) fs.ts = op.ts;
+      }
+      this.kindChanged.set(op.entity, ++this.changeSeq);
+    }
+    this.writeRestamps();
+    this.emit();
+    return ops.length;
+  }
+
+  private writeRestamps(): void {
+    const p = this.persistence;
+    if (!p?.restamp) return;
+    this.writeChain = this.writeChain.then(async () => {
+      const ops = [...this.restamped.values()];
+      if (ops.length === 0) return;
+      try {
+        await p.restamp!(ops);
+        for (const op of ops) if (this.restamped.get(op.id) === op) this.restamped.delete(op.id);
+      } catch (err) {
+        this.reportPersistError(err);
+      }
+    });
+  }
+
   private currentClockOffset(): number {
     if (this.clockOffset === 0) return 0;
     const anchor = monotonicAnchor();
@@ -264,7 +337,7 @@ export class LocalStore {
   /** Failed writes are retried first; rejects with {@link PersistError}, and the caller must keep its cursor. */
   async flush(): Promise<void> {
     await this.writeChain;
-    if (this.unsaved.size === 0) return;
+    if (this.unsavedCount() === 0) return;
     const p = this.persistence;
     if (p) {
       this.writeChain = this.writeChain.then(async () => {
@@ -281,13 +354,18 @@ export class LocalStore {
           }
         }
       });
+      this.writeRestamps();
       await this.writeChain;
     }
-    if (this.unsaved.size > 0) throw new PersistError(this.unsaved.size, this.lastPersistError);
+    const failed = this.unsavedCount();
+    if (failed > 0) throw new PersistError(failed, this.lastPersistError);
   }
 
+  /** Ops whose write failed, a new stamp from `restampAhead` included. */
   unsavedCount(): number {
-    return this.unsaved.size;
+    let n = this.unsaved.size;
+    for (const id of this.restamped.keys()) if (!this.unsaved.has(id)) n++;
+    return n;
   }
 
   private reportPersistError(err: unknown): void {
@@ -369,6 +447,7 @@ export class LocalStore {
   /** Idempotent; enqueues nothing. */
   applyRemote(op: Operation): boolean {
     this.observe(op.ts);
+    this.noteAcknowledged(op.ts);
     this.noteDelivered(op);
     const fresh = !this.applied.has(op.id);
     const changed = this.merge(op);
@@ -398,6 +477,7 @@ export class LocalStore {
     try {
       for (const op of ops) {
         this.observe(op.ts);
+        this.noteAcknowledged(op.ts);
         this.noteDelivered(op);
         const fresh = !this.applied.has(op.id);
         if (this.merge(op)) {
@@ -601,6 +681,7 @@ export class LocalStore {
     for (const id of ids) {
       const op = this.outbox.get(id);
       this.unsaved.delete(id);
+      this.restamped.delete(id);
       if (!op) continue;
       this.outbox.delete(id);
       const state = this.state(op.entity, op.entityId);
@@ -655,7 +736,11 @@ export class LocalStore {
 
   markSynced(opIds: Iterable<string>): void {
     const done = new Set(opIds);
-    for (const id of done) this.outbox.delete(id);
+    for (const id of done) {
+      const op = this.outbox.get(id);
+      if (op) this.noteAcknowledged(op.ts);
+      this.outbox.delete(id);
+    }
     for (const id of done) {
       const entry = this.unsaved.get(id);
       if (entry) entry.synced = true;

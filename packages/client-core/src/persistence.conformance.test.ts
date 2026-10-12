@@ -375,6 +375,28 @@ describe.each(BACKENDS)("Persistence conformance: $name", ({ makeDurable }) => {
     expect(reloaded.unsyncedOps().map((o) => o.id)).toEqual([b.id]);
   });
 
+  it("restamps rows in place, keeping their order and synced flags", async () => {
+    const d = makeDurable();
+    const store = storeOver(d, "orig", 10_000_000 + 3600_000);
+    const a = store.set("task", "t1", "title", "a");
+    const b = store.remove("task", "t2");
+    store.markSynced([a.id]);
+    await store.flush();
+
+    const p = d.open();
+    const ts = { wallMs: 10_000_000, counter: 7, node: NODE };
+    await p.restamp!([
+      { ...a, ts },
+      { ...b, ts: { ...ts, counter: 8 } },
+      { ...b, id: "unknown", ts },
+    ]);
+    const rows = await d.open().load();
+    expect(rows).toEqual([
+      { op: { ...a, ts }, synced: true },
+      { op: { ...b, ts: { ...ts, counter: 8 } }, synced: false },
+    ]);
+  });
+
   it("appends batches atomically and preserves insertion order", async () => {
     const p = makeDurable().open();
     const g = gen();

@@ -74,8 +74,14 @@ caller's partition sequence before and after the push. A client whose pull curso
 
 Errors:
 
-- `400 {"code": "clock_skew", "server_time": <ms>}`: an op is stamped too far in the future.
-  Nothing was applied. Correct the clock offset and retry later; do not drop the ops.
+- `400 {"code": "clock_skew", "server_time": <ms>}`: an op's `wall_ms` is more than five minutes
+  (300000 ms) past `server_time`. Nothing was applied. Do not drop the ops. Correct the clock
+  offset by `server_time`, then re-stamp the unsynced ops stamped past `server_time` + 300000:
+  the server never accepted them, so they may keep their ids. Stamp them in their old order from
+  the corrected clock, above every stamp the client has seen from the server (its own
+  acknowledged ops and every pulled op) and above the unsynced ops it leaves alone, and move the
+  local clock back to the newest of these, then retry. Ops at or below the limit keep their
+  stamps: an earlier push whose response was lost may have stored them.
 - Other `400`, `403` (no permission for an op's project) and `413` (body too large) are
   permanent for that batch. Nothing was applied. Split the batch to find the op at fault.
 

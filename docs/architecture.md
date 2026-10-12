@@ -102,8 +102,10 @@ What this means in practice:
   value no other client understands; the protocol floor (see [Protocol versions](#protocol-versions))
   is the lever for keeping such clients off.
 - A device whose clock runs more than five minutes fast has its pushes refused with
-  `clock_skew`. The app shows the skew in Sync details. Edits already stamped with the fast clock
-  stay queued until real time passes their stamps; setting the clock right only fixes new ones.
+  `clock_skew`. The client then runs its clock by the server's and re-stamps the edits it had
+  queued with the fast clock, so they sync at once (see [Clock skew](#clock-skew)). Other devices
+  order those edits by the corrected time, not by the time the fast clock showed. The app shows
+  the skew in Sync details only while pushes stay refused.
 
 ## Sync
 
@@ -179,6 +181,30 @@ older builds do harm that the server cannot detect:
 - 5: open the WebSocket with a single-use ticket instead of the access token in the URL.
 - 6: load only key deliveries signed by the owner, and follow rotations. A protocol 5 build keeps
   writing under a key that a rotation retired, which the member who left can still read.
+
+#### Clock skew
+
+A push holding an op stamped more than five minutes past the server's clock is refused whole with
+`400 {"code": "clock_skew", "server_time": <ms>}`, before anything is written. The client
+(`SyncClient.pushOutbox`, `LocalStore.restampAhead`) then:
+
+1. sets its clock offset to `server_time` (`alignClock`), so new edits are stamped by the
+   server's clock. The offset lives in memory and is dropped when the device clock is set.
+2. re-stamps every unsynced op stamped past `server_time` plus five minutes. The server could
+   never have accepted such an op, not even in an earlier push whose answer was lost, so it keeps
+   its op id. Unsynced ops at or below that limit keep their stamps.
+3. pushes again, once in the same cycle.
+
+The new stamps come from the corrected clock, started from a floor: the newest stamp among the
+ops the server holds that this device has seen (its own acknowledged ones and every op it
+pulled) and the unsynced ops it keeps. The re-stamped ops are taken in their old order. So they
+keep their order among themselves, stay above every op they beat before, and nothing an earlier
+cycle acknowledged can beat a later edit. No comparison the read model made changes, so the
+store only updates the stamps of the field values and tombstones these ops won, and rewrites
+their rows in the op log in one transaction (a failed write is retried, like a failed append).
+The HLC is wound back to the newest of these stamps, so later edits use the corrected clock and
+still beat everything the device has seen. A second refusal in the same cycle leaves the ops
+queued, as before, and re-stamping again changes nothing.
 
 ### On the server
 
