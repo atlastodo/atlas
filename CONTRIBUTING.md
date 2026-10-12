@@ -137,7 +137,7 @@ Where the tests live:
 - `test-vectors/`: JSON fixtures. Conflict resolution, recovery challenges and the plaintext
   field list are read by both the Rust and the TypeScript tests, so the two sides agree; the
   recurrence vectors are TypeScript only. The merge rule exists in TypeScript
-  (`packages/client-core`) and in the server's SQL fold (`crates/atlas-server/src/sync.rs`). If
+  (`packages/client-core`) and in the server's SQL fold (`crates/atlas-server/src/sync/apply.rs`). If
   you change one side of that logic, change the other and extend the vectors.
 
 ## Adding or changing UI text

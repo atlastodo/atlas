@@ -693,7 +693,7 @@ macro_rules! uuid_or_null {
 }
 
 /// SQL fragment checking that the attachment entity aliased `f` is live in its partition (per
-/// `(user_id, entity_id)`, like the LWW fold in `sync.rs`).
+/// `(user_id, entity_id)`, like the LWW fold in `sync/apply.rs`).
 ///
 /// Live means no tombstone, or a field with an HLC newer than the tombstone's. Data-plane SQL
 /// only: it never touches `__enc`/`__aenc` markers.

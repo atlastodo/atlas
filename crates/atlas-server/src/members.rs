@@ -2,7 +2,7 @@
 //!
 //! A project is private (no `project_members` rows) until its owner shares it. Sharing inserts an
 //! `owner` row and `pending` rows for invitees; accepting flips a row to `active`. Roles order
-//! `commenter < editor < owner`; [`require_role`] gates cross-user op delivery in `sync.rs`.
+//! `commenter < editor < owner`; [`require_role`] gates cross-user op delivery in `sync/push.rs`.
 
 use atlas_core::Operation;
 use axum::extract::{Path, State};

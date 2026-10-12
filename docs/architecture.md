@@ -172,7 +172,7 @@ instead of silently dropping messages.
 Every sync request carries the client's protocol version (`x-atlas-sync-protocol`, or a
 `protocol` query parameter on the WebSocket). The server answers `426 Upgrade Required` below its
 minimum, and the app asks the user to update. The minimum is 6, the current version
-(`MIN_SYNC_PROTOCOL` in `sync.rs`, `SYNC_PROTOCOL` in `realtime.ts`). The minimums exist because
+(`MIN_SYNC_PROTOCOL` in `sync/mod.rs`, `SYNC_PROTOCOL` in `realtime.ts`). The minimums exist because
 older builds do harm that the server cannot detect:
 
 - 3: load every project key and encrypt with the project's canonical key. Older builds minted
