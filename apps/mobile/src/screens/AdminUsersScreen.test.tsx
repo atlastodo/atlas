@@ -11,6 +11,7 @@ function user(over: Partial<AdminUserView> = {}): AdminUserView {
     is_admin: false,
     disabled: false,
     deletion_scheduled: false,
+    deletion_days_remaining: null,
     created_at_ms: 1_754_300_000_000,
     last_login_at_ms: 1_754_400_000_000,
     ...over,
@@ -31,6 +32,17 @@ async function confirm(label: string) {
 }
 
 describe("AdminUsersScreen", () => {
+  it("shows how many days a pending deletion has left", async () => {
+    await setup({
+      listUsers: jest.fn(async () => [
+        user({ deletion_scheduled: true, deletion_days_remaining: 12 }),
+        user({ id: "u-2", email: "bob@example.com", display_name: "Bob" }),
+      ]),
+    });
+    expect(await screen.findByText("Deletes in 12 days")).toBeTruthy();
+    expect(screen.getAllByText(/Deletes in/)).toHaveLength(1);
+  });
+
   it("searches server-side with the debounced term", async () => {
     const listUsers = jest.fn(async (_params: Parameters<ApiClient["listUsers"]>[0]) => [user()]);
     await setup({ listUsers });

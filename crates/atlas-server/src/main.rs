@@ -3,7 +3,7 @@
 use std::net::SocketAddr;
 
 use atlas_server::{
-    admin, app, attachments, auth, config::Config, db, restore, retention, state::AppState,
+    admin, app, attachments, auth, config, config::Config, db, restore, retention, state::AppState,
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing(false);
 
     let config = Config::from_env().map_err(|e| format!("configuration error: {e}"))?;
-    let pool = db::connect(&config.database_url).await?;
+    let pool = db::connect_with(&config.database_url, config::db_max_connections()?).await?;
     db::migrate(&pool).await?;
     tracing::info!("migrations applied");
 
@@ -63,12 +63,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Attachment blob GC (BLOB_GC_GRACE_DAYS), only when attachments are enabled.
-    if let Some(handle) = attachments::spawn_gc_if_enabled(&state) {
-        tracing::info!(handle_ok = handle.is_finished(), "blob GC task spawned");
+    if attachments::spawn_gc_if_enabled(&state).is_some() {
+        tracing::info!("blob GC task spawned");
     }
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let addr = SocketAddr::new(config::bind_addr()?, port);
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .map_err(|e| format!("cannot listen on {addr}: {e}"))?;
+    // The bound address, not the requested one: SocketAddr brackets IPv6 (`http://[::]:8080`).
+    let addr = listener.local_addr()?;
     tracing::info!("atlas-server listening on http://{addr}");
     // Peer socket info lets the auth rate limiter key by connection IP. On SIGTERM or Ctrl-C,
     // stop accepting and let in-flight requests finish.

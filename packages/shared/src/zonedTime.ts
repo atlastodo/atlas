@@ -6,6 +6,8 @@
 const DAY_MS = 86_400_000;
 
 const MAX_DATE_MS = 8.64e15;
+// How far before a gap to read the offset in force; DST gaps are far shorter, and transitions far apart.
+const GAP_PROBE_MS = DAY_MS;
 
 const zoneValidity = new Map<string, boolean>();
 
@@ -96,7 +98,11 @@ function offsetMs(ms: number, timeZone: string): number {
   return asUtc - ms;
 }
 
-// The inverse of {@link zonedParts}; an offset probe with one correction keeps it stable across DST.
+/**
+ * The inverse of {@link zonedParts}; an offset probe with one correction keeps it stable across
+ * DST. A wall time skipped by a DST gap resolves forward by the gap's length, as RFC 5545 does
+ * (02:30 on a spring-forward night is 03:30).
+ */
 export function makeInstant(
   year: number,
   month: number,
@@ -112,7 +118,12 @@ export function makeInstant(
   let instant = utcGuess - offset;
   const offset2 = offsetMs(instant, tz);
   if (offset2 !== offset) instant = utcGuess - offset2;
-  return instant;
+  if (offsetMs(instant, tz) === utcGuess - instant) return instant;
+  // In a gap: neither offset reads back as the requested wall time. Apply the offset in force
+  // before the gap, which lands past it.
+  const before = offsetMs(instant - GAP_PROBE_MS, tz);
+  const forward = utcGuess - before;
+  return forward > instant ? forward : instant;
 }
 
 export function startOfDay(ms: number, timeZone?: string): number {

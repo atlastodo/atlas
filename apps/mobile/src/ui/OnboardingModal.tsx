@@ -19,6 +19,7 @@ import {
   REGION_OPTIONS,
   accentVars,
   createTask,
+  LANGUAGES,
   resolveTimeZone,
   timeZoneOptions,
   type AccentName,
@@ -396,8 +397,9 @@ function Wizard({
   const tr = <T extends string | number>(opts: { value: T; labelKey: string }[]) =>
     opts.map((o) => ({ value: o.value, label: t(o.labelKey) }));
 
-  const isEn = language === "en" || (!language && i18n.language?.startsWith("en"));
-  const isDa = language === "da" || (!language && i18n.language?.startsWith("da"));
+  // No explicit choice yet: the language the device resolved to.
+  const selectedLanguage =
+    language || LANGUAGES.find((l) => i18n.language?.startsWith(l.code))?.code || "en";
 
   if (!isOpen) return null;
 
@@ -664,88 +666,50 @@ function Wizard({
                 <Text className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
                   {t("onboarding.languageLabel")}
                 </Text>
-                <View className="flex-row gap-3">
-                  <Pressable
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: isEn }}
-                    accessibilityLabel="English"
-                    onPress={() => {
-                      haptics.selection();
-                      setLanguage("en");
-                    }}
-                    style={isEn ? { borderColor: currentAccentHex } : undefined}
-                    className={
-                      "flex-1 flex-row items-center justify-between rounded-xl border p-3.5 transition-all " +
-                      (isEn
-                        ? "border-2 bg-accent-50 dark:bg-accent-950"
-                        : "border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/60")
-                    }
-                  >
-                    <View>
-                      <Text
+                <View accessibilityRole="radiogroup" className="flex-row flex-wrap gap-2.5">
+                  {LANGUAGES.map(({ code, label }) => {
+                    const isSelected = code === selectedLanguage;
+                    return (
+                      <Pressable
+                        key={code}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: isSelected }}
+                        accessibilityLabel={label}
+                        onPress={() => {
+                          haptics.selection();
+                          setLanguage(code);
+                        }}
+                        style={isSelected ? { borderColor: currentAccentHex } : undefined}
                         className={
-                          "text-sm font-semibold " +
-                          (isEn
-                            ? "text-neutral-900 dark:text-neutral-50"
-                            : "text-neutral-700 dark:text-neutral-300")
+                          "flex-1 min-w-[140px] flex-row items-center justify-between rounded-xl border p-3.5 transition-all " +
+                          (isSelected
+                            ? "border-2 bg-accent-50 dark:bg-accent-950"
+                            : "border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/60")
                         }
                       >
-                        English
-                      </Text>
-                      <Text className="text-xs text-neutral-400">English</Text>
-                    </View>
-                    {isEn ? (
-                      <View
-                        className="h-5 w-5 items-center justify-center rounded-full"
-                        style={{ backgroundColor: currentAccentHex }}
-                      >
-                        <Check size={12} className="text-white" />
-                      </View>
-                    ) : (
-                      <View className="h-5 w-5 rounded-full border border-neutral-300 dark:border-neutral-750" />
-                    )}
-                  </Pressable>
-
-                  <Pressable
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: isDa }}
-                    accessibilityLabel="Dansk"
-                    onPress={() => {
-                      haptics.selection();
-                      setLanguage("da");
-                    }}
-                    style={isDa ? { borderColor: currentAccentHex } : undefined}
-                    className={
-                      "flex-1 flex-row items-center justify-between rounded-xl border p-3.5 transition-all " +
-                      (isDa
-                        ? "border-2 bg-accent-50 dark:bg-accent-950"
-                        : "border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/60")
-                    }
-                  >
-                    <View>
-                      <Text
-                        className={
-                          "text-sm font-semibold " +
-                          (isDa
-                            ? "text-neutral-900 dark:text-neutral-50"
-                            : "text-neutral-700 dark:text-neutral-300")
-                        }
-                      >
-                        Dansk
-                      </Text>
-                      <Text className="text-xs text-neutral-400">Dansk</Text>
-                    </View>
-                    {isDa ? (
-                      <View
-                        className="h-5 w-5 items-center justify-center rounded-full"
-                        style={{ backgroundColor: currentAccentHex }}
-                      >
-                        <Check size={12} className="text-white" />
-                      </View>
-                    ) : (
-                      <View className="h-5 w-5 rounded-full border border-neutral-300 dark:border-neutral-750" />
-                    )}
-                  </Pressable>
+                        <Text
+                          className={
+                            "text-sm font-semibold " +
+                            (isSelected
+                              ? "text-neutral-900 dark:text-neutral-50"
+                              : "text-neutral-700 dark:text-neutral-300")
+                          }
+                        >
+                          {label}
+                        </Text>
+                        {isSelected ? (
+                          <View
+                            className="h-5 w-5 items-center justify-center rounded-full"
+                            style={{ backgroundColor: currentAccentHex }}
+                          >
+                            <Check size={12} className="text-white" />
+                          </View>
+                        ) : (
+                          <View className="h-5 w-5 rounded-full border border-neutral-300 dark:border-neutral-750" />
+                        )}
+                      </Pressable>
+                    );
+                  })}
                 </View>
               </View>
 

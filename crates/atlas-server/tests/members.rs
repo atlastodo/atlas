@@ -876,6 +876,10 @@ async fn concurrent_demotion_and_removal_keep_an_owner() {
     // Hold the membership rows, so both requests are in flight before either can write.
     let project: Uuid = pid.parse().unwrap();
     let mut hold = pool.begin().await.unwrap();
+    let holder: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *hold)
+        .await
+        .unwrap();
     sqlx::query("SELECT 1 FROM project_members WHERE project_id = $1 FOR UPDATE")
         .bind(project)
         .execute(&mut *hold)
@@ -906,7 +910,7 @@ async fn concurrent_demotion_and_removal_keep_an_owner() {
         );
         async move { send(&router, "DELETE", &uri, Some(&token), json!({})).await }
     });
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    wait_for_blocked(&pool, holder, 2).await;
     hold.commit().await.unwrap();
 
     let statuses = [demote.await.unwrap().0, remove.await.unwrap().0];
@@ -1096,4 +1100,30 @@ async fn a_failed_first_invite_does_not_share_the_project() {
     invite(&router, &alice, &pid, &bob).await;
     let (ops, _) = pull_since(&router, &alice, 0).await;
     assert_eq!(member_rows(&ops), sorted(&[&alice]));
+}
+
+/// Wait until `n` backends are blocked behind `holder` (a `pg_backend_pid()`), so concurrent
+/// requests are known to be queued on a held lock instead of guessing with a sleep. Gives up
+/// after ten seconds; the test's own assertions then decide.
+async fn wait_for_blocked(pool: &sqlx::PgPool, holder: i32, n: i64) {
+    for _ in 0..1000 {
+        let blocked: i64 = sqlx::query_scalar(
+            // Directly or through another waiter: a second request for the same row queues
+            // behind the first.
+            "WITH RECURSIVE blocked(pid) AS (
+                 SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))
+                 UNION
+                 SELECT a.pid FROM pg_stat_activity a, blocked b
+                  WHERE b.pid = ANY(pg_blocking_pids(a.pid)))
+             SELECT count(*) FROM blocked",
+        )
+        .bind(holder)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        if blocked >= n {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
 }

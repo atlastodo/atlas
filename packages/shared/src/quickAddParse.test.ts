@@ -300,20 +300,20 @@ describe("parseQuickAdd — Danish language dates & recurrence", () => {
   const DA = { language: "da" };
 
   it("parses 'i morgen'", () => {
-    const r = parseQuickAdd("Køb mælk i morgen", NOW);
+    const r = parseQuickAdd("Køb mælk i morgen", NOW, DA);
     expect(r.input.due_at).toBe(day(2023, 0, 3));
     expect(r.title).toBe("Køb mælk");
     expect(r.dateMatch).toEqual({ start: 9, end: 17, text: "i morgen" });
   });
 
   it("combines 'i dag' and 'kl 17'", () => {
-    const r = parseQuickAdd("Møde i dag kl 17", NOW);
+    const r = parseQuickAdd("Møde i dag kl 17", NOW, DA);
     expect(r.input.due_at).toBe(day(2023, 0, 2, 17, 0));
     expect(r.title).toBe("Møde");
   });
 
   it("parses 'om 3 dage'", () => {
-    const r = parseQuickAdd("Aflever rapport om 3 dage", NOW);
+    const r = parseQuickAdd("Aflever rapport om 3 dage", NOW, DA);
     expect(r.input.due_at).toBe(day(2023, 0, 5));
     expect(r.title).toBe("Aflever rapport");
     expect(r.dateMatch).toEqual({ start: 16, end: 25, text: "om 3 dage" });
@@ -332,7 +332,7 @@ describe("parseQuickAdd — Danish language dates & recurrence", () => {
   });
 
   it("parses day-first dates like '15. marts'", () => {
-    const r = parseQuickAdd("Fødselsdag 15. marts", NOW);
+    const r = parseQuickAdd("Fødselsdag 15. marts", NOW, DA);
     expect(r.input.due_at).toBe(day(2023, 2, 15));
     expect(r.title).toBe("Fødselsdag");
   });
@@ -341,20 +341,20 @@ describe("parseQuickAdd — Danish language dates & recurrence", () => {
     expect(parseQuickAdd("Møde hver mandag", NOW, DA).input.recurrence).toBe(
       "FREQ=WEEKLY;BYDAY=MO",
     );
-    expect(parseQuickAdd("Rengøring hver 2. uge", NOW).input.recurrence).toBe(
+    expect(parseQuickAdd("Rengøring hver 2. uge", NOW, DA).input.recurrence).toBe(
       "FREQ=WEEKLY;INTERVAL=2",
     );
-    expect(parseQuickAdd("Vand planter dagligt", NOW).input.recurrence).toBe("FREQ=DAILY");
-    expect(parseQuickAdd("Støvsug hver! 3 dage", NOW).input.recurrence).toBe(
+    expect(parseQuickAdd("Vand planter dagligt", NOW, DA).input.recurrence).toBe("FREQ=DAILY");
+    expect(parseQuickAdd("Støvsug hver! 3 dage", NOW, DA).input.recurrence).toBe(
       "FREQ=DAILY;INTERVAL=3;MODE=COMPLETION",
     );
-    expect(parseQuickAdd("Støvsug hver 3. uge fra fuldførelse", NOW).input.recurrence).toBe(
+    expect(parseQuickAdd("Støvsug hver 3. uge fra fuldførelse", NOW, DA).input.recurrence).toBe(
       "FREQ=WEEKLY;INTERVAL=3;MODE=COMPLETION",
     );
   });
 
   it("unlinks multi-word Danish dates like 'i morgen'", () => {
-    const r = parseQuickAdd("Køb mælk i morgen", NOW, { ignoreDates: ["i morgen"] });
+    const r = parseQuickAdd("Køb mælk i morgen", NOW, { ...DA, ignoreDates: ["i morgen"] });
     expect(r.title).toBe("Køb mælk i morgen");
     expect(r.input.due_at).toBeUndefined();
     expect(r.dateMatch).toBeUndefined();
@@ -368,11 +368,11 @@ describe("parseQuickAdd — Danish language dates & recurrence", () => {
   });
 
   it("parses Danish '9. okt' and '9. okt.'", () => {
-    const r1 = parseQuickAdd("Frokost 9. okt", NOW);
+    const r1 = parseQuickAdd("Frokost 9. okt", NOW, DA);
     expect(r1.input.due_at).toBe(day(2023, 9, 9));
     expect(r1.title).toBe("Frokost");
 
-    const r2 = parseQuickAdd("Frokost 9. okt.", NOW);
+    const r2 = parseQuickAdd("Frokost 9. okt.", NOW, DA);
     expect(r2.input.due_at).toBe(day(2023, 9, 9));
     expect(r2.title).toBe("Frokost");
   });
@@ -483,5 +483,120 @@ describe("parseQuickAdd — Danish weekday words", () => {
     const r = parseQuickAdd("Ring til Bo man", NOW, { language: "da-DK" });
     expect(r.input.due_at).toBe(day(2023, 0, 2));
     expect(r.title).toBe("Ring til Bo");
+  });
+});
+
+describe("parseQuickAdd — every UI language", () => {
+  // [language, input, expected title, expected due (or undefined), expected rule (or undefined)]
+  type Case = [string, string, string, number | undefined, string | undefined];
+  const MO = "FREQ=WEEKLY;BYDAY=MO";
+  const BIWEEKLY = "FREQ=WEEKLY;INTERVAL=2";
+  const cases: Case[] = [
+    // English
+    ["en", "Meet on friday", "Meet", day(2023, 0, 6), undefined],
+    ["en", "Ping in a week", "Ping", day(2023, 0, 9), undefined],
+    ["en", "Party 3rd of june", "Party", day(2023, 5, 3), undefined],
+    ["en", "Call the man at 5 lakes", "Call the man at 5 lakes", undefined, undefined],
+    // Danish
+    ["da", "Tandlæge i morgen kl 17", "Tandlæge", day(2023, 0, 3, 17, 0), undefined],
+    ["da", "Fest den 3. juni", "Fest", day(2023, 5, 3), undefined],
+    ["da", "Ring på fredag", "Ring", day(2023, 0, 6), undefined],
+    ["da", "Lav middag", "Lav middag", undefined, undefined],
+    // German
+    ["de", "Zahnarzt morgen um 17 Uhr", "Zahnarzt", day(2023, 0, 3, 17, 0), undefined],
+    ["de", "Bericht übermorgen", "Bericht", day(2023, 0, 4), undefined],
+    ["de", "Bericht uebermorgen", "Bericht", day(2023, 0, 4), undefined],
+    ["de", "Steuern am Freitag", "Steuern", day(2023, 0, 6), undefined],
+    ["de", "Review nächsten Montag", "Review", day(2023, 0, 9), undefined],
+    ["de", "Ping in 3 Tagen", "Ping", day(2023, 0, 5), undefined],
+    ["de", "Ping in einer Woche", "Ping", day(2023, 0, 9), undefined],
+    ["de", "Geburtstag 15. März", "Geburtstag", day(2023, 2, 15), undefined],
+    ["de", "Gießen jeden Montag", "Gießen", day(2023, 0, 2), MO],
+    ["de", "Putzen alle 2 Wochen", "Putzen", day(2023, 0, 2), BIWEEKLY],
+    ["de", "Lesen täglich", "Lesen", day(2023, 0, 2), "FREQ=DAILY"],
+    // Spanish
+    ["es", "Dentista mañana a las 17", "Dentista", day(2023, 0, 3, 17, 0), undefined],
+    ["es", "Llamar manana", "Llamar", day(2023, 0, 3), undefined],
+    ["es", "Informe pasado mañana", "Informe", day(2023, 0, 4), undefined],
+    ["es", "Pagar el viernes", "Pagar", day(2023, 0, 6), undefined],
+    ["es", "Revisar el próximo lunes", "Revisar", day(2023, 0, 9), undefined],
+    ["es", "Revisar en 3 días", "Revisar", day(2023, 0, 5), undefined],
+    ["es", "Cumpleaños 15 de marzo", "Cumpleaños", day(2023, 2, 15), undefined],
+    ["es", "Regar cada lunes", "Regar", day(2023, 0, 2), MO],
+    ["es", "Limpiar cada 2 semanas", "Limpiar", day(2023, 0, 2), BIWEEKLY],
+    ["es", "Leer todos los días", "Leer", day(2023, 0, 2), "FREQ=DAILY"],
+    // French
+    ["fr", "Dentiste demain à 17h30", "Dentiste", day(2023, 0, 3, 17, 30), undefined],
+    ["fr", "Rapport après-demain", "Rapport", day(2023, 0, 4), undefined],
+    ["fr", "Réunion lundi prochain", "Réunion", day(2023, 0, 9), undefined],
+    ["fr", "Point la semaine prochaine", "Point", day(2023, 0, 9), undefined],
+    ["fr", "Relancer dans 3 jours", "Relancer", day(2023, 0, 5), undefined],
+    ["fr", "Anniversaire 1er mars", "Anniversaire", day(2023, 2, 1), undefined],
+    ["fr", "Arroser tous les lundis", "Arroser", day(2023, 0, 2), MO],
+    ["fr", "Ménage toutes les 2 semaines", "Ménage", day(2023, 0, 2), BIWEEKLY],
+    ["fr", "Paul a 17 ans", "Paul a 17 ans", undefined, undefined],
+    // Italian
+    ["it", "Dentista domani alle 17", "Dentista", day(2023, 0, 3, 17, 0), undefined],
+    ["it", "Report dopodomani", "Report", day(2023, 0, 4), undefined],
+    ["it", "Pagare venerdi", "Pagare", day(2023, 0, 6), undefined],
+    ["it", "Riunione lunedì prossimo", "Riunione", day(2023, 0, 9), undefined],
+    ["it", "Richiamare tra 3 giorni", "Richiamare", day(2023, 0, 5), undefined],
+    ["it", "Compleanno 15 marzo", "Compleanno", day(2023, 2, 15), undefined],
+    ["it", "Annaffiare ogni lunedì", "Annaffiare", day(2023, 0, 2), MO],
+    ["it", "Pulire ogni 2 settimane", "Pulire", day(2023, 0, 2), BIWEEKLY],
+    // Dutch
+    ["nl", "Tandarts morgen om 17:00", "Tandarts", day(2023, 0, 3, 17, 0), undefined],
+    ["nl", "Sport vandaag 17 uur", "Sport", day(2023, 0, 2, 17, 0), undefined],
+    ["nl", "Rapport overmorgen", "Rapport", day(2023, 0, 4), undefined],
+    ["nl", "Betalen op vrijdag", "Betalen", day(2023, 0, 6), undefined],
+    ["nl", "Review volgende maandag", "Review", day(2023, 0, 9), undefined],
+    ["nl", "Bellen over 3 dagen", "Bellen", day(2023, 0, 5), undefined],
+    ["nl", "Verjaardag 15 maart", "Verjaardag", day(2023, 2, 15), undefined],
+    ["nl", "Water geven elke maandag", "Water geven", day(2023, 0, 2), MO],
+    ["nl", "Schoonmaken om de 2 weken", "Schoonmaken", day(2023, 0, 2), BIWEEKLY],
+    // Polish
+    ["pl", "Dentysta jutro o 17:00", "Dentysta", day(2023, 0, 3, 17, 0), undefined],
+    ["pl", "Raport pojutrze", "Raport", day(2023, 0, 4), undefined],
+    ["pl", "Zapłacić w piątek", "Zapłacić", day(2023, 0, 6), undefined],
+    ["pl", "Spotkanie w następny poniedziałek", "Spotkanie", day(2023, 0, 9), undefined],
+    ["pl", "Spotkanie w przyszłym tygodniu", "Spotkanie", day(2023, 0, 9), undefined],
+    ["pl", "Zadzwonić za 3 dni", "Zadzwonić", day(2023, 0, 5), undefined],
+    ["pl", "Zadzwonić za tydzień", "Zadzwonić", day(2023, 0, 9), undefined],
+    ["pl", "Urodziny 15 marca", "Urodziny", day(2023, 2, 15), undefined],
+    ["pl", "Sprzątać co 2 tygodnie", "Sprzątać", day(2023, 0, 2), BIWEEKLY],
+    ["pl", "Czytać codziennie", "Czytać", day(2023, 0, 2), "FREQ=DAILY"],
+    ["pl", "Rozmowa o 2 projektach", "Rozmowa o 2 projektach", undefined, undefined],
+    // Portuguese
+    ["pt", "Dentista amanhã às 17h", "Dentista", day(2023, 0, 3, 17, 0), undefined],
+    ["pt", "Relatório depois de amanhã", "Relatório", day(2023, 0, 4), undefined],
+    ["pt", "Pagar na sexta", "Pagar", day(2023, 0, 6), undefined],
+    ["pt", "Revisar na próxima segunda", "Revisar", day(2023, 0, 9), undefined],
+    ["pt", "Ligar em 3 dias", "Ligar", day(2023, 0, 5), undefined],
+    ["pt", "Aniversário 15 de março", "Aniversário", day(2023, 2, 15), undefined],
+    ["pt", "Regar toda segunda", "Regar", day(2023, 0, 2), MO],
+    ["pt", "Limpar a cada 2 semanas", "Limpar", day(2023, 0, 2), BIWEEKLY],
+    ["pt", "Ler diariamente", "Ler", day(2023, 0, 2), "FREQ=DAILY"],
+  ];
+
+  it.each(cases)("%s: %s", (language, text, title, due, rule) => {
+    const r = parseQuickAdd(text, NOW, { language });
+    expect(r.title).toBe(title);
+    expect(r.input.due_at).toBe(due);
+    expect(r.input.recurrence).toBe(rule);
+  });
+
+  it("keeps English working in every language", () => {
+    for (const language of ["da", "de", "es", "fr", "it", "nl", "pl", "pt", "pt-BR"]) {
+      const r = parseQuickAdd("Call tomorrow 5pm every! 2 weeks", NOW, { language });
+      expect(r.title, language).toBe("Call");
+      expect(r.input.due_at, language).toBe(day(2023, 0, 3, 17, 0));
+      expect(r.input.recurrence, language).toBe("FREQ=WEEKLY;INTERVAL=2;MODE=COMPLETION");
+    }
+  });
+
+  it("reads a language's words only in that language", () => {
+    // Danish "i morgen" and German "morgen" stay text in English.
+    expect(parseQuickAdd("Køb mælk i morgen", NOW).input.due_at).toBeUndefined();
+    expect(parseQuickAdd("Guten morgen", NOW, { language: "en" }).title).toBe("Guten morgen");
   });
 });

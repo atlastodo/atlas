@@ -20,7 +20,35 @@ function flatten(node: unknown, prefix = ""): string[] {
  */
 const REQUIRED_LETTERS: Record<string, string[]> = {
   da: ["æ", "ø", "å", "é"],
+  de: ["ä", "ö", "ü", "ß"],
+  es: ["á", "é", "í", "ó", "ñ"],
+  fr: ["é", "è", "à", "ç"],
+  it: ["à", "è", "ù"],
+  pl: ["ą", "ę", "ł", "ś", "ż"],
+  pt: ["ã", "ç", "é", "õ"],
 };
+
+const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/;
+
+/**
+ * English's keys as `code` must declare them. A plural English writes as `_one`/`_other` takes
+ * every CLDR form of the language (Polish `_one`/`_few`/`_many`/`_other`). One written as a bare
+ * key plus `_other` keeps the bare key, which i18next falls back to for a missing form, as its
+ * singular, plus every form but `_one`: without them a Polish "3" or a Spanish "1 000 000" would
+ * read in the singular.
+ */
+function expectedKeys(code: string): string[] {
+  const forms = new Intl.PluralRules(code).resolvedOptions().pluralCategories;
+  const enKeys = flatten(en);
+  const keys = new Set(enKeys.filter((k) => !PLURAL_SUFFIX.test(k)));
+  for (const k of enKeys) {
+    if (!k.endsWith("_other")) continue;
+    const base = k.slice(0, -"_other".length);
+    const bare = !enKeys.includes(`${base}_one`);
+    for (const form of forms) if (!(bare && form === "one")) keys.add(`${base}_${form}`);
+  }
+  return [...keys].sort();
+}
 
 /**
  * The stripped/transliterated residue of real Danish words, from that same corruption event
@@ -54,11 +82,10 @@ const translationOf = (code: string): object => {
 };
 
 describe("i18n catalogs", () => {
-  it("every locale declares exactly the English keys", () => {
-    const enKeys = flatten(en).sort();
+  it("every locale declares exactly the English keys, in its own plural forms", () => {
     for (const code of Object.keys(resources)) {
       if (code === "en") continue;
-      expect(flatten(translationOf(code)).sort(), code).toEqual(enKeys);
+      expect(flatten(translationOf(code)).sort(), code).toEqual(expectedKeys(code));
     }
   });
 

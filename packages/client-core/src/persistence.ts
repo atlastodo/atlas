@@ -73,6 +73,8 @@ export interface Persistence {
   /** Unsynced ones are kept; unknown ids ignored. */
   compact?(opIds: string[]): Promise<void>;
   deleteOps?(opIds: string[]): Promise<void>;
+  /** Atomic: gives each stored op of these ids the given op's `ts`, synced or not; unknown ids ignored. */
+  restamp?(ops: Operation[]): Promise<void>;
   /** Later calls reject, so a running store cannot write into a database being replaced or deleted. */
   close?(): Promise<void>;
   /** Device-local, and `clear()` leaves it alone: losing an in-flight upload would strand its ciphertext. */
@@ -129,6 +131,14 @@ export class MemoryPersistence implements Persistence {
 
   async deleteOps(opIds: string[]): Promise<void> {
     await this.drop(opIds);
+  }
+
+  async restamp(ops: Operation[]): Promise<void> {
+    if (this.closed) throw new DatabaseClosedError();
+    for (const op of ops) {
+      const entry = this.index.get(op.id);
+      if (entry) entry.op = { ...entry.op, ts: op.ts };
+    }
   }
 
   private async drop(opIds: string[]): Promise<void> {
@@ -487,6 +497,26 @@ export class SqlitePersistence implements Persistence {
 
   deleteOps(opIds: string[]): Promise<void> {
     return this.dropOps(opIds, "");
+  }
+
+  restamp(ops: Operation[]): Promise<void> {
+    if (ops.length === 0) return Promise.resolve();
+    return this.exclusive(async () => {
+      await this.init();
+      await this.db.execute("BEGIN TRANSACTION");
+      try {
+        for (const op of ops) {
+          await this.db.execute(`UPDATE ops SET ts_json = ? WHERE op_id = ?`, [
+            JSON.stringify(op.ts),
+            op.id,
+          ]);
+        }
+        await this.db.execute("COMMIT");
+      } catch (err) {
+        await this.db.execute("ROLLBACK").catch(() => {});
+        throw err;
+      }
+    });
   }
 
   private dropOps(opIds: string[], onlySynced: string): Promise<void> {

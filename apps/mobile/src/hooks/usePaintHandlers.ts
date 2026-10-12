@@ -1,7 +1,7 @@
 import { useMemo, useRef } from "react";
 import type { ViewProps } from "react-native";
 import { Gesture, type PanGesture } from "react-native-gesture-handler";
-import { useSelectionOptional } from "../data/SelectionProvider";
+import { useSelectionRow } from "../data/SelectionProvider";
 
 /** The pointer props (+ hit-test marker) a row spreads to become paintable. Empty on native. */
 export type PaintHandlers = Pick<ViewProps, "onPointerDown" | "onPointerEnter" | "dataSet">;
@@ -10,7 +10,7 @@ export type PaintHandlers = Pick<ViewProps, "onPointerDown" | "onPointerEnter" |
  * Click-drag "paint" selection: a native row-level no-op. Metro resolves `usePaintHandlers.web.ts`
  * for the desktop browser.
  */
-export function usePaintHandlers(_id: string): PaintHandlers {
+export function usePaintHandlers(_id: string, _selectMode = false): PaintHandlers {
   return {};
 }
 
@@ -19,7 +19,7 @@ export function usePaintHandlers(_id: string): PaintHandlers {
  * activates a `Gesture.Pan()` that wins over ScrollView scrolling and selects or deselects rows live.
  */
 export function useCheckboxPaintGesture(id: string, selectMode = false): PanGesture {
-  const sel = useSelectionOptional();
+  const sel = useSelectionRow();
   const selRef = useRef(sel);
   selRef.current = sel;
 

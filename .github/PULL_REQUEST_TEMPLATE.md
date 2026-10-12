@@ -1,3 +1,5 @@
+<!-- Base branch: `dev`, not `main`. If GitHub opened this against `main`, change the base above. -->
+
 ## What and why
 
 <!-- What does this change, and why? Link the issue it addresses: "Fixes #123". PRs target `dev`, where
@@ -10,6 +12,7 @@ when the commit reaches `main` with the next stable release. -->
 
 ## Checklist
 
+- [ ] The PR targets `dev`.
 - [ ] The PR title follows Conventional Commits (`feat:`, `fix(mobile):`, …).
 - [ ] A commit that fixes an issue says `Fixes #N` in its message body.
 - [ ] `lint` and `test:all` pass in `devenv shell` (or the matching per-package commands).

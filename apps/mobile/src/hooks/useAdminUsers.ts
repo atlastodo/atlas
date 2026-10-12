@@ -79,14 +79,14 @@ export function useAdminUsers() {
     async (id: string): Promise<boolean> => {
       setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, deletion_scheduled: true } : u)));
       try {
-        await api.deleteUser(id);
+        reconcile(await api.deleteUser(id));
         return true;
       } catch {
         void load();
         return false;
       }
     },
-    [api, load, setUsers],
+    [api, load, reconcile, setUsers],
   );
 
   return {

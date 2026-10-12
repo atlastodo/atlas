@@ -13,6 +13,17 @@ jest.mock("../../modules/atlas-exact-alarm", () => ({
   },
 }));
 
+// The data transfer's platform glue (share sheet / browser download, file pickers); the tests only
+// ask whether the export ran, and feed the Todoist import its file. Everything after the picker
+// (unzip, mapping, store merge) runs for real.
+jest.mock("../lib/dataTransfer", () => ({
+  saveBundle: jest.fn(async () => {}),
+  pickBundleText: jest.fn(async () => null),
+  pickCsvText: jest.fn(async () => null),
+  pickTodoistFile: jest.fn(),
+}));
+const { saveBundle } = jest.requireMock("../lib/dataTransfer") as { saveBundle: jest.Mock };
+
 const SESSION = {
   accessToken: "a",
   refreshToken: "r",
@@ -27,7 +38,7 @@ async function mountAuth(
   auth: Parameters<typeof fakeAuth>[0] = {},
 ) {
   await render(
-    <SettingsScreen section={section} onSelectSection={() => {}} onOpenAdmin={() => {}} />,
+    <SettingsScreen section={section} onSelectSection={() => {}} onSelectAdminTab={() => {}} />,
     { wrapper: withApp(store, fakeAuth({ session: SESSION, ...auth })) },
   );
 }
@@ -333,6 +344,36 @@ describe("SettingsScreen", () => {
     });
   });
 
+  it("imports a Todoist project CSV from the Data section and says what was skipped", async () => {
+    const { pickTodoistFile } = jest.requireMock("../lib/dataTransfer");
+    // The zip path differs only in unpacking, covered by the shared importer's tests.
+    const csv = "TYPE,CONTENT,DATE\ntask,Ship it @deploy,every 3rd friday\nnote,Before noon\n";
+    pickTodoistFile.mockResolvedValueOnce({
+      name: "Work [2203306141].csv",
+      bytes: Uint8Array.from(csv, (c) => c.charCodeAt(0)),
+    });
+    const store = await mount("data");
+    await fireEvent.press(screen.getByLabelText("Import CSV or ZIP"));
+
+    await waitFor(() => expect(screen.getByText("Imported 1 tasks into 1 projects")).toBeTruthy());
+    expect(store.list("project").map((p) => p.fields.name)).toEqual(["Work"]);
+    expect(store.list("task").map((t) => t.fields.title)).toEqual(["Ship it"]);
+    expect(store.list("label").map((l) => l.fields.name)).toEqual(["deploy"]);
+    expect(store.list("comment").map((c) => c.fields.body)).toEqual(["Before noon"]);
+    expect(screen.getByText(/The repeat "every 3rd friday" is not supported/)).toBeTruthy();
+  });
+
+  it("says so when the picked file is not a Todoist export", async () => {
+    const { pickTodoistFile } = jest.requireMock("../lib/dataTransfer");
+    pickTodoistFile.mockResolvedValueOnce({ name: "x.csv", bytes: new Uint8Array([97, 44, 98]) });
+    const store = await mount("data");
+    await fireEvent.press(screen.getByLabelText("Import CSV or ZIP"));
+    await waitFor(() =>
+      expect(screen.getByText(/is it a Todoist CSV export or backup/)).toBeTruthy(),
+    );
+    expect(store.list("task")).toEqual([]);
+  });
+
   it("toggles smart view visibility in menu", async () => {
     const store = await mount("sidebar");
     await fireEvent(screen.getByLabelText("Today in menu"), "valueChange", false);
@@ -522,6 +563,104 @@ describe("SettingsScreen", () => {
     );
     expect(await screen.findByText("Device renamed")).toBeTruthy();
     expect(await screen.findByText("Work Laptop")).toBeTruthy();
+  });
+});
+
+describe("SettingsScreen export", () => {
+  beforeEach(() => saveBundle.mockClear());
+
+  const exportButton = () => screen.getByRole("button", { name: "Export" });
+  /** The dialog's own Export button, rendered after the section's. */
+  const confirmButton = () => {
+    const buttons = screen.getAllByRole("button", { name: "Export" });
+    return buttons[buttons.length - 1]!;
+  };
+
+  it("exports only once the account password checks out", async () => {
+    const verifyPassword = jest.fn(async (p: string) => p === "hunter2hunter");
+    await mountAuth("data", new LocalStore("test"), { verifyPassword });
+
+    await fireEvent.press(exportButton());
+    expect(screen.getByText("Enter your password")).toBeTruthy();
+    expect(saveBundle).not.toHaveBeenCalled();
+
+    await fireEvent.changeText(screen.getByLabelText("Password"), "hunter2hunter");
+    await fireEvent.press(confirmButton());
+
+    await waitFor(() => expect(saveBundle).toHaveBeenCalledTimes(1));
+    expect(verifyPassword).toHaveBeenCalledWith("hunter2hunter");
+    expect(screen.queryByText("Enter your password")).toBeNull();
+  });
+
+  it("keeps the dialog open with an inline error on a wrong password, and exports nothing", async () => {
+    const verifyPassword = jest.fn(async () => false);
+    await mountAuth("data", new LocalStore("test"), { verifyPassword });
+
+    await fireEvent.press(exportButton());
+    // An empty field is refused before any key derivation.
+    await fireEvent.press(confirmButton());
+    expect(screen.getByText("Enter your password to confirm")).toBeTruthy();
+    expect(verifyPassword).not.toHaveBeenCalled();
+
+    await fireEvent.changeText(screen.getByLabelText("Password"), "wrong-password");
+    await fireEvent(screen.getByLabelText("Password"), "submitEditing");
+
+    expect(await screen.findByText("Password is incorrect")).toBeTruthy();
+    expect(verifyPassword).toHaveBeenCalledWith("wrong-password");
+    expect(screen.getByText("Enter your password")).toBeTruthy();
+    expect(saveBundle).not.toHaveBeenCalled();
+  });
+
+  it("says so when the password cannot be checked, and exports nothing", async () => {
+    const verifyPassword = jest.fn(async () => {
+      throw new Error("no wrapped keys");
+    });
+    await mountAuth("data", new LocalStore("test"), { verifyPassword });
+
+    await fireEvent.press(exportButton());
+    await fireEvent.changeText(screen.getByLabelText("Password"), "hunter2hunter");
+    await fireEvent.press(confirmButton());
+
+    expect(await screen.findByText("Could not check your password")).toBeTruthy();
+    expect(saveBundle).not.toHaveBeenCalled();
+  });
+
+  it("exports nothing when the dialog is cancelled, even mid-check", async () => {
+    let resolve: (ok: boolean) => void = () => {};
+    const verifyPassword = jest.fn(() => new Promise<boolean>((r) => (resolve = r)));
+    await mountAuth("data", new LocalStore("test"), { verifyPassword });
+
+    await fireEvent.press(exportButton());
+    await fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("Enter your password")).toBeNull();
+
+    // A cancel while the key derivation runs: its late success must not export.
+    await fireEvent.press(exportButton());
+    await fireEvent.changeText(screen.getByLabelText("Password"), "hunter2hunter");
+    await fireEvent.press(confirmButton());
+    expect(await screen.findByRole("button", { name: "Checking…" })).toBeTruthy();
+    await fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+    resolve(true);
+    await waitFor(() => expect(screen.queryByText("Enter your password")).toBeNull());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(saveBundle).not.toHaveBeenCalled();
+  });
+
+  it("exports directly in local-only mode, with no password to ask for", async () => {
+    const verifyPassword = jest.fn(async () => true);
+    await render(
+      <SettingsScreen section="data" onSelectSection={() => {}} onSelectAdminTab={() => {}} />,
+      {
+        wrapper: withApp(new LocalStore("test"), fakeAuth({ verifyPassword }), undefined, {
+          localOnly: true,
+        }),
+      },
+    );
+
+    await fireEvent.press(exportButton());
+    await waitFor(() => expect(saveBundle).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Enter your password")).toBeNull();
+    expect(verifyPassword).not.toHaveBeenCalled();
   });
 });
 

@@ -122,6 +122,8 @@ jest.mock("react-native-reorderable-list", () => {
       trigger,
     );
   };
+  // Stable, like the library's per-cell lift: memoised task rows take it as a prop.
+  const lift = () => {};
   // The nested list behaves like the flat one and the container is a passthrough view.
   const ScrollViewContainer = (props: { children?: MockNode }) =>
     R.createElement(RN.View, null, props.children);
@@ -130,7 +132,7 @@ jest.mock("react-native-reorderable-list", () => {
     default: ReorderableList,
     NestedReorderableList: ReorderableList,
     ScrollViewContainer,
-    useReorderableDrag: () => () => {},
+    useReorderableDrag: () => lift,
   };
 });
 

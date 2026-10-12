@@ -5,7 +5,7 @@ import {
   type Task,
 } from "@atlas/client-core";
 import { taskCreateFields, toTask } from "./taskMapper";
-import { anchorMonthDay, nextOccurrence, pinMonthDay } from "./recurrence";
+import { advanceSeries, anchorMonthDay } from "./recurrence";
 import { writeActivity } from "./activity";
 import { restoreEntity } from "./trash";
 import { wouldCycle } from "./taskTree";
@@ -146,9 +146,9 @@ export function toggleTask(
   if (nowCompleted && task.recurrence && task.due_at != null) {
     const tz = resolveTimeZone(timeZone);
     const due = task.due_at;
-    const rule = pinMonthDay(task.recurrence, due, tz);
-    const next = nextOccurrence(rule, due, now, tz);
-    if (next != null) {
+    const advanced = advanceSeries(task.recurrence, due, now, tz);
+    if (advanced) {
+      const { next, rule } = advanced;
       const shift = (ms: number) => shiftWithDue(ms, due, next, tz);
       spawnedId = createTask(
         store,
@@ -274,9 +274,9 @@ export function updateRecurringTask(
 
   // "this_occurrence": detach as a one-off and spawn the series from the next occurrence.
   const tz = resolveTimeZone(timeZone);
-  const rule = pinMonthDay(task.recurrence, task.due_at, tz);
-  const next = nextOccurrence(rule, task.due_at, now, tz);
-  if (next != null) {
+  const advanced = advanceSeries(task.recurrence, task.due_at, now, tz);
+  if (advanced) {
+    const { next, rule } = advanced;
     const nextStart =
       task.start_at != null ? shiftWithDue(task.start_at, task.due_at, next, tz) : null;
     createTask(
@@ -320,9 +320,9 @@ export function skipTask(
   }
   const tz = resolveTimeZone(timeZone);
   const due = task.due_at;
-  const rule = pinMonthDay(task.recurrence, due, tz);
-  const next = nextOccurrence(rule, due, now, tz);
-  if (next == null || next <= due) return false;
+  const advanced = advanceSeries(task.recurrence, due, now, tz);
+  if (!advanced || advanced.next <= due) return false;
+  const { next, rule } = advanced;
   const shift = (ms: number) => shiftWithDue(ms, due, next, tz);
   updateTask(
     store,

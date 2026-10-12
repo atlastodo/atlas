@@ -38,6 +38,27 @@ export async function pickCsvText(): Promise<string | null> {
   return pickText(["text/csv", "text/comma-separated-values", "text/plain"]);
 }
 
+/**
+ * Let the user pick a Todoist export, a project's CSV or the backup zip, and return its name and
+ * bytes, or null if they cancelled. Bytes, because the zip is binary; the importer decodes a CSV.
+ */
+export async function pickTodoistFile(): Promise<{ name: string; bytes: Uint8Array } | null> {
+  const res = await DocumentPicker.getDocumentAsync({
+    type: [
+      "text/csv",
+      "text/comma-separated-values",
+      "text/plain",
+      "application/zip",
+      "application/x-zip-compressed",
+    ],
+    copyToCacheDirectory: true,
+  });
+  if (res.canceled) return null;
+  const asset = res.assets?.[0];
+  if (!asset) return null;
+  return { name: asset.name, bytes: await new File(asset.uri).bytes() };
+}
+
 async function pickText(type: string | string[]): Promise<string | null> {
   const res = await DocumentPicker.getDocumentAsync({ type, copyToCacheDirectory: true });
   if (res.canceled) return null;

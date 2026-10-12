@@ -38,7 +38,7 @@ ENV CI=1 EXPO_NO_TELEMETRY=1
 RUN cd apps/mobile && bunx expo export --platform web && node scripts/postexport-favicon.mjs
 
 # Stage 2: Compile the Rust backend binary
-FROM rust:1.98-bookworm AS server-builder
+FROM rust:1.99-bookworm AS server-builder
 WORKDIR /app
 
 # Cache dependencies: copy manifests first.

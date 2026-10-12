@@ -5,20 +5,22 @@ offline. The server stores and relays encrypted edits between devices and betwee
 of a shared project. It never needs to read the content.
 
 This page is the reference for how things work. [SECURITY.md](../SECURITY.md) says what is and
-is not protected, and [self-hosting.md](./self-hosting.md) covers running a server.
+is not protected, [self-hosting.md](./self-hosting.md) covers running a server,
+[sync-protocol.md](./sync-protocol.md) is the wire contract, and [decisions/](./decisions/README.md)
+records why the main choices were made.
 
 ## Components
 
-| Path                   | Language              | Role                                                                                                                                |
-| ---------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `crates/atlas-core`    | Rust                  | The hybrid logical clock and the op log types. No I/O.                                                                              |
-| `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.     |
-| `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                       |
-| `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client.                                                 |
-| `packages/shared`      | TypeScript            | Pure logic shared by every client: recurrence, quick-add parsing, filters, habits, stats, ordering, TickTick import, i18n catalogs. |
-| `apps/mobile`          | React Native + Expo   | The only UI. Runs natively on Android and iOS and in the browser through react-native-web.                                          |
-| `apps/electron`        | TypeScript (Electron) | Desktop shell that loads the web export from an `app://` origin.                                                                    |
-| `test-vectors/`        | JSON                  | Fixtures read by both the Rust and TypeScript tests so both sides behave the same.                                                  |
+| Path                   | Language              | Role                                                                                                                                     |
+| ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/atlas-core`    | Rust                  | The hybrid logical clock and the op log types. No I/O.                                                                                   |
+| `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.          |
+| `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                            |
+| `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client.                                                      |
+| `packages/shared`      | TypeScript            | Pure logic for every client: recurrence, quick-add parsing, filters, habits, stats, ordering, TickTick/Todoist import, i18n catalogs.    |
+| `apps/mobile`          | React Native + Expo   | The only UI. Runs natively on Android and iOS and in the browser through react-native-web.                                               |
+| `apps/electron`        | TypeScript (Electron) | Desktop shell that loads the web export from an `app://` origin.                                                                         |
+| `test-vectors/`        | JSON                  | Shared fixtures. The conflict and plaintext-field vectors are read by both the Rust and TypeScript tests; recurrence is TypeScript only. |
 
 ## How the clients share code
 
@@ -84,8 +86,26 @@ A delete is a tombstone with its own timestamp. Field writes older than the tomb
 hidden. A field written after the tombstone is visible again, so an edit made after a delete
 brings the entity back.
 
-The server only stores and relays ops; the rule runs in `packages/client-core`.
-`test-vectors/conflict_vectors.json` holds the cases its tests resolve.
+The rule runs on every client (`packages/client-core`) and on the server, which folds each pushed
+op into the snapshot state with the same comparison. `test-vectors/conflict_vectors.json` holds
+the cases both resolve; the server test pushes them one at a time and in reverse as one batch.
+
+What this means in practice:
+
+- Merging is per field, not per character. When two devices edit the same note offline, the
+  later edit wins whole; the other is not merged in. Different fields of one task (title on one
+  device, due date on another) both survive.
+- An edit made concurrently with a delete, but stamped after it, brings the entity back with only
+  the fields written after the delete. The other fields stay hidden by the tombstone.
+- The rule has no notion of meaning. The server checks an op's shape, size, clock and the
+  caller's role in the project, never what an encrypted value says. A buggy client can write a
+  value no other client understands; the protocol floor (see [Protocol versions](#protocol-versions))
+  is the lever for keeping such clients off.
+- A device whose clock runs more than five minutes fast has its pushes refused with
+  `clock_skew`. The client then runs its clock by the server's and re-stamps the edits it had
+  queued with the fast clock, so they sync at once (see [Clock skew](#clock-skew)). Other devices
+  order those edits by the corrected time, not by the time the fast clock showed. The app shows
+  the skew in Sync details only while pushes stay refused.
 
 ## Sync
 
@@ -152,7 +172,7 @@ instead of silently dropping messages.
 Every sync request carries the client's protocol version (`x-atlas-sync-protocol`, or a
 `protocol` query parameter on the WebSocket). The server answers `426 Upgrade Required` below its
 minimum, and the app asks the user to update. The minimum is 6, the current version
-(`MIN_SYNC_PROTOCOL` in `sync.rs`, `SYNC_PROTOCOL` in `realtime.ts`). The minimums exist because
+(`MIN_SYNC_PROTOCOL` in `sync/mod.rs`, `SYNC_PROTOCOL` in `realtime.ts`). The minimums exist because
 older builds do harm that the server cannot detect:
 
 - 3: load every project key and encrypt with the project's canonical key. Older builds minted
@@ -161,6 +181,30 @@ older builds do harm that the server cannot detect:
 - 5: open the WebSocket with a single-use ticket instead of the access token in the URL.
 - 6: load only key deliveries signed by the owner, and follow rotations. A protocol 5 build keeps
   writing under a key that a rotation retired, which the member who left can still read.
+
+#### Clock skew
+
+A push holding an op stamped more than five minutes past the server's clock is refused whole with
+`400 {"code": "clock_skew", "server_time": <ms>}`, before anything is written. The client
+(`SyncClient.pushOutbox`, `LocalStore.restampAhead`) then:
+
+1. sets its clock offset to `server_time` (`alignClock`), so new edits are stamped by the
+   server's clock. The offset lives in memory and is dropped when the device clock is set.
+2. re-stamps every unsynced op stamped past `server_time` plus five minutes. The server could
+   never have accepted such an op, not even in an earlier push whose answer was lost, so it keeps
+   its op id. Unsynced ops at or below that limit keep their stamps.
+3. pushes again, once in the same cycle.
+
+The new stamps come from the corrected clock, started from a floor: the newest stamp among the
+ops the server holds that this device has seen (its own acknowledged ones and every op it
+pulled) and the unsynced ops it keeps. The re-stamped ops are taken in their old order. So they
+keep their order among themselves, stay above every op they beat before, and nothing an earlier
+cycle acknowledged can beat a later edit. No comparison the read model made changes, so the
+store only updates the stamps of the field values and tombstones these ops won, and rewrites
+their rows in the op log in one transaction (a failed write is retried, like a failed append).
+The HLC is wound back to the newest of these stamps, so later edits use the corrected clock and
+still beat everything the device has seen. A second refusal in the same cycle leaves the ops
+queued, as before, and re-stamping again changes nothing.
 
 ### On the server
 
@@ -194,7 +238,15 @@ A lock per caller would not be enough, because a partition also receives rows fa
 other users' transactions, so two pushers who share a project can interleave inside one target
 partition. Locking every partition a transaction might write, in sorted order, would work but
 needs the full write set up front. Pushes are short, so one global lock is the simplest choice
-that is provably correct, and a single key taken first cannot deadlock.
+that is provably correct, and a single key taken first cannot deadlock. Pushes from all users
+queue on it, each holding a pooled connection while it waits, so `DB_MAX_CONNECTIONS` bounds how
+many can wait at once.
+
+Server-authored ops (membership rows, revocation tombstones) are stamped by one server clock.
+Receiving a push moves that clock past the push's newest stamp, so these ops order after what
+the server has already accepted. A client may stamp up to five minutes ahead, and the server
+clock then follows it. That is by design: those ops touch only server-managed membership rows,
+or delete a task the caller lost access to, and both must win.
 
 The live fan-out to open sockets and the socket tickets are kept in the server's memory. That is
 enough while one server instance serves every client, which is how Atlas Todo is deployed. A user
@@ -254,6 +306,10 @@ in a shared project they belong to.
 Access tokens are JWTs that live 15 minutes by default. Refresh tokens last 30 days and are
 single-use: the server consumes one and issues a replacement. Presenting a consumed token again
 is treated as theft and revokes the device's whole token family.
+
+Every authenticated request also checks that the token's device still has a live refresh
+family, so signing a device out (or ending its session from another one) takes effect on its
+next request, not when its access token expires.
 
 The client takes care not to trip this itself (`packages/client-core/src/api.ts`):
 

@@ -25,6 +25,24 @@ export function pickCsvText(): Promise<string | null> {
   return pickText("text/csv,.csv");
 }
 
+/** Same, for a Todoist export: a project's CSV or the backup zip, read as bytes. */
+export function pickTodoistFile(): Promise<{ name: string; bytes: Uint8Array } | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "text/csv,.csv,application/zip,.zip";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return resolve(null);
+      void file
+        .arrayBuffer()
+        .then((buffer) => resolve({ name: file.name, bytes: new Uint8Array(buffer) }));
+    };
+    input.oncancel = () => resolve(null);
+    input.click();
+  });
+}
+
 function pickText(accept: string): Promise<string | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");

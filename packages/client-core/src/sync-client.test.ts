@@ -8,6 +8,7 @@ import {
   type SyncResult,
   type SyncTransport,
 } from "./sync-client";
+import { compareHlc } from "./hlc";
 import type { Operation } from "./types";
 
 const NODE_A = "00000000-0000-0000-0000-0000000000a1";
@@ -500,21 +501,33 @@ describe("SyncClient", () => {
   });
 
   describe("clock skew", () => {
-    it("keeps the outbox on a clock_skew refusal and stops new ops drifting further ahead", async () => {
-      const HOUR = 60 * 60_000;
-      let deviceNow = 10_000_000 + HOUR; // this device's clock runs an hour fast
-      const serverNow = () => deviceNow - HOUR;
+    const HOUR = 60 * 60_000;
+    const TOLERANCE = 5 * 60_000;
+
+    /** A device whose clock runs an hour fast, and a server that refuses its far-ahead stamps. */
+    function skewed() {
+      const clock = { device: 10_000_000 + HOUR };
+      const serverNow = () => clock.device - HOUR;
       let n = 0;
-      const s = new LocalStore(NODE_A, { now: () => deviceNow, newId: () => `op-${n++}` });
-      const fast = s.set("task", "t1", "title", "written on a fast clock");
+      const s = new LocalStore(NODE_A, { now: () => clock.device, newId: () => `op-${n++}` });
       const server = fakeServer();
       const push = server.transport.syncPush;
+      const refused: Operation[][] = [];
       server.transport.syncPush = vi.fn(async (ops: Operation[]) => {
-        if (ops.some((o) => o.ts.wallMs > serverNow() + 5 * 60_000)) {
+        if (ops.some((o) => o.ts.wallMs > serverNow() + TOLERANCE)) {
+          refused.push(ops);
           throw new ApiError(400, "clock skew", { code: "clock_skew", server_time: serverNow() });
         }
         return push(ops);
       });
+      return { s, server, clock, serverNow, refused };
+    }
+
+    it("re-stamps the queued edits by the server's clock and pushes them in the same cycle", async () => {
+      const { s, server, clock, serverNow, refused } = skewed();
+      const one = s.set("task", "t1", "title", "one");
+      const two = s.set("task", "t1", "title", "two");
+      const notes = s.set("task", "t2", "notes", "n");
       const quarantined: Operation[] = [];
       const client = new SyncClient(s, server.transport, {
         onQuarantine: (op) => quarantined.push(op),
@@ -523,15 +536,46 @@ describe("SyncClient", () => {
       await client.sync();
 
       expect(quarantined).toEqual([]);
+      expect(refused).toHaveLength(1);
+      expect(s.unsyncedOps()).toEqual([]);
+      // The same ops, in the same order, stamped within the server's tolerance.
+      expect(server.log.map((o) => o.id)).toEqual([one.id, two.id, notes.id]);
+      for (let i = 1; i < server.log.length; i++) {
+        expect(compareHlc(server.log[i]!.ts, server.log[i - 1]!.ts)).toBeGreaterThan(0);
+      }
+      for (const op of server.log) {
+        expect(op.ts.wallMs).toBeLessThanOrEqual(serverNow() + TOLERANCE);
+      }
+      expect(s.get("task", "t1")).toEqual({ title: "two" });
+      expect(s.fieldTs("task", "t1", "title")).toEqual(server.log[1]!.ts);
+      // The push went through, so Sync details has nothing to warn about.
+      expect(client.clockSkewMs()).toBeNull();
+
+      // Ten minutes on, a new edit is stamped from the corrected clock, and syncs.
+      clock.device += 10 * 60_000;
+      const later = s.set("task", "t1", "title", "after the correction");
+      expect(later.ts.wallMs).toBe(serverNow());
+      await client.sync();
+      expect(refused).toHaveLength(1);
+      expect(s.unsyncedOps()).toEqual([]);
+    });
+
+    it("keeps the outbox when the server refuses the re-stamped push too", async () => {
+      const { s, server, refused } = skewed();
+      const fast = s.set("task", "t1", "title", "written on a fast clock");
+      // A server whose answer is an hour behind the time it checks against.
+      server.transport.syncPush = vi.fn(async (ops: Operation[]) => {
+        refused.push(ops);
+        throw new ApiError(400, "clock skew", { code: "clock_skew", server_time: 10_000_000 });
+      });
+      const client = new SyncClient(s, server.transport);
+
+      await client.sync();
+
+      expect(refused).toHaveLength(2); // one retry, not a loop
       expect(s.unsyncedOps().map((o) => o.id)).toEqual([fast.id]);
       expect(server.transport.syncPull).toHaveBeenCalled(); // the cycle still pulls
       expect(client.clockSkewMs()).toBeCloseTo(-HOUR, -4);
-
-      // Ten minutes on, a new op is stamped from the corrected clock: no further ahead than the
-      // fast one already queued, instead of another ten minutes into the future.
-      deviceNow += 10 * 60_000;
-      const later = s.set("task", "t2", "title", "after the correction");
-      expect(later.ts.wallMs).toBe(fast.ts.wallMs);
     });
   });
 

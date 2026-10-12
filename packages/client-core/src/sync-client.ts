@@ -654,28 +654,41 @@ export class SyncClient {
    */
   private async pushOutbox(ops: Operation[]): Promise<void> {
     this.deferredIds = new Set();
-    try {
-      let batch: Operation[] = [];
-      let bytes = 0;
-      for (const op of ops) {
-        const size = estimateWireBytes(op);
-        if (batch.length > 0 && (batch.length >= MAX_PUSH_OPS || bytes + size > MAX_PUSH_BYTES)) {
-          await this.pushBatch(batch);
-          batch = [];
-          bytes = 0;
-        }
-        batch.push(op);
-        bytes += size;
+    for (let retried = false; ; retried = true) {
+      try {
+        await this.pushBatches(ops);
+        break;
+      } catch (err) {
+        if (!isClockSkew(err)) throw err;
+        const serverTime = (err.data as { server_time?: unknown } | null | undefined)?.server_time;
+        // The clock runs fast. Nothing of the refused batch was applied (batches before it were),
+        // so the ops the server could never take are re-stamped by its clock and pushed again,
+        // once. Whatever is still refused stays queued; the cycle carries on.
+        if (typeof serverTime !== "number") return;
+        this.clockSkew = this.store.alignClock(serverTime);
+        if (retried || this.store.restampAhead(serverTime) === 0) return;
+        // The new stamps reach the log before the push can mark the ops synced.
+        await this.store.flush();
+        ops = this.store.unsyncedOps().filter((o) => !this.deferredIds.has(o.id));
       }
-      await this.pushBatch(batch);
-    } catch (err) {
-      if (!isClockSkew(err)) throw err;
-      const serverTime = (err.data as { server_time?: unknown } | null | undefined)?.server_time;
-      // Clock runs fast: queued ops stay queued until real time catches up. The cycle carries on.
-      if (typeof serverTime === "number") this.clockSkew = this.store.alignClock(serverTime);
-      return;
     }
     if (ops.length > 0) this.clockSkew = null;
+  }
+
+  private async pushBatches(ops: Operation[]): Promise<void> {
+    let batch: Operation[] = [];
+    let bytes = 0;
+    for (const op of ops) {
+      const size = estimateWireBytes(op);
+      if (batch.length > 0 && (batch.length >= MAX_PUSH_OPS || bytes + size > MAX_PUSH_BYTES)) {
+        await this.pushBatch(batch);
+        batch = [];
+        bytes = 0;
+      }
+      batch.push(op);
+      bytes += size;
+    }
+    await this.pushBatch(batch);
   }
 
   private async pushBatch(ops: Operation[]): Promise<void> {

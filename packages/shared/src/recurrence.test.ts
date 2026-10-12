@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import fixture from "../../../test-vectors/recurrence_vectors.json";
 import da from "./locales/da.json";
 import {
+  advanceSeries,
   anchorMonthDay,
   formatRule,
   nextOccurrence,
@@ -180,6 +181,7 @@ describe("anchorMonthDay", () => {
       "FREQ=DAILY",
       "FREQ=WEEKLY;BYDAY=MO",
       "FREQ=YEARLY",
+      "FREQ=YEARLY;MODE=COMPLETION",
       "FREQ=MONTHLY;MODE=COMPLETION",
       "freq=weekly",
       "nonsense",
@@ -187,6 +189,33 @@ describe("anchorMonthDay", () => {
       expect(anchorMonthDay(rule, due, "UTC")).toBe(rule);
     }
     expect(anchorMonthDay("FREQ=MONTHLY", NaN, "UTC")).toBe("FREQ=MONTHLY");
+  });
+});
+
+describe("anchorMonthDay for yearly rules", () => {
+  const utc = (iso: string) => Date.parse(`${iso}Z`);
+
+  it("keeps a leap day, and only a leap day", () => {
+    expect(anchorMonthDay("FREQ=YEARLY", utc("2024-02-29T09:00:00"), "UTC")).toBe(
+      "FREQ=YEARLY;BYMONTHDAY=29",
+    );
+    expect(anchorMonthDay("FREQ=YEARLY", utc("2024-03-01T09:00:00"), "UTC")).toBe("FREQ=YEARLY");
+    // Feb 28 is where the leap day clamps to in a common year.
+    const rule = "FREQ=YEARLY;BYMONTHDAY=29";
+    expect(anchorMonthDay(rule, utc("2025-02-28T09:00:00"), "UTC")).toBe(rule);
+    expect(anchorMonthDay(rule, utc("2025-06-10T09:00:00"), "UTC")).toBe("FREQ=YEARLY");
+  });
+
+  it("returns to Feb 29 every leap year instead of settling on the 28th", () => {
+    let due = utc("2024-02-29T09:00:00");
+    const rule = anchorMonthDay("FREQ=YEARLY", due, "UTC");
+    const seen: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      due = nextOccurrence(rule, due, due, "UTC")!;
+      seen.push(new Date(due).toISOString().slice(0, 10));
+    }
+    expect(seen).toEqual(["2025-02-28", "2026-02-28", "2027-02-28", "2028-02-29"]);
+    expect(formatRule(rule)).toBe(formatRule("FREQ=YEARLY"));
   });
 });
 
@@ -380,5 +409,47 @@ describe("parseRule modes", () => {
 
   it("rejects unknown modes", () => {
     expect(parseRule("FREQ=DAILY;MODE=BOGUS")).toBeNull();
+  });
+});
+
+describe("advanceSeries across a DST gap", () => {
+  const NY = "America/New_York";
+  const local = (ms: number) => {
+    const p = zonedParts(ms, NY);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${p.year}-${pad(p.month + 1)}-${pad(p.day)} ${pad(p.hour)}:${pad(p.minute)}`;
+  };
+  // 2024-03-09 02:30 EST, the night before the US spring-forward (02:00 -> 03:00).
+  const mar9 = Date.parse("2024-03-09T07:30:00Z");
+
+  it("shows the skipped time forward, then returns to the series' own time", () => {
+    const first = advanceSeries("FREQ=DAILY", mar9, mar9, NY)!;
+    expect(local(first.next)).toBe("2024-03-10 03:30");
+    expect(first.rule).toBe("FREQ=DAILY;BYHOUR=2;BYMINUTE=30");
+    const second = advanceSeries(first.rule, first.next, first.next, NY)!;
+    expect(local(second.next)).toBe("2024-03-11 02:30");
+    expect(second.rule).toBe("FREQ=DAILY");
+  });
+
+  it("leaves a series that is really at 03:30 alone", () => {
+    const at330 = Date.parse("2024-03-09T08:30:00Z");
+    const first = advanceSeries("FREQ=DAILY", at330, at330, NY)!;
+    expect([local(first.next), first.rule]).toEqual(["2024-03-10 03:30", "FREQ=DAILY"]);
+    const second = advanceSeries(first.rule, first.next, first.next, NY)!;
+    expect([local(second.next), second.rule]).toEqual(["2024-03-11 03:30", "FREQ=DAILY"]);
+  });
+
+  it("keeps the time while it fits the due date and drops it on a manual reschedule", () => {
+    const { next, rule } = advanceSeries("FREQ=DAILY", mar9, mar9, NY)!;
+    expect(anchorMonthDay(rule, next, NY)).toBe(rule);
+    expect(anchorMonthDay(rule, next + 3_600_000, NY)).toBe("FREQ=DAILY");
+  });
+
+  it("parses the time only as a pair", () => {
+    expect(parseRule("FREQ=DAILY;BYHOUR=2;BYMINUTE=30")?.at).toEqual({ hour: 2, minute: 30 });
+    expect(parseRule("FREQ=DAILY;BYHOUR=2")).toBeNull();
+    expect(parseRule("FREQ=DAILY;BYHOUR=24;BYMINUTE=0")).toBeNull();
+    expect(parseRule("FREQ=DAILY;BYHOUR=1;BYMINUTE=60")).toBeNull();
+    expect(formatRule("FREQ=DAILY;BYHOUR=2;BYMINUTE=30")).toBe(formatRule("FREQ=DAILY"));
   });
 });

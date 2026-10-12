@@ -3,7 +3,8 @@
 # GitHub Release carrying the tag's RELEASE_NOTES.md section and every artifact.
 # A tag with a "-" (vX.Y.Z-rc.N, tagged by hand on the dev branch) is a pre-release: a GitHub
 # prerelease that is never "latest", the Docker tag X.Y.Z-rc.N (never latest), and the AAB goes to
-# the Play internal track. The Docker `dev` tag follows the dev branch instead (dev-image.yml).
+# the Play internal track; a stable release goes to PLAY_STORE_TRACK and internal. The Docker `dev`
+# tag follows the dev branch instead (dev-image.yml).
 name: Release
 
 on:
@@ -98,7 +99,7 @@ jobs:
             echo "::error::Missing secrets: ${missing[*]}. A release needs the upload keystore to sign the APK and AAB."
             exit 1
           fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-notes
           path: release-notes.md
@@ -114,6 +115,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     secrets: inherit
     with:
       tags: |
@@ -168,6 +171,10 @@ jobs:
             -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
             -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
             -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
+      # A dependency update can add a permission without anyone noticing: only what
+      # docs/android-permissions.md lists may ship.
+      - name: Check the declared permissions
+        run: node apps/mobile/scripts/check-android-permissions.mjs
       - name: Verify both are signed with the upload key
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -195,7 +202,7 @@ jobs:
           cp "$apk" "dist/atlas-todo-$VERSION.apk"
           cp "$aab" "dist/atlas-todo-$VERSION.aab"
           echo "Built $package $VERSION, signed with $expected" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android
           path: dist/
@@ -205,8 +212,9 @@ jobs:
         env:
           GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           # A pre-release goes to the internal track (PLAY_STORE_PRERELEASE_TRACK to change it);
-          # a stable one to PLAY_STORE_TRACK.
-          PLAY_STORE_TRACK: ${{ needs.prepare.outputs.prerelease == 'true' && (vars.PLAY_STORE_PRERELEASE_TRACK || 'internal') || vars.PLAY_STORE_TRACK || 'internal' }}
+          # a stable one to PLAY_STORE_TRACK and to internal as well, so internal testers are
+          # never left on an older rc. The script uploads once and drops a repeated track.
+          PLAY_STORE_TRACK: ${{ needs.prepare.outputs.prerelease == 'true' && (vars.PLAY_STORE_PRERELEASE_TRACK || 'internal') || format('{0},internal', vars.PLAY_STORE_TRACK || 'internal') }}
         # Only where the service-account secret exists, so forks skip it.
         run: |
           if [ -z "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" ]; then
@@ -228,7 +236,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
@@ -249,7 +257,7 @@ jobs:
           # The About screen links to the source the app was built from.
           EXPO_PUBLIC_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: bash scripts/package-desktop.sh "$VERSION"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop
           # The -latest copy (stable releases only) backs the
@@ -266,13 +274,23 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      # Build provenance attestations for the release files.
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           # Not the docker-digest-* artifacts: those only carry digests between the image jobs.
           pattern: "{release-notes,android,desktop}"
           path: dist
           merge-multiple: true
+      # Verify a download with: gh attestation verify <file> --repo atlastodo/atlas-todo
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.apk
+            dist/*.aab
+            dist/*.tar.gz
       - name: Create or update the release
         env:
           GH_TOKEN: ${{ github.token }}

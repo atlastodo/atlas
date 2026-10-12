@@ -3,10 +3,17 @@
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
-/// Connect eagerly to Postgres with a bounded pool.
+use crate::config::DEFAULT_DB_MAX_CONNECTIONS;
+
+/// Connect eagerly to Postgres with a pool of the default size.
 pub async fn connect(database_url: &str) -> Result<PgPool, sqlx::Error> {
+    connect_with(database_url, DEFAULT_DB_MAX_CONNECTIONS).await
+}
+
+/// Connect eagerly to Postgres with a pool of at most `max_connections`.
+pub async fn connect_with(database_url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
     PgPoolOptions::new()
-        .max_connections(10)
+        .max_connections(max_connections)
         .connect(database_url)
         .await
 }

@@ -4,9 +4,10 @@ use axum::extract::{Path, Query, State};
 use axum::http::header::CONTENT_DISPOSITION;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
+use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::net::IpAddr;
 use std::time::Instant;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -18,7 +19,7 @@ use super::recovery::{self, Challenge};
 use super::token::{generate_refresh_token, hash_refresh_token, issue_access_token};
 use super::{AuthUser, AuthUserAllowScheduled};
 use crate::error::{AppError, AppResult};
-use crate::ratelimit;
+use crate::ratelimit::{self, ClientIp};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -53,6 +54,9 @@ pub struct SignupRequest {
     pub kdf_params: Option<serde_json::Value>,
     #[serde(default)]
     pub device_name: Option<String>,
+    /// See [`InstallKey`].
+    #[serde(default)]
+    pub install_key: Option<String>,
     /// The Ed25519 identity signing key (see [`super::identity`]): public half, and private half
     /// wrapped under the DEK. Both or neither; later uploads go through `PUT /auth/signing-key`.
     #[serde(default)]
@@ -67,6 +71,9 @@ pub struct LoginRequest {
     pub password: String,
     #[serde(default)]
     pub device_name: Option<String>,
+    /// See [`InstallKey`].
+    #[serde(default)]
+    pub install_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -323,17 +330,24 @@ fn now_unix() -> i64 {
 /// Fetch a user by email and verify `password`. Runs a dummy Argon2 verify for unknown users to
 /// keep timing constant, and rejects an over-long password before hashing.
 ///
-/// Failures count against the email ([`ratelimit::account_failures`]), known or not; a locked
-/// email is refused before any password is checked.
-async fn authenticate(state: &AppState, email: &str, password: &str) -> AppResult<UserRow> {
+/// Failures count against the email and the caller's address ([`ratelimit::account_failures`]),
+/// known email or not; a locked one is refused before any password is checked.
+async fn authenticate(
+    state: &AppState,
+    email: &str,
+    password: &str,
+    ip: IpAddr,
+) -> AppResult<UserRow> {
     let failures = ratelimit::account_failures();
-    if failures.is_blocked(email, Instant::now()) {
+    if failures.is_blocked(email, ip, Instant::now()) {
         return Err(AppError::TooManyRequests);
     }
     let verified = verify_login(state, email, password).await;
     match &verified {
-        Err(AppError::Unauthorized) => failures.record_failure(email, Instant::now()),
-        Ok(_) | Err(AppError::AccountDisabled | AppError::LegacyAccount) => failures.reset(email),
+        Err(AppError::Unauthorized) => failures.record_failure(email, ip, Instant::now()),
+        Ok(_) | Err(AppError::AccountDisabled | AppError::LegacyAccount) => {
+            failures.reset(email, ip)
+        }
         Err(_) => {}
     }
     verified
@@ -436,15 +450,64 @@ async fn revoke_other_sessions(
     Ok(())
 }
 
+/// The client's install key: an identifier that outlives an uninstall of the app on the same
+/// device (Android ID; a keychain value on iOS), sent at sign-in. Only its hash is stored, on the
+/// refresh-token family, so a later sign-in with the same key can replace that family rather
+/// than leave it listed until it expires. The app's own data is gone by then, so the old family
+/// can never be refreshed again anyway. It is not trusted for anything else: the device id stays
+/// server-minted, and a key only ever revokes the signing-in account's own sessions.
+struct InstallKey;
+
+impl InstallKey {
+    const MAX_LEN: usize = 256;
+
+    /// The stored form of a request's key; absent, blank or oversized keys are ignored.
+    fn hash(raw: Option<&str>) -> Option<String> {
+        let raw = raw?.trim();
+        (!raw.is_empty() && raw.len() <= Self::MAX_LEN).then(|| hash_refresh_token(raw))
+    }
+}
+
 /// Sign a user in on a new device. The device id is minted here, never taken from the request:
 /// it names the refresh-token family that revocations spare, so a client choosing it could join
-/// someone else's family.
+/// someone else's family. With an [`InstallKey`], the user's live families from the same install
+/// are signed out first.
 async fn start_new_session(
     state: &AppState,
     user: &UserRow,
     device_name: Option<String>,
+    install_key: Option<&str>,
 ) -> AppResult<AuthResponse> {
-    start_session(&state.pool, state, user, Uuid::now_v7(), device_name).await
+    let install_key_hash = InstallKey::hash(install_key);
+    let mut tx = state.pool.begin().await?;
+    let replaced: Vec<Uuid> = match &install_key_hash {
+        Some(hash) => {
+            sqlx::query_scalar(
+                "UPDATE refresh_tokens SET revoked_at = now()
+                  WHERE user_id = $1 AND install_key_hash = $2 AND revoked_at IS NULL
+              RETURNING device_id",
+            )
+            .bind(user.id)
+            .bind(hash)
+            .fetch_all(&mut *tx)
+            .await?
+        }
+        None => Vec::new(),
+    };
+    let session = start_session(
+        &mut *tx,
+        state,
+        user,
+        Uuid::now_v7(),
+        device_name,
+        install_key_hash,
+    )
+    .await?;
+    tx.commit().await?;
+    for device_id in replaced {
+        state.hub.close_device_sockets(user.id, device_id);
+    }
+    Ok(session)
 }
 
 /// Create a session (access token + refresh token row) through `executor`, so a rotation can
@@ -455,6 +518,7 @@ async fn start_session(
     user: &UserRow,
     device_id: Uuid,
     device_name: Option<String>,
+    install_key_hash: Option<String>,
 ) -> AppResult<AuthResponse> {
     let access_token = issue_access_token(
         user.id,
@@ -480,13 +544,15 @@ async fn start_session(
     let expires_at =
         OffsetDateTime::now_utc() + time::Duration::seconds(state.config.refresh_ttl_seconds);
     sqlx::query(
-        "INSERT INTO refresh_tokens (user_id, device_id, token_hash, expires_at, device_name) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO refresh_tokens (user_id, device_id, token_hash, expires_at, device_name, install_key_hash)
+         VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(user.id)
     .bind(device_id)
     .bind(&refresh.hash)
     .bind(expires_at)
     .bind(&clean_device_name)
+    .bind(&install_key_hash)
     .execute(executor)
     .await?;
 
@@ -658,17 +724,19 @@ pub async fn signup(
         }
     };
 
-    let resp = start_new_session(&state, &user, req.device_name).await?;
+    let resp =
+        start_new_session(&state, &user, req.device_name, req.install_key.as_deref()).await?;
     Ok((StatusCode::CREATED, Json(resp)))
 }
 
 /// `POST /auth/login`
 pub async fn login(
     State(state): State<AppState>,
+    client: Option<Extension<ClientIp>>,
     Json(req): Json<LoginRequest>,
 ) -> AppResult<Json<AuthResponse>> {
     let email = req.email.trim().to_lowercase();
-    let user = authenticate(&state, &email, &req.password).await?;
+    let user = authenticate(&state, &email, &req.password, ClientIp::of(client)).await?;
 
     if let Some(scheduled_at) = user.deletion_scheduled_at {
         return Err(scheduled_deletion_error(scheduled_at));
@@ -680,7 +748,7 @@ pub async fn login(
         .execute(&state.pool)
         .await?;
     Ok(Json(
-        start_new_session(&state, &user, req.device_name).await?,
+        start_new_session(&state, &user, req.device_name, req.install_key.as_deref()).await?,
     ))
 }
 
@@ -703,19 +771,19 @@ pub async fn refresh(
 
     let mut tx = state.pool.begin().await?;
     // Consume the token only if it is live and its account may still hold a session.
-    let consumed: Option<(Uuid, Uuid, Option<String>)> = sqlx::query_as(
+    let consumed: Option<(Uuid, Uuid, Option<String>, Option<String>)> = sqlx::query_as(
         "UPDATE refresh_tokens t
             SET revoked_at = now(), rotated_at = now()
            FROM users u
           WHERE t.token_hash = $1 AND t.revoked_at IS NULL AND t.expires_at > now()
             AND u.id = t.user_id AND u.disabled_at IS NULL AND u.deletion_scheduled_at IS NULL
-        RETURNING t.user_id, t.device_id, t.device_name",
+        RETURNING t.user_id, t.device_id, t.device_name, t.install_key_hash",
     )
     .bind(&token_hash)
     .fetch_optional(&mut *tx)
     .await?;
 
-    let Some((user_id, device_id, device_name)) = consumed else {
+    let Some((user_id, device_id, device_name, install_key_hash)) = consumed else {
         drop(tx);
         return Err(refresh_rejection(&state, &token_hash, req.grace).await);
     };
@@ -728,7 +796,15 @@ pub async fn refresh(
     if !user.is_e2ee {
         return Err(AppError::LegacyAccount);
     }
-    let session = start_session(&mut *tx, &state, &user, device_id, device_name).await?;
+    let session = start_session(
+        &mut *tx,
+        &state,
+        &user,
+        device_id,
+        device_name,
+        install_key_hash,
+    )
+    .await?;
     tx.commit().await?;
     Ok(Json(session))
 }
@@ -809,9 +885,8 @@ pub(super) fn scheduled_deletion_error(scheduled_at: OffsetDateTime) -> AppError
     if account_purge::is_past_grace(scheduled_at) {
         return AppError::AccountDeleted;
     }
-    let elapsed = OffsetDateTime::now_utc() - scheduled_at;
     AppError::AccountScheduledDeletion {
-        days_remaining: (account_purge::DELETION_GRACE_DAYS - elapsed.whole_days()).max(1),
+        days_remaining: account_purge::days_remaining(scheduled_at),
     }
 }
 
@@ -974,20 +1049,22 @@ pub async fn get_recovery_keys(
 /// lands while that hash is still in place.
 pub async fn recover_account(
     State(state): State<AppState>,
+    client: Option<Extension<ClientIp>>,
     Json(req): Json<RecoverAccountRequest>,
 ) -> AppResult<StatusCode> {
+    let ip = ClientIp::of(client);
     validate_auth_hash(&req.new_auth_hash)?;
     let kdf = Kdf::from_request(req.kdf_version, req.kdf_params.as_ref())?;
     let email = req.email.trim().to_lowercase();
-    // Failures count per email, as for login.
+    // Failures count per email and address, as for login.
     let failures = ratelimit::account_failures();
-    if failures.is_blocked(&email, Instant::now()) {
+    if failures.is_blocked(&email, ip, Instant::now()) {
         return Err(AppError::TooManyRequests);
     }
     let recovered = recover(&state, &email, &req, kdf).await;
     match &recovered {
-        Err(AppError::Unauthorized) => failures.record_failure(&email, Instant::now()),
-        Ok(_) => failures.reset(&email),
+        Err(AppError::Unauthorized) => failures.record_failure(&email, ip, Instant::now()),
+        Ok(_) => failures.reset(&email, ip),
         Err(_) => {}
     }
     recovered
@@ -1446,19 +1523,23 @@ pub struct CancelDeletionRequest {
     pub password: String,
     #[serde(default)]
     pub device_name: Option<String>,
+    /// See [`InstallKey`].
+    #[serde(default)]
+    pub install_key: Option<String>,
 }
 
 /// `POST /auth/account/cancel-deletion`: cancel a pending deletion and start a session.
 pub async fn cancel_account_deletion(
     State(state): State<AppState>,
+    client: Option<Extension<ClientIp>>,
     Json(req): Json<CancelDeletionRequest>,
 ) -> AppResult<Json<AuthResponse>> {
     let email = req.email.trim().to_lowercase();
-    let user = authenticate(&state, &email, &req.password).await?;
+    let user = authenticate(&state, &email, &req.password, ClientIp::of(client)).await?;
 
     match user.deletion_scheduled_at {
         None => Ok(Json(
-            start_new_session(&state, &user, req.device_name).await?,
+            start_new_session(&state, &user, req.device_name, req.install_key.as_deref()).await?,
         )),
         Some(scheduled_at) => {
             if account_purge::is_past_grace(scheduled_at) {
@@ -1475,7 +1556,13 @@ pub async fn cancel_account_deletion(
             let mut restored_user = user;
             restored_user.deletion_scheduled_at = None;
             Ok(Json(
-                start_new_session(&state, &restored_user, req.device_name).await?,
+                start_new_session(
+                    &state,
+                    &restored_user,
+                    req.device_name,
+                    req.install_key.as_deref(),
+                )
+                .await?,
             ))
         }
     }

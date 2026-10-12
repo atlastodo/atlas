@@ -53,10 +53,13 @@ services:
       # Built from the POSTGRES_* values so the password lives in one place. Deliberately not
       # ${DATABASE_URL}: a devenv shell exports one that points at the local dev database.
       DATABASE_URL: postgres://${POSTGRES_USER:-atlas}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-atlas}
-      # The container always listens on 8080; publish a different host port with PORT_BIND.
+      # The container always listens on 8080. PORT_BIND publishes it on localhost only by default, for
+      # a reverse proxy on the same host; set it to 8080 to listen on every interface.
       PORT: "8080"
+      # Every interface of the container, whatever BIND_ADDR .env sets for a bare binary.
+      BIND_ADDR: "0.0.0.0"
     ports:
-      - "${PORT_BIND:-8080}:8080"
+      - "${PORT_BIND:-127.0.0.1:8080}:8080"
     volumes:
       # Attachment blobs (BLOB_DIR defaults to /app/data/blobs). Without this volume every
       # container recreate would delete them.

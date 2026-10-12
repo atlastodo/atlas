@@ -9,6 +9,7 @@ import {
   startOfDay,
   zonedParts,
 } from "./zonedTime";
+import { fold, quickAddLexicons, type QuickAddLexicon } from "./quickAddLexicons";
 import {
   anchorMonthDay,
   formatRule,
@@ -25,82 +26,6 @@ import {
  */
 
 export { DEFAULT_DUE_HOUR, DEFAULT_DUE_MINUTE };
-
-const EN_WEEKDAYS: Record<string, number> = {
-  sunday: 0,
-  monday: 1,
-  tuesday: 2,
-  wednesday: 3,
-  thursday: 4,
-  friday: 5,
-  saturday: 6,
-  sun: 0,
-  mon: 1,
-  tue: 2,
-  wed: 3,
-  thu: 4,
-  fri: 5,
-  sat: 6,
-};
-
-// Read as weekdays only in Danish: "man", "tor", "fre" are ordinary English words.
-const DA_WEEKDAYS: Record<string, number> = {
-  søndag: 0,
-  mandag: 1,
-  tirsdag: 2,
-  onsdag: 3,
-  torsdag: 4,
-  fredag: 5,
-  lørdag: 6,
-  soendag: 0,
-  loerdag: 6,
-  søn: 0,
-  man: 1,
-  tir: 2,
-  ons: 3,
-  tor: 4,
-  fre: 5,
-  lør: 6,
-  soen: 0,
-  loer: 6,
-};
-
-const MONTH_MAP: Record<string, number> = {
-  // English
-  january: 0,
-  february: 1,
-  march: 2,
-  april: 3,
-  may: 4,
-  june: 5,
-  july: 6,
-  august: 7,
-  september: 8,
-  october: 9,
-  november: 10,
-  december: 11,
-  jan: 0,
-  feb: 1,
-  mar: 2,
-  apr: 3,
-  jun: 5,
-  jul: 6,
-  aug: 7,
-  sep: 8,
-  sept: 8,
-  oct: 9,
-  nov: 10,
-  dec: 11,
-  // Danish
-  januar: 0,
-  februar: 1,
-  marts: 2,
-  maj: 4,
-  juni: 5,
-  juli: 6,
-  oktober: 9,
-  okt: 9,
-};
 
 export type ChipKind = "due" | "project" | "label" | "priority" | "recurrence";
 
@@ -145,38 +70,9 @@ export interface QuickAddResult {
   labels: string[];
 }
 
-function weekdayIndex(word: string, danish: boolean): number | null {
-  const clean = word.replace(/[.,]+$/, "");
-  const own = (map: Record<string, number>) =>
-    Object.prototype.hasOwnProperty.call(map, clean) ? map[clean]! : null;
-  return own(EN_WEEKDAYS) ?? (danish ? own(DA_WEEKDAYS) : null);
-}
-
-function monthIndex(word: string): number | null {
-  const clean = word.replace(/[.,]+$/, "");
-  return MONTH_MAP[clean] ?? null;
-}
-
 function daysUntilWeekday(weekday: number, now: number, timeZone?: string): number {
   const today = zonedParts(now, timeZone).weekday;
   return (weekday - today + 7) % 7;
-}
-
-function unitToFreq(unit: string): Freq | null {
-  const clean = unit.replace(/[.,]$/, "");
-  if (clean === "day" || clean === "days" || clean === "dag" || clean === "dage") return "daily";
-  if (clean === "week" || clean === "weeks" || clean === "uge" || clean === "uger") return "weekly";
-  if (
-    clean === "month" ||
-    clean === "months" ||
-    clean === "måned" ||
-    clean === "måneder" ||
-    clean === "maaned" ||
-    clean === "maaneder"
-  )
-    return "monthly";
-  if (clean === "year" || clean === "years" || clean === "år" || clean === "aar") return "yearly";
-  return null;
 }
 
 function daysInMonth(year: number, month: number): number {
@@ -228,213 +124,225 @@ interface RecurrenceMatch extends Match {
 interface DateMatch extends Match {
   day: number;
 }
+interface TimeMatch extends Match {
+  time: number;
+}
 
-function matchRecurrence(words: string[], i: number, danish: boolean): RecurrenceMatch | null {
-  let head = words[i]!;
-  const afterCompletion = head.endsWith("!");
-  if (afterCompletion) head = head.slice(0, -1);
+/** Strip the trailing punctuation a weekday, month or count may carry: "fre.", "okt.", "2.". */
+const bare = (word: string) => word.replace(/[.,]+$/, "");
 
-  // Single-word forms: daily / weekly / monthly / yearly, and Danish dagligt / ugentligt etc.
-  const single: Record<string, Freq> = {
-    daily: "daily",
-    weekly: "weekly",
-    monthly: "monthly",
-    yearly: "yearly",
-    dagligt: "daily",
-    ugentligt: "weekly",
-    månedligt: "monthly",
-    maanedligt: "monthly",
-    årligt: "yearly",
-    aarligt: "yearly",
-  };
+/**
+ * How many words of `phrase` (folded, space-separated) start at `words[i]`, or 0. The last word
+ * may carry trailing punctuation ("demain," / "kl.").
+ */
+function phraseAt(words: string[], i: number, phrase: string): number {
+  const parts = phrase.split(" ");
+  for (let k = 0; k < parts.length; k++) {
+    const w = words[i + k];
+    if (w === undefined) return 0;
+    if (w !== parts[k] && bare(w) !== parts[k]) return 0;
+  }
+  return parts.length;
+}
+
+/** The longest of `phrases` starting at `words[i]`: its word count, or 0. */
+function anyAt(words: string[], i: number, phrases: string[]): number {
+  let best = 0;
+  for (const p of phrases) best = Math.max(best, phraseAt(words, i, p));
+  return best;
+}
+
+/** The longest key of `map` starting at `words[i]`, with its value. */
+function keyAt<T>(
+  words: string[],
+  i: number,
+  map: Record<string, T>,
+): { value: T; consumed: number } | null {
+  let found: { value: T; consumed: number } | null = null;
+  for (const [phrase, value] of Object.entries(map)) {
+    const n = phraseAt(words, i, phrase);
+    if (n > (found?.consumed ?? 0)) found = { value, consumed: n };
+  }
+  return found;
+}
+
+/** A count: "3" or "3." (Danish "hver 2. uge"), or the lexicon's word for one. */
+function countAt(words: string[], i: number, lex: QuickAddLexicon): number | null {
+  const w = words[i];
+  if (w === undefined) return null;
+  const m = /^(\d+)\.?$/.exec(w);
+  if (m) return Number(m[1]);
+  return lex.one.includes(w) ? 1 : null;
+}
+
+/** A day of the month: "3", "3.", "3rd", "1er", "1º". */
+function dayNumberAt(words: string[], i: number): number | null {
+  const m = /^(\d{1,2})(?:st|nd|rd|th|er|º|ª|°|\.)*,?$/.exec(words[i] ?? "");
+  return m ? Number(m[1]) : null;
+}
+
+function matchRecurrence(words: string[], i: number, lex: QuickAddLexicon): RecurrenceMatch | null {
+  // `every!` (or the language's own word with a "!") schedules from completion.
+  const head = words[i]!;
+  const afterCompletion = head.endsWith("!") && head.length > 1;
+  const view = afterCompletion
+    ? [...words.slice(0, i), head.slice(0, -1), ...words.slice(i + 1)]
+    : words;
 
   let rule: Rule | null = null;
   let consumed = 0;
+  const mode = afterCompletion ? "after_completion" : "on_schedule";
 
-  if (!afterCompletion && head in single) {
-    rule = { freq: single[head]!, interval: 1, byday: [], bymonthday: null, mode: "on_schedule" };
-    consumed = 1;
-  } else if (head === "every" || head === "hver" || head === "hvert") {
-    // English "every", Danish "hver" / "hvert"
-    const mode = afterCompletion ? "after_completion" : "on_schedule";
-    const a = words[i + 1];
-    if (!a) return null;
-
-    // "every monday" / "hver mandag"
-    const wd = weekdayIndex(a, danish);
-    if (wd !== null) {
-      rule = {
-        freq: "weekly",
-        interval: 1,
-        byday: [wd === 0 ? 6 : wd - 1],
-        bymonthday: null,
-        mode,
-      };
-      consumed = 2;
+  const single = afterCompletion ? null : keyAt(view, i, lex.single);
+  if (single) {
+    rule = { freq: single.value, interval: 1, byday: [], bymonthday: null, mode };
+    consumed = single.consumed;
+  } else {
+    const every = anyAt(view, i, lex.every);
+    if (!every) return null;
+    const j = i + every;
+    const wd = keyAt(view, j, lex.weekdays);
+    const unit = keyAt(view, j, lex.units);
+    if (wd) {
+      // "every monday" / "hver mandag" / "tous les lundis"
+      rule = { freq: "weekly", interval: 1, byday: [(wd.value + 6) % 7], bymonthday: null, mode };
+      consumed = every + wd.consumed;
+    } else if (unit) {
+      // "every week" / "jede Woche"
+      rule = { freq: unit.value, interval: 1, byday: [], bymonthday: null, mode };
+      consumed = every + unit.consumed;
     } else {
-      // "every day" / "hver dag" ...
-      const unit1 = unitToFreq(a);
-      if (unit1) {
-        rule = { freq: unit1, interval: 1, byday: [], bymonthday: null, mode };
-        consumed = 2;
-      } else {
-        // "every 2 weeks" / "hver 2. uge" / "hver 2 uger"
-        const numMatch = /^(\d+)\.?$/.exec(a);
-        if (numMatch && words[i + 2]) {
-          const unit2 = unitToFreq(words[i + 2]!);
-          if (unit2) {
-            rule = {
-              freq: unit2,
-              interval: Math.max(1, Number(numMatch[1])),
-              byday: [],
-              bymonthday: null,
-              mode,
-            };
-            consumed = 3;
-          }
-        }
-      }
+      // "every 2 weeks" / "hver 2. uge" / "alle 2 Wochen"
+      const n = countAt(view, j, lex);
+      const unit2 = n !== null ? keyAt(view, j + 1, lex.units) : null;
+      if (n === null || !unit2) return null;
+      rule = { freq: unit2.value, interval: Math.max(1, n), byday: [], bymonthday: null, mode };
+      consumed = every + 1 + unit2.consumed;
     }
   }
-  if (!rule) return null;
 
-  // A trailing "from completion" (Danish "fra fuldførelse") is the plain-words `every!`.
-  if (
-    (words[i + consumed] === "from" || words[i + consumed] === "fra") &&
-    (words[i + consumed + 1] === "completion" ||
-      words[i + consumed + 1] === "fuldførelse" ||
-      words[i + consumed + 1] === "fulfoerelse")
-  ) {
+  // A trailing "from completion" / "fra fuldførelse" is the plain-words `every!`.
+  const from = anyAt(view, i + consumed, lex.fromCompletion);
+  if (from) {
     rule = { ...rule, mode: "after_completion" };
-    consumed += 2;
+    consumed += from;
   }
-
   return { rule: ruleToString(rule), consumed };
 }
 
-function matchDate(
+/** A date at `words[i]` with no lead-in word. */
+function matchDateCore(
   words: string[],
   i: number,
   now: number,
   timeZone: string | undefined,
-  danish: boolean,
+  lex: QuickAddLexicon,
 ): DateMatch | null {
-  const w = words[i]!;
   const today = startOfDay(now, timeZone);
+  const weekdayDay = (wd: number, next: boolean) => {
+    let delta = daysUntilWeekday(wd, now, timeZone);
+    if (next && delta === 0) delta = 7; // "next <today's weekday>" = a week out
+    return addDays(today, delta, timeZone);
+  };
+  const unitDay = (freq: Freq, n: number): number | null => {
+    if (freq === "daily") return addDays(today, n, timeZone);
+    if (freq === "weekly") return addDays(today, n * 7, timeZone);
+    if (freq === "monthly") return addMonthsZoned(today, n, timeZone);
+    return addMonthsZoned(today, n * 12, timeZone);
+  };
 
-  if (w === "today" || w === "tonight") return { day: today, consumed: 1 };
-  if (w === "i" && (words[i + 1] === "dag" || words[i + 1] === "aften")) {
-    return { day: today, consumed: 2 };
-  }
+  // "tomorrow" / "i morgen" / "pasado mañana"
+  const rel = keyAt(words, i, lex.relativeDays);
+  if (rel) return { day: addDays(today, rel.value, timeZone), consumed: rel.consumed };
 
-  if (w === "tomorrow") return { day: addDays(today, 1, timeZone), consumed: 1 };
-  if (w === "i" && words[i + 1] === "morgen") {
-    return { day: addDays(today, 1, timeZone), consumed: 2 };
-  }
-
-  if (w === "overmorrow" || w === "overmorgen") {
-    return { day: addDays(today, 2, timeZone), consumed: 1 };
-  }
-  if (w === "i" && words[i + 1] === "overmorgen") {
-    return { day: addDays(today, 2, timeZone), consumed: 2 };
-  }
-
-  // "in 3 days" / "om 3 dage"
-  if ((w === "in" || w === "om") && /^\d+$/.test(words[i + 1] ?? "") && words[i + 2]) {
-    const n = Number(words[i + 1]);
-    const freq = unitToFreq(words[i + 2]!);
-    if (freq === "daily") return { day: addDays(today, n, timeZone), consumed: 3 };
-    if (freq === "weekly") return { day: addDays(today, n * 7, timeZone), consumed: 3 };
-    if (freq === "monthly") return { day: addMonthsZoned(today, n, timeZone), consumed: 3 };
-    if (freq === "yearly") return { day: addMonthsZoned(today, n * 12, timeZone), consumed: 3 };
-  }
-
-  // "next monday" / "næste mandag" / "this friday" / "denne fredag"
-  const isNext = w === "next" || w === "næste" || w === "naeste";
-  const isThis = w === "this" || w === "denne" || w === "dette";
-  if ((isNext || isThis) && words[i + 1]) {
-    const wd = weekdayIndex(words[i + 1]!, danish);
-    if (wd !== null) {
-      let delta = daysUntilWeekday(wd, now, timeZone);
-      if (isNext && delta === 0) delta = 7; // "next <today's weekday>" = a week out
-      return { day: addDays(today, delta, timeZone), consumed: 2 };
+  // "in 3 days" / "om 3 dage" / "dans 3 jours" / "in einer Woche" / "za tydzień"
+  const inP = anyAt(words, i, lex.inPrefixes);
+  if (inP) {
+    const n = countAt(words, i + inP, lex);
+    const unit = n !== null ? keyAt(words, i + inP + 1, lex.units) : null;
+    if (n !== null && unit) {
+      return { day: unitDay(unit.value, n)!, consumed: inP + 1 + unit.consumed };
     }
-    const unit = unitToFreq(words[i + 1]!);
-    if (unit === "weekly") return { day: addDays(today, 7, timeZone), consumed: 2 };
-    if (unit === "monthly") return { day: addMonthsZoned(today, 1, timeZone), consumed: 2 };
-    if (unit === "yearly") return { day: addMonthsZoned(today, 12, timeZone), consumed: 2 };
+    const bareUnit = lex.inBareUnit ? keyAt(words, i + inP, lex.units) : null;
+    if (bareUnit) return { day: unitDay(bareUnit.value, 1)!, consumed: inP + bareUnit.consumed };
   }
 
-  // Bare weekday: "monday" / "tirsdag" / "fre" → the next such day (today counts).
-  const bareWd = weekdayIndex(w, danish);
-  if (bareWd !== null) {
-    return { day: addDays(today, daysUntilWeekday(bareWd, now, timeZone), timeZone), consumed: 1 };
-  }
-
-  // Month then day: "jun 3" / "june 3rd" / "marts 15." / "oct 9."
-  const mon = monthIndex(w);
-  if (mon !== null && words[i + 1]) {
-    const dm = /^(\d{1,2})(?:st|nd|rd|th|\.)*$/.exec(words[i + 1]!);
-    if (dm) {
-      const dt = monthDayDay(mon, Number(dm[1]), now, timeZone);
-      if (dt !== null) return { day: dt, consumed: 2 };
+  // "next monday" / "næste tirsdag" / "this friday" / "next week"
+  const nextP = anyAt(words, i, lex.nextPrefixes);
+  const thisP = nextP ? 0 : anyAt(words, i, lex.thisPrefixes);
+  if (nextP || thisP) {
+    const j = i + (nextP || thisP);
+    const wd = keyAt(words, j, lex.weekdays);
+    if (wd) return { day: weekdayDay(wd.value, nextP > 0), consumed: j - i + wd.consumed };
+    const unit = keyAt(words, j, lex.units);
+    if (unit && unit.value !== "daily") {
+      return { day: unitDay(unit.value, 1)!, consumed: j - i + unit.consumed };
     }
   }
 
-  // Day then month (common European/Danish style): "3. juni" / "15 marts" / "3rd june" / "9. okt"
-  const dayNumMatch = /^(\d{1,2})(?:st|nd|rd|th|\.)*$/.exec(w);
-  if (dayNumMatch && words[i + 1]) {
-    const nextMon = monthIndex(words[i + 1]!);
-    if (nextMon !== null) {
-      const dt = monthDayDay(nextMon, Number(dayNumMatch[1]), now, timeZone);
-      if (dt !== null) return { day: dt, consumed: 2 };
+  // Weekday, or "lundi prochain"; unit then "prochaine": "la semaine prochaine".
+  const wd = keyAt(words, i, lex.weekdays);
+  if (wd) {
+    const next = anyAt(words, i + wd.consumed, lex.nextSuffixes);
+    return { day: weekdayDay(wd.value, next > 0), consumed: wd.consumed + next };
+  }
+  const unit = keyAt(words, i, lex.units);
+  if (unit && unit.value !== "daily") {
+    const next = anyAt(words, i + unit.consumed, lex.nextSuffixes);
+    if (next) return { day: unitDay(unit.value, 1)!, consumed: unit.consumed + next };
+  }
+
+  // Month then day: "jun 3" / "june 3rd" / "marts 15."
+  if (lex.monthFirst) {
+    const mon = keyAt(words, i, lex.months);
+    const d = mon ? dayNumberAt(words, i + mon.consumed) : null;
+    if (mon && d !== null) {
+      const dt = monthDayDay(mon.value, d, now, timeZone);
+      if (dt !== null) return { day: dt, consumed: mon.consumed + 1 };
+    }
+  }
+
+  // Day then month: "3. juni" / "15 marts" / "3rd of june" / "3 de marzo" / "1er mars"
+  const d = dayNumberAt(words, i);
+  if (d !== null) {
+    const conn = anyAt(words, i + 1, lex.monthConnectors);
+    const mon =
+      keyAt(words, i + 1 + conn, lex.months) ?? (conn ? keyAt(words, i + 1, lex.months) : null);
+    if (mon) {
+      const used = keyAt(words, i + 1 + conn, lex.months) ? conn : 0;
+      const dt = monthDayDay(mon.value, d, now, timeZone);
+      if (dt !== null) return { day: dt, consumed: 1 + used + mon.consumed };
     }
   }
 
   return null;
 }
 
-interface TimeMatch {
-  time: number;
-  consumed: number;
+/** A date, optionally behind a lead-in word that only counts when a date follows ("am Montag"). */
+function matchDate(
+  words: string[],
+  i: number,
+  now: number,
+  timeZone: string | undefined,
+  lex: QuickAddLexicon,
+): DateMatch | null {
+  const lead = anyAt(words, i, lex.leadIns);
+  if (lead) {
+    const after = matchDateCore(words, i + lead, now, timeZone, lex);
+    if (after) return { day: after.day, consumed: lead + after.consumed };
+  }
+  return matchDateCore(words, i, now, timeZone, lex);
 }
 
-function matchTime(words: string[], i: number): TimeMatch | null {
-  const word = words[i]!;
-  if (word === "noon") return { time: 12 * 60, consumed: 1 };
-  if (word === "midnight") return { time: 0, consumed: 1 };
+/** "17", "17:30", "9.30" as minutes after midnight; null when out of range. */
+function clock(h: string, m: string | undefined): number | null {
+  const hour = Number(h);
+  const min = m ? Number(m) : 0;
+  return hour <= 23 && min <= 59 ? hour * 60 + min : null;
+}
 
-  // English "at 13:00", "at 5pm", "at noon", "at 9.30"
-  if (word === "at" && words[i + 1]) {
-    const sub = matchTime(words, i + 1);
-    if (sub !== null) {
-      return { time: sub.time, consumed: 1 + sub.consumed };
-    }
-  }
-
-  // Danish "kl 17", "kl. 17:00", "kl 9.30", "kl. 9"
-  if ((word === "kl" || word === "kl.") && words[i + 1]) {
-    const next = words[i + 1]!;
-    const m = /^(\d{1,2})(?:[:.](\d{2}))?$/.exec(next);
-    if (m) {
-      const h = Number(m[1]);
-      const min = m[2] ? Number(m[2]) : 0;
-      if (h <= 23 && min <= 59) {
-        return { time: h * 60 + min, consumed: 2 };
-      }
-    }
-  }
-
-  // Danish prefixed "kl17", "kl.17:00"
-  const klPrefixed = /^kl\.?(\d{1,2})(?:[:.](\d{2}))?$/.exec(word);
-  if (klPrefixed) {
-    const h = Number(klPrefixed[1]);
-    const min = klPrefixed[2] ? Number(klPrefixed[2]) : 0;
-    if (h <= 23 && min <= 59) {
-      return { time: h * 60 + min, consumed: 1 };
-    }
-  }
-
+/** A self-contained time token, in any language: "5pm", "9:30am", "17:00", "9.30". */
+function numericTime(word: string): number | null {
   const ampm = /^(\d{1,2})(?:[:.](\d{2}))?(am|pm)$/.exec(word);
   if (ampm) {
     let h = Number(ampm[1]);
@@ -442,14 +350,75 @@ function matchTime(words: string[], i: number): TimeMatch | null {
     if (h > 12 || m > 59) return null;
     if (ampm[3] === "pm" && h !== 12) h += 12;
     if (ampm[3] === "am" && h === 12) h = 0;
-    return { time: h * 60 + m, consumed: 1 };
+    return h * 60 + m;
   }
   const h24 = /^(\d{1,2})[:.](\d{2})$/.exec(word);
-  if (h24) {
-    const h = Number(h24[1]);
-    const m = Number(h24[2]);
-    if (h > 23 || m > 59) return null;
-    return { time: h * 60 + m, consumed: 1 };
+  return h24 ? clock(h24[1]!, h24[2]) : null;
+}
+
+/**
+ * A time starting at `words[i]` that needs no prefix: a numeric token, the hour glued to the
+ * language's letter ("17h30", "17u"), or an hour before its suffix word ("17 Uhr").
+ */
+function timeTokenAt(words: string[], i: number, lex: QuickAddLexicon): TimeMatch | null {
+  const w = words[i];
+  if (w === undefined) return null;
+  const suffix = (j: number) => anyAt(words, j, lex.timeSuffixes);
+  const numeric = numericTime(bare(w)) ?? numericTime(w);
+  if (numeric !== null) return { time: numeric, consumed: 1 + suffix(i + 1) };
+  if (lex.hourLetter) {
+    const m = new RegExp(`^(\\d{1,2})${lex.hourLetter}(\\d{2})?$`).exec(bare(w));
+    const t = m ? clock(m[1]!, m[2]) : null;
+    if (t !== null) return { time: t, consumed: 1 };
+  }
+  const hour = /^(\d{1,2})$/.exec(w);
+  if (hour && suffix(i + 1)) {
+    const t = clock(hour[1]!, undefined);
+    if (t !== null) return { time: t, consumed: 1 + suffix(i + 1) };
+  }
+  return null;
+}
+
+function matchTime(words: string[], i: number, lex: QuickAddLexicon): TimeMatch | null {
+  const noon = anyAt(words, i, lex.noon);
+  if (noon) return { time: 12 * 60, consumed: noon };
+  const midnight = anyAt(words, i, lex.midnight);
+  if (midnight) return { time: 0, consumed: midnight };
+
+  // "at 5pm" / "kl 17" / "um 17 Uhr" / "a las 9" / "à 17h30"
+  for (const [prefix, bareHour] of Object.entries(lex.timePrefixes)) {
+    const p = phraseAt(words, i, prefix);
+    if (!p) continue;
+    const j = i + p;
+    const word = anyAt(words, j, [...lex.noon, ...lex.midnight]);
+    if (word) return { time: anyAt(words, j, lex.noon) ? 12 * 60 : 0, consumed: p + word };
+    const token = timeTokenAt(words, j, lex);
+    if (token) return { time: token.time, consumed: p + token.consumed };
+    const hour = bareHour ? /^(\d{1,2})$/.exec(words[j] ?? "") : null;
+    const t = hour ? clock(hour[1]!, undefined) : null;
+    if (t !== null) return { time: t, consumed: p + 1 };
+  }
+
+  // Danish "kl17", "kl.17:00"
+  for (const prefix of lex.gluedTimePrefixes ?? []) {
+    const w = words[i]!;
+    if (!w.startsWith(prefix)) continue;
+    const m = /^(\d{1,2})(?:[:.](\d{2}))?$/.exec(w.slice(prefix.length));
+    const t = m ? clock(m[1]!, m[2]) : null;
+    if (t !== null) return { time: t, consumed: 1 };
+  }
+
+  return timeTokenAt(words, i, lex);
+}
+
+/** The first lexicon (UI language, then English) that matches at `words[i]`. */
+function firstOf<T>(
+  lexicons: QuickAddLexicon[],
+  match: (lex: QuickAddLexicon) => T | null,
+): T | null {
+  for (const lex of lexicons) {
+    const found = match(lex);
+    if (found) return found;
   }
   return null;
 }
@@ -480,11 +449,13 @@ export function parseQuickAdd(
   ctx: QuickAddContext = {},
 ): QuickAddResult {
   const tz = ctx.timeZone;
-  const danish = /^da(?:[-_]|$)/i.test(ctx.language ?? "");
+  const lexicons = quickAddLexicons(ctx.language);
   const tokens = [...text.matchAll(/\S+/g)];
   const words = tokens.map((m) => m[0]);
   const wordStarts = tokens.map((m) => m.index ?? 0);
   const lower = words.map((w) => w.toLowerCase());
+  // Accent-insensitive copies for the lexicons ("manana", "lunedi").
+  const folded = words.map(fold);
 
   let priority: Priority | undefined;
   let projectName: string | undefined;
@@ -586,14 +557,16 @@ export function parseQuickAdd(
       continue;
     }
 
-    const rec = matchRecurrence(lower, i, danish);
+    const rec = firstOf(lexicons, (lex) => matchRecurrence(folded, i, lex));
     if (rec) {
       recurrence = rec.rule;
       for (let k = 0; k < rec.consumed; k++) consumedWords.add(i + k);
       i += rec.consumed;
       continue;
     }
-    const date = ctx.disableDates ? null : matchDate(lower, i, now, tz, danish);
+    const date = ctx.disableDates
+      ? null
+      : firstOf(lexicons, (lex) => matchDate(folded, i, now, tz, lex));
     if (date && !matchedDate) {
       const phrase = lower.slice(i, i + date.consumed).join(" ");
       const last = i + date.consumed - 1;
@@ -608,7 +581,7 @@ export function parseQuickAdd(
       i += date.consumed;
       continue;
     }
-    const time = ctx.disableDates ? null : matchTime(lower, i);
+    const time = ctx.disableDates ? null : firstOf(lexicons, (lex) => matchTime(folded, i, lex));
     if (time !== null && !matchedTime) {
       const phrase = lower.slice(i, i + time.consumed).join(" ");
       const last = i + time.consumed - 1;

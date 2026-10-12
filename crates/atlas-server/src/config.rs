@@ -1,6 +1,7 @@
 //! Runtime configuration, loaded from the environment.
 
 use std::fmt;
+use std::net::{IpAddr, Ipv4Addr};
 
 /// The default cap on a single `/sync/push` request body: 2 MiB, the ceiling axum applied
 /// implicitly. Larger batches are rejected with `413`.
@@ -20,6 +21,36 @@ pub const DEFAULT_BLOB_DIR: &str = "/app/data/blobs";
 /// The default cap on blob transfers in progress at once, across all users (`MAX_BLOB_TRANSFERS`).
 /// Transfers stream in small chunks, so it bounds open files and disk bandwidth, not memory.
 pub const DEFAULT_MAX_BLOB_TRANSFERS: usize = 16;
+
+/// The default size of the PostgreSQL connection pool (`DB_MAX_CONNECTIONS`).
+pub const DEFAULT_DB_MAX_CONNECTIONS: u32 = 10;
+
+/// `DB_MAX_CONNECTIONS`, at least 1. Read apart from [`Config`] (only the server's own pool uses
+/// it), but checked by [`Config::from_env`] like every other number.
+pub fn db_max_connections() -> Result<u32, String> {
+    Ok(env_number("DB_MAX_CONNECTIONS", DEFAULT_DB_MAX_CONNECTIONS)?.max(1))
+}
+
+/// The default listen address: every IPv4 interface, which the container needs to be reachable.
+pub const DEFAULT_BIND_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
+
+/// `BIND_ADDR`, the address the listener binds (any IPv4 or IPv6 address, e.g. `127.0.0.1` or
+/// `::`). Read apart from [`Config`] like [`db_max_connections`], and checked by
+/// [`Config::from_env`] too.
+pub fn bind_addr() -> Result<IpAddr, String> {
+    env_value("BIND_ADDR").map_or(Ok(DEFAULT_BIND_ADDR), |v| parse_bind_addr(&v))
+}
+
+/// Parse `BIND_ADDR`: a bare IP address, surrounding whitespace ignored. Host names and a port
+/// are refused (the port is `PORT`), so a typo fails at startup instead of binding elsewhere.
+fn parse_bind_addr(raw: &str) -> Result<IpAddr, String> {
+    raw.trim().parse().map_err(|_| {
+        format!(
+            "BIND_ADDR must be an IP address such as 0.0.0.0, 127.0.0.1 or :: (got {:?})",
+            raw.trim()
+        )
+    })
+}
 
 /// Placeholder JWT secrets that must never reach production (they make access tokens forgeable).
 const KNOWN_WEAK_JWT_SECRETS: &[&str] = &[
@@ -126,6 +157,8 @@ impl Config {
         let database_url = std::env::var("DATABASE_URL").map_err(|_| "DATABASE_URL is required")?;
         let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| "JWT_SECRET is required")?;
         validate_jwt_secret(&jwt_secret)?;
+        db_max_connections()?;
+        bind_addr()?;
         crate::ratelimit::validate_env(
             std::env::vars_os()
                 .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?))),
@@ -365,6 +398,22 @@ mod tests {
             "out of range"
         );
         assert!(parse_number::<usize>("MAX_PUSH_BYTES", "2MB").is_err());
+    }
+
+    #[test]
+    fn bind_addr_takes_any_ip_and_nothing_else() {
+        assert_eq!(
+            parse_bind_addr(" 127.0.0.1 "),
+            Ok(IpAddr::from([127, 0, 0, 1]))
+        );
+        assert_eq!(parse_bind_addr("0.0.0.0"), Ok(DEFAULT_BIND_ADDR));
+        for v6 in ["::", "::1", "fd00::7"] {
+            assert_eq!(parse_bind_addr(v6), Ok(v6.parse().unwrap()), "{v6:?}");
+        }
+        for bad in ["localhost", "0.0.0.0:8080", "[::1]", "256.0.0.1", "*"] {
+            let err = parse_bind_addr(bad).unwrap_err();
+            assert!(err.contains("BIND_ADDR"), "{err}");
+        }
     }
 
     #[test]

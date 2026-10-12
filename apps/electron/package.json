@@ -1,6 +1,6 @@
 {
   "name": "@atlas/electron",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "description": "Atlas Todo desktop application powered by Electron",
   "license": "AGPL-3.0-only",
@@ -21,8 +21,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.13.1",
-    "electron": "^44.5.1",
+    "electron": "^44.6.0",
     "typescript": "~7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.3"
   }
 }

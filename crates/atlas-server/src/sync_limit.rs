@@ -8,7 +8,7 @@
 //!   handshake carries no token, only the ticket that `ws-ticket` request paid for.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use axum::extract::State;
@@ -46,7 +46,7 @@ impl WindowLimiter {
     /// Count one request from `user` at `now`: `Err(wait)` over the limit, with the time until
     /// the window resets.
     pub fn check(&self, user: Uuid, now: Instant) -> Result<(), Duration> {
-        let mut map = self.state.lock().expect("sync limiter mutex poisoned");
+        let mut map = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         // Drop elapsed windows so the map stays bounded.
         map.retain(|_, (start, _)| now.duration_since(*start) < self.window);
         let (start, count) = map.entry(user).or_insert((now, 0));

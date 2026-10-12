@@ -65,6 +65,7 @@ export function fakeAuth(overrides: Partial<AuthContextValue> = {}): AuthContext
     cancelAccountDeletion: async () => {},
     logout: async () => {},
     unlock: async () => true,
+    verifyPassword: async () => true,
     upgradeRequired: false,
     retryAfterUpgrade: () => {},
     signOutNotice: null,

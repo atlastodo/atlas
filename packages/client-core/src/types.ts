@@ -370,6 +370,8 @@ export interface AdminUserView {
   is_admin: boolean;
   disabled: boolean;
   deletion_scheduled: boolean;
+  /** Days until the scheduled deletion is purged; null when none is scheduled. */
+  deletion_days_remaining: number | null;
   created_at_ms: number;
   last_login_at_ms: number | null;
   managed_by_env?: boolean;

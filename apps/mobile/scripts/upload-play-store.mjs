@@ -5,11 +5,12 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// Usage: upload-play-store.mjs <aab> [track]
+// Usage: upload-play-store.mjs <aab> [track[,track...]]
 //
 // Environment (empty counts as unset):
 //   AAB_PATH                   the .aab, when not given as the first argument
-//   PLAY_STORE_TRACK           internal (default), alpha, beta, production, ...
+//   PLAY_STORE_TRACK           internal (default), alpha, beta, production, ... A comma list puts
+//                              the one upload on each track, in the same edit.
 //   ANDROID_PACKAGE_NAME       defaults to ATLAS_APP_ID (as app.config.ts), then app.json's package
 //   PLAY_STORE_RELEASE_STATUS  completed (default), inProgress, halted or draft. `completed` rolls
 //                              out to everyone on the track at once; for a staged rollout use
@@ -27,7 +28,14 @@ async function main() {
     ),
   ).expo;
   const aabPath = process.argv[2] || process.env.AAB_PATH;
-  const track = process.argv[3] || process.env.PLAY_STORE_TRACK || "internal";
+  const tracks = [
+    ...new Set(
+      (process.argv[3] || process.env.PLAY_STORE_TRACK || "internal")
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+    ),
+  ];
   const packageName =
     process.env.ANDROID_PACKAGE_NAME || process.env.ATLAS_APP_ID || appJson.android.package;
   const releaseNotes = process.env.RELEASE_NOTES || "Automated CI release";
@@ -90,7 +98,7 @@ async function main() {
   console.log(`🚀 Starting Google Play upload...`);
   console.log(`📦 Package: ${packageName}`);
   console.log(
-    `🎯 Track: ${track} (status: ${status}${staged ? `, ${userFraction * 100}% of users` : ""})`,
+    `🎯 Tracks: ${tracks.join(", ")} (status: ${status}${staged ? `, ${userFraction * 100}% of users` : ""})`,
   );
   console.log(`📁 AAB: ${aabPath} (${(fs.statSync(aabPath).size / 1024 / 1024).toFixed(2)} MB)`);
 
@@ -104,48 +112,58 @@ async function main() {
     }
     console.log(`>> Edit created (ID: ${editId})`);
 
-    // 2. Upload bundle
-    console.log(`>> Uploading .aab bundle...`);
-    const bundleRes = await client.edits.bundles.upload({
-      packageName,
-      editId,
-      media: {
-        mimeType: "application/octet-stream",
-        body: fs.createReadStream(aabPath),
-      },
-    });
-
-    const versionCode = bundleRes.data.versionCode;
-    console.log(`>> Bundle uploaded successfully! VersionCode: ${versionCode}`);
+    // 2. Upload the bundle, unless Play already has this versionCode (a re-run adding a track):
+    // Play refuses a second upload of a versionCode. app.json's is the one the AAB was built with.
+    const existing = (await client.edits.bundles.list({ packageName, editId })).data.bundles ?? [];
+    let versionCode = existing.find(
+      (b) => b.versionCode === appJson.android.versionCode,
+    )?.versionCode;
+    if (versionCode) {
+      console.log(`>> Play already has versionCode ${versionCode}; reusing it.`);
+    } else {
+      console.log(`>> Uploading .aab bundle...`);
+      const bundleRes = await client.edits.bundles.upload({
+        packageName,
+        editId,
+        media: {
+          mimeType: "application/octet-stream",
+          body: fs.createReadStream(aabPath),
+        },
+      });
+      versionCode = bundleRes.data.versionCode;
+      console.log(`>> Bundle uploaded successfully! VersionCode: ${versionCode}`);
+    }
     // The Console lists releases by this name; the bare versionCode ("v49") read like a semver tag.
     const releaseName =
       process.env.PLAY_STORE_RELEASE_NAME || `${appJson.version} (${versionCode})`;
 
-    // 3. Assign to track
-    console.log(`>> Updating track '${track}' with versionCode ${versionCode}...`);
-    await client.edits.tracks.update({
-      packageName,
-      editId,
-      track,
-      requestBody: {
+    // 3. Assign to each track
+    for (const track of tracks) {
+      console.log(`>> Updating track '${track}' with versionCode ${versionCode}...`);
+      await client.edits.tracks.update({
+        packageName,
+        editId,
         track,
-        releases: [
-          {
-            name: releaseName,
-            versionCodes: [versionCode.toString()],
-            status,
-            ...(staged ? { userFraction } : {}),
-            releaseNotes: [
-              {
-                language: "en-US",
-                text: releaseNotes,
-              },
-            ],
-          },
-        ],
-      },
-    });
-    console.log(`>> Track '${track}' updated.`);
+        requestBody: {
+          track,
+          releases: [
+            {
+              name: releaseName,
+              versionCodes: [versionCode.toString()],
+              status,
+              ...(staged ? { userFraction } : {}),
+              releaseNotes: [
+                {
+                  language: "en-US",
+                  text: releaseNotes,
+                },
+              ],
+            },
+          ],
+        },
+      });
+      console.log(`>> Track '${track}' updated.`);
+    }
 
     // 4. Commit edit
     console.log(`>> Committing edit...`);
@@ -155,7 +173,7 @@ async function main() {
     });
 
     console.log(
-      `✅ Success! Release "${releaseName}" committed to Google Play (${track} track, ${status}). Edit ID: ${commitRes.data.id}`,
+      `✅ Success! Release "${releaseName}" committed to Google Play (${tracks.join(", ")}, ${status}). Edit ID: ${commitRes.data.id}`,
     );
   } catch (error) {
     console.error(`❌ Google Play upload failed:`, error.response?.data || error.message || error);

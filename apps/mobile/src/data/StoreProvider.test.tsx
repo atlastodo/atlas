@@ -2,6 +2,7 @@ import { Text } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import {
+  ApiError,
   MemoryPersistence,
   type ApiClient,
   type Keyring,
@@ -9,6 +10,7 @@ import {
 } from "@atlas/client-core";
 import { StoreProvider, useStore } from "./StoreProvider";
 import { migrationKeys } from "./localData";
+import { quarantineKey } from "./quarantineLog";
 
 /**
  * The real provider over an in-memory database and a server with nothing to sync. The database
@@ -280,6 +282,114 @@ describe("StoreProvider in local-only mode", () => {
     expect(open).toHaveBeenCalledWith("local", expect.anything());
     expect((await persistence.load()).map((r) => r.op.id)).toEqual(["b"]);
     expect(await AsyncStorage.getItem("@atlas_local_db_used")).toBe("1");
+    await view.unmount();
+  });
+});
+
+describe("StoreProvider rejected changes", () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    await AsyncStorage.setItem(migrationKeys(USER).atomicSync, "true");
+    await AsyncStorage.setItem(migrationKeys(USER).e2ee, "true");
+  });
+
+  let dismiss: ((opId?: string) => void) | undefined;
+  function QuarantineProbe() {
+    const { diagnostics, dismissQuarantined } = useStore();
+    dismiss = dismissQuarantined;
+    return (
+      <Text>{`rejected ${diagnostics.quarantined.map((q) => q.opId).join(",") || "none"}`}</Text>
+    );
+  }
+
+  async function mountProbe(persistence: Persistence, api: ApiClient) {
+    return await render(
+      <StoreProvider
+        api={api}
+        deviceId="d-1"
+        userId={USER}
+        keyring={keyring}
+        openPersistence={async () => persistence}
+      >
+        <QuarantineProbe />
+      </StoreProvider>,
+    );
+  }
+
+  async function saved(): Promise<string[]> {
+    const raw = await AsyncStorage.getItem(quarantineKey(USER));
+    return raw ? (JSON.parse(raw) as { opId: string }[]).map((q) => q.opId) : [];
+  }
+
+  it("keeps a change the server rejected listed after a restart, until it is dismissed", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const persistence = new MemoryPersistence();
+    await persistence.append(
+      {
+        id: "op-x",
+        entity: "task",
+        entityId: "t1",
+        ts: { wallMs: 1000, counter: 0, node: "00000000-0000-0000-0000-0000000000d1" },
+        op: "set",
+        field: "title",
+        value: "Shared",
+      },
+      false,
+    );
+    const syncPush = jest.fn(async () => {
+      throw new ApiError(403, "no edit access to this project");
+    });
+    const first = await mountProbe(persistence, quietApi({ syncPush }));
+    expect(await screen.findByText("rejected op-x")).toBeTruthy();
+    await waitFor(async () => expect(await saved()).toEqual(["op-x"]));
+    await first.unmount();
+
+    // The next launch pushes nothing (the change was taken back), yet still lists it.
+    const second = await mountProbe(new MemoryPersistence(), quietApi());
+    expect(await screen.findByText("rejected op-x")).toBeTruthy();
+
+    await act(async () => dismiss!("op-x"));
+    expect(await screen.findByText("rejected none")).toBeTruthy();
+    await waitFor(async () => expect(await saved()).toEqual([]));
+    await second.unmount();
+
+    const third = await mountProbe(new MemoryPersistence(), quietApi());
+    expect(await screen.findByText("rejected none")).toBeTruthy();
+    await third.unmount();
+    warn.mockRestore();
+  });
+
+  it("clears every entry at once", async () => {
+    const entry = (opId: string, at: number) => ({
+      opId,
+      entityKind: "task",
+      entityId: "t1",
+      status: 403,
+      message: "forbidden",
+      at,
+    });
+    await AsyncStorage.setItem(
+      quarantineKey(USER),
+      JSON.stringify([entry("op-a", 2), entry("op-b", 1)]),
+    );
+    const view = await mountProbe(new MemoryPersistence(), quietApi());
+    expect(await screen.findByText("rejected op-a,op-b")).toBeTruthy();
+
+    await act(async () => dismiss!());
+    expect(await screen.findByText("rejected none")).toBeTruthy();
+    await waitFor(async () => expect(await AsyncStorage.getItem(quarantineKey(USER))).toBeNull());
+    await view.unmount();
+  });
+
+  it("does not show another account's entries", async () => {
+    await AsyncStorage.setItem(
+      quarantineKey("u-2"),
+      JSON.stringify([
+        { opId: "op-other", entityKind: "task", entityId: "t9", message: "forbidden", at: 1 },
+      ]),
+    );
+    const view = await mountProbe(new MemoryPersistence(), quietApi());
+    expect(await screen.findByText("rejected none")).toBeTruthy();
     await view.unmount();
   });
 });

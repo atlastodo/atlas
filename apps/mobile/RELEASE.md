@@ -221,7 +221,7 @@ All are optional. An unset or empty variable means the default.
 | ----------------------------- | ------------------------ | ---------------------------------------------------------------------------------- |
 | `ATLAS_APP_ID`                | `dev.sejder.atlastodo`   | Android package and iOS bundle id                                                  |
 | `ATLAS_EAS_PROJECT_ID`        | the maintainer's project | EAS project id; the update URL follows it. `none` turns over-the-air updates off   |
-| `PLAY_STORE_TRACK`            | `internal`               | the Play track a stable release's AAB goes to                                      |
+| `PLAY_STORE_TRACK`            | `internal`               | the Play track a stable release's AAB goes to, besides internal (always)           |
 | `PLAY_STORE_PRERELEASE_TRACK` | `internal`               | the Play track a pre-release's (`-rc.N` tag) AAB goes to                           |
 | `EXPO_PUBLIC_API_URL`         | unset                    | a server URL baked into the desktop tarball; unset means users pick one at sign-in |
 | `DOCKERHUB_IMAGE`             | unset                    | also push the server image to Docker Hub as this name, e.g. `atlastodo/atlas-todo` |

@@ -1,0 +1,34 @@
+# Pull requests target `dev`; `main` only takes the release PR from `dev` and Dependabot's security
+# updates, which GitHub always opens against `main` (see CONTRIBUTING.md and AGENTS.md). GitHub
+# opens a PR against the default branch, `main`, so a contributor's PR lands there by default.
+# This check fails such a PR with a message saying how to retarget it.
+name: PR base
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  base:
+    name: Base branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require dev (or a Dependabot security update) as the source of a PR into main
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [[ "$HEAD_REPO" == "$REPO" && "$HEAD_REF" == "dev" ]]; then
+            echo "Release PR from dev into main."
+            exit 0
+          fi
+          if [[ "$HEAD_REPO" == "$REPO" && "$AUTHOR" == "dependabot[bot]" && "$HEAD_REF" == dependabot/* ]]; then
+            echo "Dependabot security update."
+            exit 0
+          fi
+          echo "::error::Pull requests go to the dev branch, not main. Use 'Edit' next to the PR title to change the base branch to dev."
+          exit 1

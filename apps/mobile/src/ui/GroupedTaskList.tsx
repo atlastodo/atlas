@@ -42,6 +42,8 @@ import { useLabels } from "../hooks/useLabels";
 import { useProjects } from "../hooks/useProjects";
 import { useAllSections } from "../hooks/useAllSections";
 import { useProjectMembers } from "../hooks/useProjectMembers";
+import { usePreferences } from "../hooks/usePreferences";
+import { useStableCallback } from "../hooks/useStableCallback";
 import { QuickRescheduleSheet } from "./QuickRescheduleSheet";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { ListToolbar } from "./ListToolbar";
@@ -164,6 +166,16 @@ interface Section {
   data: Task[];
 }
 
+/** The group key of the reorderable (ungrouped) list, whose rows' siblings are `visible`. */
+const FLAT_GROUP = "\0flat";
+
+/** A row's handlers that depend on its group (see `handlersFor`). */
+interface GroupRowHandlers {
+  indent: (task: Task) => void;
+  outdent: (task: Task) => void;
+  contextMenu: (task: Task, pos: MenuPos) => void;
+}
+
 /** Distinct tasks in first-seen order; `label` grouping renders one task under each label. */
 const uniqueTasks = (rows: Task[]): Task[] => {
   const seen = new Set<string>();
@@ -225,6 +237,7 @@ export function GroupedTaskList({
   const { projects, createProject } = useProjects();
   const allSections = useAllSections();
   const { byUserId } = useProjectMembers();
+  const { swipeRightAction, swipeLeftAction } = usePreferences();
   const { session } = useAuth();
   const myId = session?.user.id;
 
@@ -447,64 +460,60 @@ export function GroupedTaskList({
     ) : undefined;
 
   // A blank row is dropped by the draft effect below; a locked task's "" title is a placeholder, so nothing is written.
-  const handleSaveRename = useCallback(
-    (task: Task, newTitle: string) => {
-      const trimmed = newTitle.trim();
-      if (!task.locked && trimmed && task.title !== trimmed && onUpdateTask) {
-        onUpdateTask(task, { title: trimmed });
-      }
-      setEditingTaskId((curr) => (curr === task.id ? null : curr));
-    },
-    [onUpdateTask],
-  );
+  // The row handlers below are stable (`useStableCallback`): `TaskRow` is memoised, and a handler
+  // that changed with `visible` or a caller's inline prop would re-render every row on any change.
+  const handleSaveRename = useStableCallback((task: Task, newTitle: string) => {
+    const trimmed = newTitle.trim();
+    if (!task.locked && trimmed && task.title !== trimmed && onUpdateTask) {
+      onUpdateTask(task, { title: trimmed });
+    }
+    setEditingTaskId((curr) => (curr === task.id ? null : curr));
+  });
 
   const handleCancelRename = useCallback((task?: Task) => {
     setEditingTaskId((curr) => (task ? (curr === task.id ? null : curr) : null));
   }, []);
 
-  const handleCreateTaskBelow = useCallback(
-    (currentTask: Task, newTitle: string) => {
-      const trimmed = newTitle.trim();
-      if (currentTask.locked || (!trimmed && !currentTask.title.trim())) {
-        setEditingTaskId(null);
-        return;
-      }
+  const handleCreateTaskBelow = useStableCallback((currentTask: Task, newTitle: string) => {
+    const trimmed = newTitle.trim();
+    if (currentTask.locked || (!trimmed && !currentTask.title.trim())) {
+      setEditingTaskId(null);
+      return;
+    }
 
-      if (trimmed && currentTask.title !== trimmed && onUpdateTask) {
-        onUpdateTask(currentTask, { title: trimmed });
-      }
-      if (!onCreateTask) {
-        setEditingTaskId(null);
-        return;
-      }
-      const currentIndex = visible.findIndex((t) => t.id === currentTask.id);
-      const nextTask =
-        currentIndex !== -1 && currentIndex + 1 < visible.length
-          ? visible[currentIndex + 1]
-          : undefined;
-      let newSortOrder: number;
-      if (
-        nextTask &&
-        nextTask.parent_id === currentTask.parent_id &&
-        nextTask.section_id === currentTask.section_id
-      ) {
-        newSortOrder = rankBetween(currentTask.sort_order, nextTask.sort_order);
-      } else {
-        newSortOrder = currentTask.sort_order + 1;
-      }
-      const newId = onCreateTask({
-        title: "",
-        project_id: currentTask.project_id,
-        section_id: currentTask.section_id,
-        parent_id: currentTask.parent_id,
-        due_at: currentTask.due_at,
-        priority: 4,
-        sort_order: newSortOrder,
-      });
-      setEditingTaskId(newId);
-    },
-    [visible, onUpdateTask, onCreateTask],
-  );
+    if (trimmed && currentTask.title !== trimmed && onUpdateTask) {
+      onUpdateTask(currentTask, { title: trimmed });
+    }
+    if (!onCreateTask) {
+      setEditingTaskId(null);
+      return;
+    }
+    const currentIndex = visible.findIndex((t) => t.id === currentTask.id);
+    const nextTask =
+      currentIndex !== -1 && currentIndex + 1 < visible.length
+        ? visible[currentIndex + 1]
+        : undefined;
+    let newSortOrder: number;
+    if (
+      nextTask &&
+      nextTask.parent_id === currentTask.parent_id &&
+      nextTask.section_id === currentTask.section_id
+    ) {
+      newSortOrder = rankBetween(currentTask.sort_order, nextTask.sort_order);
+    } else {
+      newSortOrder = currentTask.sort_order + 1;
+    }
+    const newId = onCreateTask({
+      title: "",
+      project_id: currentTask.project_id,
+      section_id: currentTask.section_id,
+      parent_id: currentTask.parent_id,
+      due_at: currentTask.due_at,
+      priority: 4,
+      sort_order: newSortOrder,
+    });
+    setEditingTaskId(newId);
+  });
 
   // Flat + manually sorted lists are drag-reorderable. Disabled on narrow web: the library's
   // pan-gesture handler eats touch scrolling under react-native-web.
@@ -598,16 +607,13 @@ export function GroupedTaskList({
     [],
   );
 
-  const handleStartRename = useCallback(
-    (targetTask: Task) => {
-      if (targetTask.locked) return;
-      setEditingTaskId(targetTask.id);
-      requestAnimationFrame(() => {
-        scrollToTask(targetTask.id);
-      });
-    },
-    [scrollToTask],
-  );
+  const handleStartRename = useStableCallback((targetTask: Task) => {
+    if (targetTask.locked) return;
+    setEditingTaskId(targetTask.id);
+    requestAnimationFrame(() => {
+      scrollToTask(targetTask.id);
+    });
+  });
 
   useEffect(() => {
     if (editingTaskId && Platform.OS !== "web") {
@@ -659,15 +665,50 @@ export function GroupedTaskList({
 
   const menuSiblings = menu?.siblings ?? (groupBy === "none" ? visible : tasks);
 
+  const toggleRow = useStableCallback((task: Task) => onToggle(task));
+  const openRow = useStableCallback((task: Task) => onOpen?.(task));
+  // Swallows the trailing click of a web click-drag paint so it is not toggled back.
+  const selectRow = useStableCallback((task: Task) => {
+    if (!selection.paintConsumeClick(task.id)) selection.toggle(task.id);
+  });
+  const scheduleRow = useCallback((task: Task) => setRescheduling(task), []);
+  const deleteRow = useStableCallback((task: Task) => onBulkDelete([task.id]));
+  const notePressPos = useCallback((pos: MenuPos) => {
+    pressPos.current = pos;
+  }, []);
+
+  // Indent/Outdent and the menu work within the row's group, and under `label` grouping one task
+  // sits in several. So their handlers are made once per group key and look the group's rows up
+  // when called, keeping each row's handlers the same across renders.
+  const groupTasks = useStableCallback((key: string): Task[] =>
+    key === FLAT_GROUP ? visible : (sectionListData.find((s) => s.key === key)?.data ?? tasks),
+  );
+  const indentRow = useStableCallback(indentTask);
+  const outdentRow = useStableCallback(outdentTask);
+  const [groupHandlers] = useState(() => new Map<string, GroupRowHandlers>());
+  const handlersFor = (key: string): GroupRowHandlers => {
+    let handlers = groupHandlers.get(key);
+    if (!handlers) {
+      handlers = {
+        indent: (task) => indentRow(task, groupTasks(key)),
+        outdent: (task) => outdentRow(task, groupTasks(key)),
+        contextMenu: (task, pos) => setMenu({ task, pos, siblings: groupTasks(key) }),
+      };
+      groupHandlers.set(key, handlers);
+    }
+    return handlers;
+  };
+
   // `startDrag` is present only inside a reorderable list, where long-press lifts the row. Without
   // it, native long-press opens the menu; web uses right-click.
   const rowFor = (
     item: Task,
-    meta?: ListTaskRow,
-    startDrag?: () => void,
-    sectionTasks?: Task[],
+    meta: ListTaskRow | undefined,
+    startDrag: (() => void) | undefined,
+    groupKey: string,
+    activeTasks: Task[],
   ) => {
-    const activeTasks = sectionTasks ?? (groupBy === "none" ? visible : tasks);
+    const handlers = handlersFor(groupKey);
     const hasChildren = meta?.hasChildren ?? false;
     const childTotal = (meta?.childCount ?? 0) + (meta?.completedChildCount ?? 0);
     const lift = item.locked ? undefined : startDrag;
@@ -676,8 +717,8 @@ export function GroupedTaskList({
         ref={editingTaskId === item.id ? editingRowRef : null}
         task={item}
         now={now}
-        onToggle={onToggle}
-        onOpen={onOpen}
+        onToggle={toggleRow}
+        onOpen={onOpen ? openRow : undefined}
         isEditing={editingTaskId === item.id}
         onStartRename={handleStartRename}
         onSaveRename={handleSaveRename}
@@ -696,25 +737,25 @@ export function GroupedTaskList({
         onToggleExpand={hasChildren ? toggleTaskExpand : undefined}
         selectMode={selection.mode}
         selected={selection.has(item.id)}
-        // Swallows the trailing click of a web click-drag paint so it is not toggled back.
-        onSelect={(task) => {
-          if (!selection.paintConsumeClick(task.id)) selection.toggle(task.id);
-        }}
-        onSchedule={onReschedule ? (task) => setRescheduling(task) : undefined}
-        onDelete={onBulkDelete ? (t) => onBulkDelete([t.id]) : undefined}
-        onIndent={onReparent ? (t) => indentTask(t, activeTasks) : undefined}
-        onOutdent={onReparent ? (t) => outdentTask(t, activeTasks) : undefined}
+        onSelect={selectRow}
+        onSchedule={onReschedule ? scheduleRow : undefined}
+        onDelete={deleteRow}
+        onIndent={onReparent ? handlers.indent : undefined}
+        onOutdent={onReparent ? handlers.outdent : undefined}
         canIndent={onReparent ? indentTarget(activeTasks, item.id, nestingSet) !== null : false}
         canOutdent={onReparent ? outdentTarget(activeTasks, item.id) !== null : false}
         origin={originOf(item)}
         assignee={assigneeOf(item)}
         labelOf={labelOf}
-        onContextMenu={(task, pos) => setMenu({ task, pos, siblings: activeTasks })}
-        onLongPress={lift ? () => lift() : undefined}
+        onContextMenu={handlers.contextMenu}
+        // The library's lift is stable per cell and ignores the task argument.
+        onLongPress={lift}
         // Derived from this row's own drag: a prop gating a native-only affordance must not use a web-only condition.
         enableLongPressMenu={!lift}
-        onPressIn={(p) => (pressPos.current = p)}
+        onPressIn={notePressPos}
         focused={item.id === cursorId || item.id === menu?.task.id}
+        swipeRightAction={swipeRightAction}
+        swipeLeftAction={swipeLeftAction}
       />
     );
     if (item.locked) return row;
@@ -782,7 +823,7 @@ export function GroupedTaskList({
           renderItem={({ item, index }) => (
             <AnimatedRow layout={false} exit={false}>
               <DragToReorder enabled={!selection.mode}>
-                {(startDrag) => rowFor(item, visibleRows[index], startDrag, visible)}
+                {(startDrag) => rowFor(item, visibleRows[index], startDrag, FLAT_GROUP, visible)}
               </DragToReorder>
             </AnimatedRow>
           )}
@@ -862,6 +903,7 @@ export function GroupedTaskList({
                 item,
                 rowsByKey.get((section as Section).key)?.[index],
                 undefined,
+                (section as Section).key,
                 (section as Section).data,
               )}
             </AnimatedRow>

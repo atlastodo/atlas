@@ -321,6 +321,8 @@ in
   scripts."bundle:android:release".exec = requireAndroid + ''
     cd apps/mobile/android && ./gradlew bundleRelease "$@"
   '';
+  # The last release build's permissions against docs/android-permissions.md (release.yml runs it too).
+  scripts."android:permissions".exec = ''node "$DEVENV_ROOT/apps/mobile/scripts/check-android-permissions.mjs" "$@"'';
   scripts."update:android".exec = "cd 'apps/mobile' && bunx eas-cli update --channel preview --platform android \"$@\"";
   scripts."clean:mobile".exec = "cd 'apps/mobile' && bun run clean";
   scripts."clean:all".exec = "cargo clean && (cd apps/mobile && bun run clean) && rm -rf apps/mobile/node_modules/.cache";

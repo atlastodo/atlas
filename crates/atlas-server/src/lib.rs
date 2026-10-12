@@ -29,6 +29,8 @@ use axum::http::{HeaderName, HeaderValue};
 use axum::{routing::get, Json, Router};
 use serde_json::json;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
+use tower_http::trace::{DefaultOnFailure, DefaultOnResponse, TraceLayer};
 
 use state::AppState;
 
@@ -111,11 +113,22 @@ pub fn app(state: AppState) -> Router {
         attachments::disabled_routes()
     };
 
+    // Invites per user (`INVITE_RATE_LIMIT_*`): each one probes whether an email has an account.
+    let invite_rl = ratelimit::UserRateLimitState::from_config(
+        ratelimit::RateLimitConfig::from_env_keyed(
+            "INVITE_RATE_LIMIT_MAX",
+            "INVITE_RATE_LIMIT_WINDOW_SECS",
+            60,
+            3600,
+        ),
+        &state.config,
+    );
+
     let api = Router::new()
         .route("/health", get(health))
         .merge(auth_routes)
         .merge(projects::routes())
-        .merge(members::routes())
+        .merge(members::routes(invite_rl))
         .merge(sync_routes)
         .merge(attachment_routes)
         .merge(report_routes)
@@ -138,11 +151,32 @@ pub fn app(state: AppState) -> Router {
         ))
         .with_state(state)
         .layer(cors_layer())
+        .layer(PropagateRequestIdLayer::x_request_id())
+        // One `request` span per request, carrying its `x-request-id` (made up when the client
+        // sent none, and echoed in the response), so an error logged while serving it names the
+        // request. Responses log at debug, server errors (5xx) at error. The path is logged
+        // without its query: a socket ticket travels there.
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|req: &axum::http::Request<axum::body::Body>| {
+                    let id = req
+                        .headers()
+                        .get("x-request-id")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("");
+                    tracing::info_span!("request", id, method = %req.method(), path = req.uri().path())
+                })
+                .on_request(())
+                .on_response(DefaultOnResponse::new().level(tracing::Level::DEBUG))
+                .on_failure(DefaultOnFailure::new().level(tracing::Level::ERROR)),
+        )
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
 }
 
-/// The web app's `/admin/*` pages share paths with the admin API, so a page load (GET/HEAD
-/// asking for HTML with no bearer token) gets the SPA before routing; everything else reaches
-/// the API. Only when a static dir is served.
+/// The admin API shares `/admin/*` with what used to be the web app's admin pages (now a Settings
+/// section), so a page load there (GET/HEAD asking for HTML with no bearer token) still gets the
+/// SPA, which shows its not-found page, rather than a JSON 401; everything else reaches the API.
+/// Only when a static dir is served.
 async fn spa_navigation(
     State(state): State<AppState>,
     req: axum::extract::Request,

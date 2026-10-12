@@ -1,5 +1,5 @@
 /**
- * Realtime sync over `GET /sync/ws` (see `crates/atlas-server/src/sync.rs`), authenticated by a
+ * Realtime sync over `GET /sync/ws` (see `crates/atlas-server/src/sync/ws.rs`), authenticated by a
  * single-use ticket, not the access token. Transport only (connect, backoff, teardown);
  * `SyncClient` decodes and applies payloads. The stream only accelerates polling.
  */
@@ -19,7 +19,7 @@ export type RealtimeState = "off" | "connecting" | "live";
 export const REALTIME_BACKOFF_BASE_MS = 1_000;
 export const REALTIME_BACKOFF_MAX_MS = 30_000;
 
-/** Close codes the server ends a sync socket with (`close_code` in `sync.rs`). */
+/** Close codes the server ends a sync socket with (`close_code` in `sync/ws.rs`). */
 export const WS_CLOSE = {
   /** Fell behind the live stream: reconnect, and the backfill covers what was dropped. */
   LAGGED: 1013,

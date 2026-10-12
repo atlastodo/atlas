@@ -1,5 +1,5 @@
 import type { ViewProps } from "react-native";
-import { useSelectionOptional } from "../data/SelectionProvider";
+import { useSelectionRow } from "../data/SelectionProvider";
 
 /** The pointer props (+ a hit-test marker) a row spreads to become paintable. */
 export type PaintHandlers = Pick<ViewProps, "onPointerDown" | "onPointerEnter" | "dataSet">;
@@ -13,12 +13,13 @@ export type PaintHandlers = Pick<ViewProps, "onPointerDown" | "onPointerEnter" |
  * the element under the cursor back to a task id; `onPointerEnter` is kept as a fallback. Metro
  * resolves this over the native no-op `usePaintHandlers.ts`.
  *
- * Handlers are wired only in select mode, so a normal click is untouched. `useSelectionOptional`
- * returns null without a provider, so the row still mounts in isolation (with no handlers).
+ * Handlers are wired only in select mode (`selectMode`, the row's prop), so a normal click is
+ * untouched. `useSelectionRow` returns null without a provider, so the row still mounts in
+ * isolation (with no handlers).
  */
-export function usePaintHandlers(id: string): PaintHandlers {
-  const sel = useSelectionOptional();
-  if (!sel || !sel.mode) return {};
+export function usePaintHandlers(id: string, selectMode = false): PaintHandlers {
+  const sel = useSelectionRow();
+  if (!sel || !selectMode) return {};
   return {
     onPointerDown: () => sel.paintBegin(id),
     onPointerEnter: () => sel.paintOver(id),

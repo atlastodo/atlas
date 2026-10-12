@@ -19,6 +19,7 @@ export function ConfirmDialog({
   cancelLabel,
   saveLabel,
   danger,
+  confirmDisabled,
   onConfirm,
   onCancel,
   onSave,
@@ -31,6 +32,8 @@ export function ConfirmDialog({
   cancelLabel?: string;
   saveLabel?: string;
   danger?: boolean;
+  /** Greys out and disables the confirm button, e.g. while the confirmation is being checked. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   onSave?: () => void;
@@ -119,10 +122,13 @@ export function ConfirmDialog({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={confirmLabel}
+              accessibilityState={{ disabled: !!confirmDisabled }}
+              disabled={confirmDisabled}
               onPress={onConfirm}
               className={
                 "rounded-md px-4 py-2 web:cursor-pointer " +
-                (danger ? "bg-red-600" : "bg-accent-600")
+                (danger ? "bg-red-600" : "bg-accent-600") +
+                (confirmDisabled ? " opacity-60" : "")
               }
             >
               <Text className="text-sm font-semibold text-white">{confirmLabel}</Text>

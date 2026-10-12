@@ -16,6 +16,23 @@ want to be.
 Atlas Todo is pre-1.0. Only the latest release gets security fixes. Please check that the
 problem exists in the latest release (or on `main`) before you report it.
 
+The design and the code have not had an independent security audit.
+
+## Verifying a release
+
+Release files (APK, AAB, desktop tarball) and the container image carry GitHub build provenance
+attestations, which show they were built by this repository's release workflow from the tagged
+commit:
+
+```sh
+gh attestation verify atlas-todo-X.Y.Z.apk --repo atlastodo/atlas-todo
+gh attestation verify oci://ghcr.io/atlastodo/atlas-todo:X.Y.Z --repo atlastodo/atlas-todo
+```
+
+The attestation is on the GitHub Container Registry image; the Docker Hub mirror is the same
+image but carries none. Each release also lists `SHA256SUMS.txt`, which the desktop app checks before it installs an
+update, and the image carries an SBOM. Releases before 0.1.10 have no attestations.
+
 ## Scope
 
 - The server (`crates/atlas-server`): authentication and sessions, key distribution, sync,
@@ -151,7 +168,8 @@ brute-force. Fresh installs are not affected.
 - The app does not encrypt data on your devices. Each client keeps synced data unencrypted in its
   local database (SQLite on Android and iOS, IndexedDB in the browser and desktop app) and
   relies on the app sandbox and device encryption. Signing out deletes the database, after
-  warning about unsynced changes, and deleting the account always does.
+  warning about unsynced changes, and deleting the account always does. The Android app opts out
+  of Android backup, so that database is never copied to a cloud or adb backup.
 - In the browser, session tokens are in `localStorage` and the unlocked keys are wrapped under a
   non-extractable WebCrypto key in IndexedDB. A copy of the profile yields the keys, and an XSS
   bug can unwrap them while the page is open. The desktop app wraps the keys with the OS key

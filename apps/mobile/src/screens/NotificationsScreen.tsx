@@ -10,7 +10,7 @@ import { projectIconFor } from "../ui/projectIcons";
 import { SkeletonRows } from "../ui/Skeleton";
 import { EmptyState } from "../ui/EmptyState";
 import { haptics } from "../lib/haptics";
-import { relativeLabel } from "./SettingsScreen";
+import { relativeLabel } from "./settings/relativeLabel";
 
 /** The notifications centre: a durable place to act on notifications. Today the only kind is a shared-project invite (Accept/Decline); new kinds slot in as branches of {@link AppNotification}. */
 export function NotificationsScreen() {

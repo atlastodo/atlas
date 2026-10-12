@@ -580,7 +580,7 @@ export default function DrawerLayout() {
               <SettingsSidebar
                 {...chrome}
                 section={settingsSection}
-                onSelectSection={(id) => router.setParams({ section: id })}
+                onSelectSection={(id) => router.setParams({ section: id, tab: undefined })}
                 // A cold deep link has nothing to go back to, so it lands on the home view.
                 onBack={() =>
                   router.canGoBack() ? router.back() : router.replace(viewPath(defaultView))

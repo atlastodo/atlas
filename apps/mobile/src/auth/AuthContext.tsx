@@ -39,6 +39,7 @@ import {
   reconcileStoredSession,
   sameKdf,
   unwrapKey,
+  verifyAccountPassword,
   wrapKey,
   wrapSigningKey,
   type ApiClient,
@@ -62,6 +63,7 @@ import { setServerUrlOverride } from "./serverUrl";
 import { readCachedSalt, writeCachedSalt } from "./saltCache";
 import { cancelAllAppNotifications } from "../lib/notify";
 import { detectDeviceName } from "../lib/deviceName";
+import { getInstallKey } from "./installKey";
 
 /**
  * Authentication state and a token-bound `ApiClient`.
@@ -129,6 +131,12 @@ export interface AuthContextValue {
    * keyring. Resolves `false` for a wrong password; throws when the session holds no blobs.
    */
   unlock: (password: string) => Promise<boolean>;
+  /**
+   * Whether `password` is the account password, checked on this device: it must derive the MEK that
+   * opens the session's wrapped DEK, and that DEK must be the unlocked one. No server round trip,
+   * so it works offline; throws when the session holds no wrapped keys to check against.
+   */
+  verifyPassword: (password: string) => Promise<boolean>;
   /**
    * The server refused this build's sync protocol (HTTP 426): the gate shows the update screen
    * instead of the app, and sync stays stopped until the app is updated.
@@ -582,8 +590,9 @@ export function AuthProvider({
 
       const credential = await resolveLoginCredential(client, normalizedEmail, password);
       const deviceName = await detectDeviceName().catch(() => undefined);
+      const installKey = await getInstallKey();
 
-      const auth = await client.login(normalizedEmail, credential.authHash, deviceName);
+      const auth = await client.login(normalizedEmail, credential.authHash, deviceName, installKey);
 
       // The salt and KDF that produced the credential we just logged in with — safe to cache.
       void writeCachedSalt(normalizedEmail, { salt: credential.salt, kdf: credential.kdf });
@@ -637,6 +646,7 @@ export function AuthProvider({
       const recoveryEncryptedPrivateKey = wrapKey(keypair.secretKey, recovery.wrapKey);
 
       const deviceName = await detectDeviceName().catch(() => undefined);
+      const installKey = await getInstallKey();
 
       const auth = await client.signup({
         email: normalizedEmail,
@@ -644,6 +654,7 @@ export function AuthProvider({
         displayName,
         invite,
         deviceName,
+        installKey,
         salt,
         publicKey: keypair.publicKey,
         recoveryPublicKey: recovery.auth.publicKey,
@@ -878,6 +889,7 @@ export function AuthProvider({
       const auth = await client.cancelAccountDeletion({
         email: normalizedEmail,
         password: authHash,
+        install_key: await getInstallKey(),
       });
       if (!auth.encrypted_dek || !auth.encrypted_private_key) throw legacyAccountError();
       const dek = unwrapKey(auth.encrypted_dek, mek);
@@ -935,6 +947,19 @@ export function AuthProvider({
     [commitKeyring, commitSession],
   );
 
+  const verifyPassword = useCallback(async (password: string): Promise<boolean> => {
+    const current = sessionRef.current;
+    if (!current?.salt || !current.encryptedDek) {
+      throw new Error("this session holds no wrapped keys to check the password against");
+    }
+    const keyring = keyringRef.current;
+    return verifyAccountPassword(
+      { salt: current.salt, kdf: current.kdf ?? LEGACY_KDF, encryptedDek: current.encryptedDek },
+      password,
+      keyring?.hasKeys() ? keyring.getDek() : undefined,
+    );
+  }, []);
+
   const value = useMemo<AuthContextValue | null>(
     () =>
       api
@@ -956,6 +981,7 @@ export function AuthProvider({
             cancelAccountDeletion,
             logout,
             unlock,
+            verifyPassword,
             upgradeRequired,
             retryAfterUpgrade,
             signOutNotice,
@@ -979,6 +1005,7 @@ export function AuthProvider({
       cancelAccountDeletion,
       logout,
       unlock,
+      verifyPassword,
       upgradeRequired,
       retryAfterUpgrade,
       signOutNotice,

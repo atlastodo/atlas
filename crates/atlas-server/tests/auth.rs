@@ -1966,6 +1966,17 @@ async fn delete_account_requires_the_password_then_schedules_and_revokes() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "sessions are revoked");
 
+    // No new session can be had in the grace period, so the token in hand still exports.
+    let (status, _) = send(&router, "GET", "/auth/export", Some(access), Value::Null).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the export outlives the revoked session"
+    );
+    let (status, body) = send(&router, "GET", "/auth/me", Some(access), Value::Null).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body:?}");
+    assert_eq!(body["error"], "account_scheduled_deletion");
+
     // The grace period: login reports the scheduled deletion instead of working or denying.
     let (status, body) = send(
         &router,
@@ -2537,6 +2548,88 @@ async fn sessions_lists_devices_and_marks_the_current_one() {
 }
 
 #[tokio::test]
+async fn signing_in_again_from_the_same_install_replaces_its_old_session() {
+    let router = setup().await;
+    let (email, signup) = signup_account(&router).await;
+    let login = |install_key: Value| {
+        let router = router.clone();
+        let email = email.clone();
+        async move {
+            let (status, body) = send(
+                &router,
+                "POST",
+                "/auth/login",
+                None,
+                json!({ "email": email, "password": PASSWORD, "install_key": install_key }),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body:?}");
+            body
+        }
+    };
+    let live_devices = |access: String| {
+        let router = router.clone();
+        async move {
+            let (_, sessions) =
+                send(&router, "GET", "/auth/sessions", Some(&access), Value::Null).await;
+            sessions
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| s["device_id"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+
+    // The phone, then the same phone after a reinstall: one row, the new one.
+    let first = login(json!("phone-install-key")).await;
+    let reinstalled = login(json!("phone-install-key")).await;
+    let devices = live_devices(reinstalled["access_token"].as_str().unwrap().into()).await;
+    assert_eq!(
+        devices.len(),
+        2,
+        "the signup's session and the reinstalled phone: {devices:?}"
+    );
+    assert!(devices.contains(&reinstalled["device_id"].as_str().unwrap().to_string()));
+    assert!(!devices.contains(&first["device_id"].as_str().unwrap().to_string()));
+    let (status, _) = send(
+        &router,
+        "POST",
+        "/auth/refresh",
+        None,
+        json!({ "refresh_token": first["refresh_token"] }),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the replaced family is dead"
+    );
+
+    // The key rides the rotation: a refreshed session is still replaced by the next sign-in.
+    let (status, rotated) = send(
+        &router,
+        "POST",
+        "/auth/refresh",
+        None,
+        json!({ "refresh_token": reinstalled["refresh_token"] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{rotated:?}");
+    let again = login(json!("phone-install-key")).await;
+    let devices = live_devices(again["access_token"].as_str().unwrap().into()).await;
+    assert_eq!(devices.len(), 2, "{devices:?}");
+    assert!(!devices.contains(&reinstalled["device_id"].as_str().unwrap().to_string()));
+
+    // Another key, or none (web, desktop), is another device.
+    login(json!("tablet-install-key")).await;
+    let browser = login(Value::Null).await;
+    let devices = live_devices(browser["access_token"].as_str().unwrap().into()).await;
+    assert_eq!(devices.len(), 4, "{devices:?}");
+    assert!(devices.contains(&signup["device_id"].as_str().unwrap().to_string()));
+}
+
+#[tokio::test]
 async fn session_revocation_signs_the_other_device_out_but_refuses_the_current_one() {
     let router = setup().await;
     let (access_a, _, device_a, device_b) = two_devices(&router).await;
@@ -2606,14 +2699,9 @@ async fn revoke_others_keeps_the_caller_signed_in() {
     assert_eq!(sessions[0]["device_id"], device_a.to_string());
     assert_eq!(sessions[0]["current"], true);
 
-    // ...the other device's access token still works until it expires, but its refresh family is
-    // gone: its next refresh is rejected (the signed-out signal clients act on).
+    // ...and the other device's access token stops working at once, not at its expiry.
     let (status, _) = send(&router, "GET", "/auth/me", Some(&access_b), Value::Null).await;
-    assert_eq!(
-        status,
-        StatusCode::OK,
-        "access tokens are stateless and live on"
-    );
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
@@ -2947,4 +3035,28 @@ async fn export_returns_account_and_materialized_state_as_an_attachment() {
     // Without a token the export is unreachable.
     let (status, _) = send(&router, "GET", "/auth/export", None, Value::Null).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn a_revoked_sessions_access_token_stops_working_at_once() {
+    let router = setup().await;
+    let (access_a, access_b, _device_a, device_b) = two_devices(&router).await;
+    let (status, _) = send(&router, "GET", "/auth/me", Some(&access_b), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, _) = send(
+        &router,
+        "DELETE",
+        &format!("/auth/sessions/{device_b}"),
+        Some(&access_a),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Not at the access token's expiry: on the next request.
+    let (status, _) = send(&router, "GET", "/auth/me", Some(&access_b), Value::Null).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = send(&router, "GET", "/auth/me", Some(&access_a), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
 }

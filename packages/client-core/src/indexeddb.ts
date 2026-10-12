@@ -206,6 +206,23 @@ export class IndexedDbPersistence implements Persistence {
     return this.dropOps(opIds, false);
   }
 
+  async restamp(ops: Operation[]): Promise<void> {
+    if (ops.length === 0) return;
+    const db = await this.open();
+    const tx = db.transaction(OPS, "readwrite");
+    const store = tx.objectStore(OPS);
+    const index = store.index(OP_ID_INDEX);
+    // One transaction, no awaits inside it (see `markSynced`).
+    for (const op of ops) {
+      const getReq = index.get(op.id);
+      getReq.onsuccess = () => {
+        const rec = getReq.result as OpRecord | undefined;
+        if (rec) store.put({ ...rec, op: { ...rec.op, ts: op.ts } });
+      };
+    }
+    await txDone(tx);
+  }
+
   private async dropOps(opIds: string[], onlySynced: boolean): Promise<void> {
     if (opIds.length === 0) return;
     const db = await this.open();

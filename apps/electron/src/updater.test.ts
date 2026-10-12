@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { checkUpdatesDisabled, DesktopUpdater, isNewerVersion, parseSemver } from "./updater";
+import {
+  checkUpdatesDisabled,
+  DesktopUpdater,
+  expectedChecksum,
+  isNewerVersion,
+  parseSemver,
+} from "./updater";
 
 describe("checkUpdatesDisabled", () => {
   it("allows updates under default standalone conditions", () => {
@@ -158,5 +164,31 @@ describe("DesktopUpdater lifecycle", () => {
     updater.stopPeriodicCheck();
     unsubscribe();
     expect(received.length).toBe(0);
+  });
+});
+
+describe("expectedChecksum", () => {
+  const a = "a".repeat(64);
+  const b = "B".repeat(64);
+  const sums = [
+    `${a}  atlas-desktop-0.1.9.AppImage.zsync`,
+    `${b} *atlas-desktop-0.1.9.AppImage`,
+    "",
+  ].join("\n");
+
+  it("returns the lowercase hash for the exact file name, in text or binary mode", () => {
+    expect(expectedChecksum(sums, "atlas-desktop-0.1.9.AppImage")).toBe("b".repeat(64));
+    expect(expectedChecksum(sums, "atlas-desktop-0.1.9.AppImage.zsync")).toBe(a);
+  });
+
+  it("does not match on a substring of another file name", () => {
+    expect(
+      expectedChecksum(`${a}  atlas-desktop-0.1.9.AppImage.zsync`, "atlas-desktop-0.1.9.AppImage"),
+    ).toBeNull();
+    expect(expectedChecksum(sums, "0.1.9.AppImage")).toBeNull();
+  });
+
+  it("ignores malformed lines", () => {
+    expect(expectedChecksum("deadbeef  file.AppImage\nnot a line", "file.AppImage")).toBeNull();
   });
 });

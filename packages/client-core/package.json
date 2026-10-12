@@ -1,6 +1,6 @@
 {
   "name": "@atlas/client-core",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "license": "AGPL-3.0-only",
   "repository": {
@@ -22,7 +22,7 @@
     "@types/node": "^26.6.4",
     "fake-indexeddb": "^6.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.3"
   },
   "dependencies": {
     "@noble/ciphers": "^2.4.0",

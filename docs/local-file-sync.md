@@ -9,9 +9,10 @@ has Atlas read and write its data there.
 
 ## Why it works without a server
 
-The op log is a CRDT. Each field's value is decided by its HLC alone (last writer wins), and a
-tombstone the same way, so the result does not depend on the order ops arrive in or on who
-merges them. Two copies of the log merge by taking the union of their ops. A file therefore needs
+The op log is a map of last-writer-wins registers, one per field: each field's value is decided
+by its HLC alone, and a tombstone the same way, so the result does not depend on the order ops
+arrive in or on who merges them. It is not a text or sequence CRDT: concurrent edits to one note
+keep the later one whole. Two copies of the log merge by taking the union of their ops. A file therefore needs
 no locking and no coordinator:
 
 1. Read the file and decode it (`decodeOpLogFile`).

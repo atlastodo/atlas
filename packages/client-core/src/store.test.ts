@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { LocalStore, MAX_CLOCK_DRIFT_MS } from "./store";
 import { MemoryPersistence } from "./persistence";
+import { compareHlc } from "./hlc";
 import type { Operation } from "./types";
 
 const NODE_A = "00000000-0000-0000-0000-0000000000a1";
@@ -334,5 +335,175 @@ describe("a timestamp from far in the future", () => {
     expect(reloaded.set("task", "t4", "title", "z").ts.wallMs).toBeLessThanOrEqual(
       NOW + MAX_CLOCK_DRIFT_MS,
     );
+  });
+});
+
+describe("re-stamping after a clock_skew refusal", () => {
+  const SERVER = 1_800_000_000_000;
+  const HOUR = 3600_000;
+  const MIN = 60_000;
+
+  /** A store whose device clock reads `clock.now`, an hour ahead of the server's unless set. */
+  function fastStore(node = NODE_A) {
+    const clock = { now: SERVER + HOUR };
+    let n = 0;
+    const s = new LocalStore(node, { now: () => clock.now, newId: () => `op-${n++}` });
+    return { s, clock };
+  }
+
+  const remote = (id: string, entityId: string, wallMs: number): Operation => ({
+    id,
+    entity: "task",
+    entityId,
+    ts: { wallMs, counter: 0, node: NODE_B },
+    op: "set",
+    field: "title",
+    value: id,
+  });
+
+  it("re-stamps the queued ops past the limit in order, above the floor, keeping the read model", () => {
+    const { s, clock } = fastStore();
+    clock.now = SERVER;
+    // Pulled from another device, and an op of its own the server took, both within tolerance.
+    s.applyRemote(remote("pulled", "t0", SERVER + 3 * MIN));
+    clock.now = SERVER + 4 * MIN;
+    const acked = s.set("task", "tA", "title", "acked");
+    s.markSynced([acked.id]);
+    const kept = s.set("task", "tK", "title", "within tolerance");
+    // Then the clock jumps an hour ahead.
+    clock.now = SERVER + HOUR;
+    const one = s.set("task", "t1", "title", "one");
+    const two = s.set("task", "t1", "title", "two");
+    const gone = s.remove("task", "t0");
+
+    s.alignClock(SERVER);
+    expect(s.restampAhead(SERVER)).toBe(3);
+
+    const queued = s.unsyncedOps();
+    expect(queued.map((o) => o.id)).toEqual([kept.id, one.id, two.id, gone.id]);
+    const [k, o1, o2, g] = queued as [Operation, Operation, Operation, Operation];
+    expect(k.ts).toEqual(kept.ts);
+    expect(compareHlc(o1.ts, kept.ts)).toBeGreaterThan(0);
+    expect(compareHlc(o1.ts, acked.ts)).toBeGreaterThan(0);
+    expect(compareHlc(o2.ts, o1.ts)).toBeGreaterThan(0);
+    expect(compareHlc(g.ts, o2.ts)).toBeGreaterThan(0);
+    for (const op of [o1, o2, g]) {
+      expect(op.ts.wallMs).toBeLessThanOrEqual(SERVER + MAX_CLOCK_DRIFT_MS);
+      expect(op.ts.node).toBe(NODE_A);
+    }
+    // The same winners, now holding the new stamps.
+    expect(s.get("task", "t1")).toEqual({ title: "two" });
+    expect(s.fieldTs("task", "t1", "title")).toEqual(o2.ts);
+    expect(s.get("task", "t0")).toBeNull();
+    expect(s.fieldTs("task", "tA", "title")).toEqual(acked.ts);
+
+    // Once is enough, and the next edit is stamped by the corrected clock, above all of them.
+    expect(s.restampAhead(SERVER)).toBe(0);
+    expect(s.unsyncedOps()).toEqual(queued);
+    const next = s.set("task", "t1", "title", "three");
+    expect(compareHlc(next.ts, g.ts)).toBeGreaterThan(0);
+    expect(next.ts.wallMs).toBeLessThanOrEqual(SERVER + MAX_CLOCK_DRIFT_MS);
+    expect(s.get("task", "t1")).toEqual({ title: "three" });
+  });
+
+  it("stays above an op of its own the server took, and above one it pulled", () => {
+    for (const pulled of [false, true]) {
+      const { s, clock } = fastStore();
+      clock.now = SERVER + 4 * MIN;
+      let floor: Operation;
+      if (pulled) {
+        floor = remote("pulled", "t1", SERVER + 4 * MIN + 1);
+        s.applyRemote(floor);
+      } else {
+        floor = s.set("task", "t1", "title", "acked");
+        s.markSynced([floor.id]);
+      }
+      clock.now = SERVER + HOUR;
+      s.set("task", "t1", "title", "fast");
+      s.alignClock(SERVER);
+      expect(s.restampAhead(SERVER)).toBe(1);
+      const [op] = s.unsyncedOps() as [Operation];
+      expect(compareHlc(op.ts, floor.ts)).toBeGreaterThan(0);
+      expect(op.ts.wallMs).toBe(floor.ts.wallMs);
+      expect(s.get("task", "t1")).toEqual({ title: "fast" });
+    }
+  });
+
+  it("stamps by the corrected clock when nothing it has seen is ahead of it", () => {
+    const { s } = fastStore();
+    const op = s.set("task", "t1", "title", "fast");
+    s.alignClock(SERVER);
+    expect(s.restampAhead(SERVER)).toBe(1);
+    expect(s.unsyncedOps()[0]!.ts).toEqual({ wallMs: SERVER, counter: 0, node: NODE_A });
+    expect(s.unsyncedOps()[0]!.id).toBe(op.id);
+  });
+
+  it("changes nothing with no queued op past the limit", () => {
+    const { s, clock } = fastStore();
+    s.alignClock(SERVER);
+    expect(s.restampAhead(SERVER)).toBe(0);
+
+    clock.now = SERVER + 2 * MIN;
+    s.alignClock(SERVER + 2 * MIN);
+    const within = s.set("task", "t1", "title", "fine");
+    expect(s.restampAhead(SERVER)).toBe(0);
+    expect(s.unsyncedOps()).toEqual([within]);
+  });
+
+  it("leaves the ops queued when an acknowledged op is past the limit itself", () => {
+    const { s } = fastStore();
+    // Only possible if the server's clock went back since it accepted this.
+    s.applyRemote(remote("ahead", "t0", SERVER + HOUR));
+    const op = s.set("task", "t1", "title", "fast");
+    s.alignClock(SERVER);
+    expect(s.restampAhead(SERVER)).toBe(0);
+    expect(s.unsyncedOps()).toEqual([op]);
+  });
+
+  it("writes the new stamps to the log, so a reload keeps them", async () => {
+    const persistence = new MemoryPersistence();
+    let n = 0;
+    const s = new LocalStore(NODE_A, {
+      now: () => SERVER + HOUR,
+      newId: () => `op-${n++}`,
+      persistence,
+    });
+    s.set("task", "t1", "title", "fast");
+    s.remove("task", "t2");
+    s.alignClock(SERVER);
+    expect(s.restampAhead(SERVER)).toBe(2);
+    await s.flush();
+    expect(s.unsavedCount()).toBe(0);
+
+    const reloaded = new LocalStore(NODE_A, { now: () => SERVER, persistence });
+    await reloaded.hydrate();
+    expect(reloaded.unsyncedOps()).toEqual(s.unsyncedOps());
+    expect(reloaded.fieldTs("task", "t1", "title")).toEqual(s.fieldTs("task", "t1", "title"));
+  });
+
+  it("retries a failed write of the new stamps on flush", async () => {
+    const persistence = new MemoryPersistence();
+    let n = 0;
+    const s = new LocalStore(NODE_A, {
+      now: () => SERVER + HOUR,
+      newId: () => `op-${n++}`,
+      persistence,
+      onPersistError: () => {},
+    });
+    s.set("task", "t1", "title", "fast");
+    await s.flush();
+    const restamp = persistence.restamp.bind(persistence);
+    persistence.restamp = async () => {
+      throw new Error("disk full");
+    };
+    s.alignClock(SERVER);
+    expect(s.restampAhead(SERVER)).toBe(1);
+    await expect(s.flush()).rejects.toThrow(/could not be saved/);
+    expect(s.unsavedCount()).toBe(1);
+
+    persistence.restamp = restamp;
+    await s.flush();
+    expect(s.unsavedCount()).toBe(0);
+    expect((await persistence.load())[0]!.op.ts).toEqual(s.unsyncedOps()[0]!.ts);
   });
 });

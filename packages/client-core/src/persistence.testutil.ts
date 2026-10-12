@@ -158,6 +158,12 @@ export class FakeSqlDatabase implements SqlDatabase {
       });
       return { rowsAffected: 1 };
     }
+    if (q.startsWith("UPDATE OPS SET TS_JSON")) {
+      const [tsJson, opId] = params as [string, string];
+      const row = this.ops.find((r) => r.op_id === opId);
+      if (row) row.ts_json = tsJson;
+      return { rowsAffected: row ? 1 : 0 };
+    }
     if (q.startsWith("UPDATE OPS SET SYNCED")) {
       const ids = new Set(params as string[]);
       let n = 0;

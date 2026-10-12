@@ -2,34 +2,33 @@ import type { ReactElement } from "react";
 import { View } from "react-native";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore, type ApiClient } from "@atlas/client-core";
 import { fakeAuth, withApp } from "../testutil";
 import { SettingsSidebar } from "../ui/SettingsSidebar";
 import SettingsRoute from "../../app/(drawer)/settings";
 
 // Settings shows one section at a time, chosen by `?section=`. expo-router is stood in for: `router.setParams` writes the query `useLocalSearchParams` reads.
-const mockQuery: { section?: string } = {};
+const mockQuery: { section?: string; tab?: string } = {};
 const mockListeners = new Set<() => void>();
 jest.mock("expo-router", () => {
   const { useSyncExternalStore } = jest.requireActual<typeof import("react")>("react");
   return {
     __esModule: true,
     router: {
-      setParams: jest.fn((params: { section?: string }) => {
+      setParams: jest.fn((params: { section?: string; tab?: string }) => {
         Object.assign(mockQuery, params);
         mockListeners.forEach((l) => l());
       }),
       push: jest.fn(),
     },
     useLocalSearchParams: () => {
-      const section = useSyncExternalStore(
-        (l: () => void) => {
-          mockListeners.add(l);
-          return () => mockListeners.delete(l);
-        },
-        () => mockQuery.section,
-      );
-      return { section };
+      const subscribe = (l: () => void) => {
+        mockListeners.add(l);
+        return () => mockListeners.delete(l);
+      };
+      const section = useSyncExternalStore(subscribe, () => mockQuery.section);
+      const tab = useSyncExternalStore(subscribe, () => mockQuery.tab);
+      return { section, tab };
     },
   };
 });
@@ -60,20 +59,29 @@ function WideShell({ onBack }: { onBack: () => void }) {
   );
 }
 
-async function mount(ui: ReactElement) {
+async function mount(ui: ReactElement, { admin = false } = {}) {
   const auth = fakeAuth({
     session: {
       accessToken: "a",
       refreshToken: "r",
       deviceId: "d",
-      user: { id: "u1", email: "mikkel@example.com", display_name: "Mikkel" },
+      user: { id: "u1", email: "mikkel@example.com", display_name: "Mikkel", is_admin: admin },
     },
+    // The admin tabs load over REST; empty answers are enough to show which tab is up.
+    api: {
+      listUsers: jest.fn(async () => []),
+      listReports: jest.fn(async () => []),
+      getAdminSettings: jest.fn(async () => ({ signup_enabled: true })),
+      listSignupInvites: jest.fn(async () => []),
+      listAudit: jest.fn(async () => []),
+    } as unknown as ApiClient,
   });
   await render(ui, { wrapper: withApp(new LocalStore("test"), auth) });
 }
 
 beforeEach(() => {
   delete mockQuery.section;
+  delete mockQuery.tab;
   setParams.mockClear();
   jest.restoreAllMocks();
 });
@@ -147,5 +155,34 @@ describe("Settings navigation, phone", () => {
     await mount(<SettingsRoute />);
     expect(screen.queryByRole("button", { name: "Admin" })).toBeNull();
     expect(screen.getByRole("button", { name: "Appearance", selected: true })).toBeTruthy();
+  });
+});
+
+describe("Settings navigation, Admin", () => {
+  it("shows the admin tabs in place, opening on the account list", async () => {
+    mockQuery.section = "admin";
+    await mount(<SettingsRoute />, { admin: true });
+    expect(screen.getByRole("button", { name: "Admin", selected: true })).toBeTruthy();
+    expect(await screen.findByLabelText("Search users")).toBeTruthy();
+
+    await fireEvent.press(screen.getByText("Error reports"));
+    expect(setParams).toHaveBeenLastCalledWith({ tab: "reports" });
+    expect(screen.queryByLabelText("Search users")).toBeNull();
+  });
+
+  it("opens the tab a deep link names", async () => {
+    mockQuery.section = "admin";
+    mockQuery.tab = "settings";
+    await mount(<SettingsRoute />, { admin: true });
+    expect(await screen.findByText("Allow new signups")).toBeTruthy();
+    expect(screen.queryByLabelText("Search users")).toBeNull();
+  });
+
+  it("drops the admin tab when leaving for another section", async () => {
+    mockQuery.section = "admin";
+    mockQuery.tab = "reports";
+    await mount(<SettingsRoute />, { admin: true });
+    await fireEvent.press(screen.getByRole("button", { name: "Account" }));
+    expect(setParams).toHaveBeenLastCalledWith({ section: "account", tab: undefined });
   });
 });
