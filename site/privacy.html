@@ -25,7 +25,7 @@
       </nav>
 
       <h1>Privacy notice</h1>
-      <p class="muted">Last updated 4 October 2026</p>
+      <p class="muted">Last updated 12 October 2026</p>
 
       <p>
         This notice covers the Atlas Todo apps (web, Android and Linux desktop) and the server at
@@ -121,6 +121,17 @@
         The apps keep a local copy of your synced data so they work offline. That copy is stored in
         the app's private storage on your device and is not encrypted by the app beyond what your
         operating system provides.
+      </p>
+
+      <h3>Update checks</h3>
+      <p>
+        The apps contain no analytics or tracking, and talk only to the server you sign in to, with
+        two exceptions that send no account data or content. When it starts, the Android app asks
+        Expo's update service (<code>u.expo.dev</code>, run by Expo) whether a newer version of the
+        app's code is available. The Linux desktop app, unless installed through Nix, asks the
+        GitHub Releases API once a day whether a new release exists; start it with
+        <code>--no-update</code> or set <code>ATLAS_DISABLE_UPDATE=1</code> to turn that off. Both
+        services see your IP address when the app asks.
       </p>
 
       <h2 id="why">Why we process it</h2>

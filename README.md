@@ -16,6 +16,11 @@ share encrypted projects with other people on your server.
 > [SECURITY.md](./SECURITY.md) says what it protects against and what it does not. Keep a JSON
 > export of anything you cannot afford to lose.
 
+Try it at [app.atlastodo.dev](https://app.atlastodo.dev) (a test server that may be reset), or
+[self-host it](#self-hosting) with Docker. Website: [atlastodo.dev](https://atlastodo.dev). Questions
+and ideas go to [Discussions](https://github.com/atlastodo/atlas-todo/discussions); see
+[Getting help](#getting-help).
+
 <p>
   <img src="docs/screenshots/task-detail.png" alt="The task detail: notes, subtasks, attachments and comments next to a properties panel with due date, priority, labels, repeat and reminders">
 </p>
@@ -183,6 +188,16 @@ change the _Server URL_ field on the sign-in screen.
 - iOS: there is no published build. You can build one yourself with Expo EAS and an Apple
   Developer account; see [apps/mobile/RELEASE.md](./apps/mobile/RELEASE.md).
 
+## Getting help
+
+- Questions, self-hosting help and ideas: [Discussions](https://github.com/atlastodo/atlas-todo/discussions).
+- Bugs and concrete feature requests: [Issues](https://github.com/atlastodo/atlas-todo/issues/new/choose).
+- Vulnerabilities: privately, as [SECURITY.md](./SECURITY.md) describes, never in a public issue.
+- Accessibility problems: [ACCESSIBILITY.md](./ACCESSIBILITY.md) has what is known and how to report.
+
+Atlas Todo is a spare-time project with one maintainer. [SUPPORT.md](./.github/SUPPORT.md) says
+what to expect, and [ROADMAP.md](./ROADMAP.md) where the project is heading.
+
 ## Development
 
 The dev environment is [devenv](https://devenv.sh) (Nix). It provides Rust, Node 26, Bun and
@@ -198,8 +213,8 @@ test:all               # all test suites
 lint                   # rustfmt, clippy and TypeScript checks
 ```
 
-[CONTRIBUTING.md](./CONTRIBUTING.md) covers the setup, the test runners, commit style and what
-CI checks.
+[CONTRIBUTING.md](./CONTRIBUTING.md) covers the setup (including one without Nix), the test runners,
+commit style and what CI checks.
 
 ## Security model
 
@@ -210,6 +225,12 @@ and shared projects use a per-project key sealed to each member's public key.
 The server sees who you are, which entities exist, when they change and a few plaintext routing
 fields such as a task's project id. It cannot read titles, notes, names or attachment contents.
 A 24-word recovery phrase, shown at signup, is the only way back if you forget your password.
+
+There is no telemetry, analytics or crash reporting SDK: the apps talk to your server and nothing
+else, with two exceptions. Release builds of the mobile app check Expo's update service
+(`u.expo.dev`) for over-the-air updates when they start, and the Linux desktop app, unless it runs
+from the Nix store, checks the GitHub Releases API for a new version once a day (`--no-update` or
+`ATLAS_DISABLE_UPDATE=1` turns that off).
 
 [SECURITY.md](./SECURITY.md) has the threat model, its limits and how to report a vulnerability.
 
@@ -230,6 +251,8 @@ docs/                 Self-hosting and architecture guides
 ```
 
 ## License
+
+Copyright (C) 2026 The Atlas Todo contributors.
 
 Atlas Todo is licensed under the [GNU Affero General Public License v3.0 only](./LICENSE).
 If you run a modified version as a network service, the AGPL requires you to offer its source
