@@ -11,6 +11,10 @@
 !Cargo.toml
 !Cargo.lock
 
+# The licence, and the third-party notices CI generates (docker.yml); a local build has none
+!LICENSE
+!THIRD_PARTY_NOTICES.txt
+
 # Sources the image is built from
 !apps/mobile
 !packages/client-core

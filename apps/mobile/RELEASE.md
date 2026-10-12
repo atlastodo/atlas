@@ -185,8 +185,13 @@ The workflow then runs these jobs:
   the AAB with `scripts/upload-play-store.mjs`.
 - Desktop tarball: `scripts/package-desktop.sh X.Y.Z`.
 - GitHub Release: creates the release, or updates it on a re-run, with `atlas-todo-X.Y.Z.apk`,
-  `atlas-todo-X.Y.Z.aab`, `atlas-desktop-X.Y.Z.tar.gz`, `atlas-desktop-latest.tar.gz` and
-  `SHA256SUMS.txt`.
+  `atlas-todo-X.Y.Z.aab`, `atlas-desktop-X.Y.Z.tar.gz`, `atlas-desktop-latest.tar.gz`,
+  `THIRD_PARTY_NOTICES.txt` and `SHA256SUMS.txt`.
+- Third-party notices: `scripts/third-party-licenses.mjs` lists the licences of every shipped
+  JavaScript package and Rust crate. The Docker job writes it into the image
+  (`/usr/share/doc/atlas-todo/`), the desktop tarball carries the JavaScript part, the release
+  attaches the whole file, and the app's About → Licenses links to that asset. `lint` and CI fail
+  when a shipped JS package has a licence outside its allow-list.
 
 A tag that contains `-` (for example `v1.0.0-rc.1`) becomes a prerelease and does not move the
 Docker `latest` tag (see above). The first push to GHCR creates the package as private, so `docker pull` needs

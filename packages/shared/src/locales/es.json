@@ -1361,7 +1361,8 @@
     "licenseTitle": "Código abierto y software libre",
     "licenseDesc": "Atlas Todo se distribuye bajo la licencia GNU Affero General Public License (AGPL-3.0-only).",
     "sourceCode": "Ver código fuente",
-    "acknowledgements": "Creada con aprecio por el ecosistema del código abierto, incluidos React Native, Expo, SQLite, Lucide Icons, NativeWind e i18next."
+    "acknowledgements": "Creada con aprecio por el ecosistema del código abierto, incluidos React Native, Expo, SQLite, Lucide Icons, NativeWind e i18next.",
+    "thirdPartyNotices": "Licencias de terceros"
   },
   "onboarding": {
     "dateFormatLabel": "Formato de fecha",

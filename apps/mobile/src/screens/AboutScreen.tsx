@@ -39,6 +39,11 @@ export type AboutTab = "overview" | "shortcuts" | "architecture" | "licenses";
  */
 const REPO_URL = process.env.EXPO_PUBLIC_REPO_URL || null;
 const HOSTED_URL = process.env.EXPO_PUBLIC_HOSTED_URL || null;
+/** The licences of the third-party code in a build: an asset of the release it came from. */
+export function noticesUrl(repoUrl: string | null, version: string): string | null {
+  return repoUrl ? `${repoUrl}/releases/download/v${version}/THIRD_PARTY_NOTICES.txt` : null;
+}
+const NOTICES_URL = noticesUrl(REPO_URL, APP_VERSION);
 
 export function AboutScreen() {
   const { t } = useTranslation();
@@ -380,6 +385,22 @@ export function AboutScreen() {
                 <Text className="text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">
                   {t("about.acknowledgements")}
                 </Text>
+                {NOTICES_URL !== null && (
+                  <Pressable
+                    accessibilityRole="link"
+                    accessibilityLabel={t("about.thirdPartyNotices")}
+                    onPress={() => handleOpenUrl(NOTICES_URL)}
+                    className="mt-3 flex-row items-center gap-1.5 self-start rounded-md bg-neutral-100 px-3 py-1.5 dark:bg-neutral-800"
+                  >
+                    <SquareArrowOutUpRight
+                      size={14}
+                      className="text-accent-600 dark:text-accent-400"
+                    />
+                    <Text className="text-xs font-semibold text-accent-600 dark:text-accent-400">
+                      {t("about.thirdPartyNotices")}
+                    </Text>
+                  </Pressable>
+                )}
               </View>
             </View>
           )}

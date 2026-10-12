@@ -76,6 +76,8 @@ RUN groupadd --system --gid 10001 atlas \
 COPY --from=server-builder /app/target/release/atlas-server /usr/local/bin/atlas-server
 COPY --from=web-builder /app/apps/mobile/dist /app/dist
 COPY migrations /app/migrations
+# The licence and, in CI builds, the third-party notices (the glob lets a local build go without).
+COPY LICENSE THIRD_PARTY_NOTICES.tx[t] /usr/share/doc/atlas-todo/
 
 ENV PORT=8080
 ENV STATIC_DIR=/app/dist

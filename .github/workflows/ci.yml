@@ -152,6 +152,8 @@ jobs:
       - run: bun install --frozen-lockfile
       # Every workspace that defines `typecheck`: shared, client-core, mobile and electron.
       - run: bun run --parallel --filter '*' typecheck
+      # The licences of the JS packages the builds ship, against an allow-list.
+      - run: node scripts/third-party-licenses.mjs --check
       - run: bunx eslint .
       - run: bunx prettier --check .
 

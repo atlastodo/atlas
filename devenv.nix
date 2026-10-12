@@ -295,6 +295,7 @@ in
     (cd apps/mobile && bun run typecheck)
     bunx eslint .
     bunx prettier --check .
+    node scripts/third-party-licenses.mjs --check
     # nix/bun.nix must match bun.lock, or the flake's web-dist/atlas-desktop builds fail offline.
     if command -v nix >/dev/null; then
       fresh="$(mktemp)"

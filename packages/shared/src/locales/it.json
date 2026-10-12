@@ -1361,7 +1361,8 @@
     "licenseTitle": "Open source e software libero",
     "licenseDesc": "Atlas Todo è distribuito con licenza GNU Affero General Public License (AGPL-3.0-only).",
     "sourceCode": "Vedi il codice sorgente",
-    "acknowledgements": "Realizzata con gratitudine verso l'ecosistema open source, tra cui React Native, Expo, SQLite, Lucide Icons, NativeWind e i18next."
+    "acknowledgements": "Realizzata con gratitudine verso l'ecosistema open source, tra cui React Native, Expo, SQLite, Lucide Icons, NativeWind e i18next.",
+    "thirdPartyNotices": "Licenze di terze parti"
   },
   "onboarding": {
     "dateFormatLabel": "Formato data",
