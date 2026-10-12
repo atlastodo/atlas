@@ -26,6 +26,6 @@
   "dependencies": {
     "@atlas/client-core": "workspace:*",
     "@noble/hashes": "^2.4.0",
-    "fflate": "^0.8.2"
+    "fflate": "^0.8.3"
   }
 }
