@@ -2,7 +2,7 @@
   "expo": {
     "name": "Atlas Todo",
     "slug": "atlas-todo",
-    "version": "0.1.10-rc.3",
+    "version": "0.1.10-rc.4",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "scheme": "atlastodo",
@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "dev.sejder.atlastodo",
-      "versionCode": 11003,
+      "versionCode": 11004,
       "adaptiveIcon": {
         "backgroundColor": "#4F46E5",
         "foregroundImage": "./assets/android-icon-foreground.png",

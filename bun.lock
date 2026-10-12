@@ -14,7 +14,7 @@
     },
     "apps/electron": {
       "name": "@atlas/electron",
-      "version": "0.1.10-rc.3",
+      "version": "0.1.10-rc.4",
       "devDependencies": {
         "@types/node": "^22.13.1",
         "electron": "^44.6.0",
@@ -24,7 +24,7 @@
     },
     "apps/mobile": {
       "name": "@atlas/mobile",
-      "version": "0.1.10-rc.3",
+      "version": "0.1.10-rc.4",
       "dependencies": {
         "@atlas/client-core": "workspace:*",
         "@atlas/shared": "workspace:*",
@@ -96,7 +96,7 @@
     },
     "packages/client-core": {
       "name": "@atlas/client-core",
-      "version": "0.1.10-rc.3",
+      "version": "0.1.10-rc.4",
       "dependencies": {
         "@noble/ciphers": "^2.4.0",
         "@noble/curves": "^2.4.0",
@@ -112,7 +112,7 @@
     },
     "packages/shared": {
       "name": "@atlas/shared",
-      "version": "0.1.10-rc.3",
+      "version": "0.1.10-rc.4",
       "dependencies": {
         "@atlas/client-core": "workspace:*",
         "@noble/hashes": "^2.4.0",
