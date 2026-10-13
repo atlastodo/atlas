@@ -11,3 +11,11 @@ describe("settingsSections", () => {
     expect(settingsSections(false).map((s) => s.id)).toContain("desktop");
   });
 });
+
+describe("settingsSections: API tokens", () => {
+  it("lists API tokens next to Devices, but not in local-only mode", () => {
+    const ids = settingsSections(false).map((s) => s.id);
+    expect(ids.indexOf("apiTokens")).toBe(ids.indexOf("devices") + 1);
+    expect(settingsSections(false, true).map((s) => s.id)).not.toContain("apiTokens");
+  });
+});

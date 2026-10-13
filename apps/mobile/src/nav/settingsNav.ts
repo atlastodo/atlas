@@ -2,6 +2,7 @@ import {
   Bell,
   CalendarClock,
   Database,
+  KeyRound,
   LifeBuoy,
   ListChecks,
   Menu,
@@ -36,6 +37,7 @@ export type SettingsSectionId =
   | "data"
   | "server"
   | "devices"
+  | "apiTokens"
   | "desktop"
   | "help"
   | "account"
@@ -58,6 +60,7 @@ const ALL_SECTIONS: SettingsSection[] = [
   { id: "data", labelKey: "settings.data", icon: Database },
   { id: "server", labelKey: "settings.server", icon: Server },
   { id: "devices", labelKey: "settings.devices", icon: Smartphone },
+  { id: "apiTokens", labelKey: "settings.apiTokens", icon: KeyRound },
   { id: "desktop", labelKey: "settings.desktop", icon: Monitor },
   { id: "help", labelKey: "settings.help", icon: LifeBuoy },
   { id: "account", labelKey: "settings.account", icon: UserRound },
@@ -68,14 +71,14 @@ const ALL_SECTIONS: SettingsSection[] = [
  * The sections this user can open. Admin (accounts, error reports, instance settings) is only
  * listed for an administrator (`isAdmin`, a UI hint -- the server re-checks every `/admin/*`
  * request). Server section is hidden when using the app online via web, as the app defaults to the
- * active website URL. Local-only mode has no server and no sessions, so neither Server nor Devices.
+ * active website URL. Local-only mode has no server and no sessions, so no Server, Devices or API tokens.
  * Desktop app only shows inside the desktop app.
  */
 export function settingsSections(admin: boolean, localOnly = false): SettingsSection[] {
   return ALL_SECTIONS.filter((s) => {
     if (s.id === "admin" && !admin) return false;
     if (s.id === "server" && (localOnly || isOnlineWeb())) return false;
-    if (s.id === "devices" && localOnly) return false;
+    if ((s.id === "devices" || s.id === "apiTokens") && localOnly) return false;
     if (s.id === "desktop" && !isDesktopApp()) return false;
     return true;
   });

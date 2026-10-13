@@ -211,15 +211,16 @@ Android jobs run in it. Repository secrets of the same name work too, but any wo
 those. The `DOCKERHUB_*` secrets stay repository secrets, since the `dev` image pushes use them.
 A ruleset keeps `v*` tags from being moved or deleted.
 
-| Secret                             | Required | What it is                                                              |
-| ---------------------------------- | -------- | ----------------------------------------------------------------------- |
-| `ANDROID_KEYSTORE_BASE64`          | yes      | the upload keystore (JKS or PKCS12), base64: `base64 -w0 upload.jks`    |
-| `ANDROID_KEYSTORE_PASSWORD`        | yes      | the keystore password                                                   |
-| `ANDROID_KEY_ALIAS`                | yes      | the key alias                                                           |
-| `ANDROID_KEY_PASSWORD`             | yes      | the key password                                                        |
-| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | no       | a Play service-account JSON key; when unset, the Play upload is skipped |
-| `DOCKERHUB_USERNAME`               | no       | the Docker Hub user for the mirror (see `DOCKERHUB_IMAGE`)              |
-| `DOCKERHUB_TOKEN`                  | no       | a Docker Hub access token with Read & Write scope                       |
+| Secret                             | Required | What it is                                                               |
+| ---------------------------------- | -------- | ------------------------------------------------------------------------ |
+| `ANDROID_KEYSTORE_BASE64`          | yes      | the upload keystore (JKS or PKCS12), base64: `base64 -w0 upload.jks`     |
+| `ANDROID_KEYSTORE_PASSWORD`        | yes      | the keystore password                                                    |
+| `ANDROID_KEY_ALIAS`                | yes      | the key alias                                                            |
+| `ANDROID_KEY_PASSWORD`             | yes      | the key password                                                         |
+| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | no       | a Play service-account JSON key; when unset, the Play upload is skipped  |
+| `DOCKERHUB_USERNAME`               | no       | the Docker Hub user for the mirror (see `DOCKERHUB_IMAGE`)               |
+| `DOCKERHUB_TOKEN`                  | no       | a Docker Hub access token with Read & Write scope                        |
+| `NPM_TOKEN`                        | no       | an npm automation token for `@atlastodo/cli`; when unset, npm is skipped |
 
 `GITHUB_TOKEN` is provided automatically and is used for GHCR and the release.
 
