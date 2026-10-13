@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 import { fireEvent, render as render, screen, waitFor } from "@testing-library/react-native";
-import { ApiError, LocalStore, type ApiClient } from "@atlas/client-core";
+import { ApiError, LocalStore, type ApiClient, type PasskeyProof } from "@atlas/client-core";
 import { PREFERENCES_ID } from "@atlas/shared";
 import { fakeAuth, withApp } from "../testutil";
 import { settingsSections, type SettingsSectionId } from "../nav/settingsNav";
@@ -285,7 +285,9 @@ describe("SettingsScreen", () => {
   describe("a new recovery phrase", () => {
     const PHRASE = Array.from({ length: 24 }, (_, i) => `word${i + 1}`).join(" ");
 
-    async function mountAccount(replaceRecoveryPhrase: (password: string) => Promise<string>) {
+    async function mountAccount(
+      replaceRecoveryPhrase: (password: string | PasskeyProof) => Promise<string>,
+    ) {
       await mountAuth("account", new LocalStore("test"), { replaceRecoveryPhrase });
     }
 

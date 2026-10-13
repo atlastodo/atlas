@@ -8,6 +8,7 @@ import { useIsWide } from "../../hooks/useIsWide";
 import { Row, Section } from "../../ui/Section";
 import { KeyRound } from "../../ui/icons";
 import { PasswordInput } from "./shared";
+import { describePasskeyError } from "../../auth/passkeyErrors";
 
 /** The new password's length floor; the server only sees the derived auth hash, so this rule is the client's. */
 const MIN_PASSWORD_LEN = 8;
@@ -19,7 +20,9 @@ const MIN_PASSWORD_LEN = 8;
  */
 export function SecuritySection() {
   const { t } = useTranslation();
-  const { changePassword } = useAuth();
+  const { changePassword, confirmWithPasskey, session } = useAuth();
+  // A passkey-only account sets its first password, confirmed with a passkey.
+  const hasPassword = session?.user.has_password !== false;
   const toast = useToast();
   const isWide = useIsWide();
   const [current, setCurrent] = useState("");
@@ -41,15 +44,17 @@ export function SecuritySection() {
     }
     setBusy(true);
     try {
-      await changePassword(current, next);
+      await changePassword(hasPassword ? current : await confirmWithPasskey(), next);
       setCurrent("");
       setNext("");
       setConfirm("");
-      toast.show(t("settings.changePasswordDone"));
+      toast.show(t(hasPassword ? "settings.changePasswordDone" : "settings.setPasswordDone"));
     } catch (err) {
       // A wrong current password is a 403 with its own code; a 401 is the session, not the password.
       if (apiErrorCode(err) === "invalid_credentials") {
         setError(t("settings.passwordIncorrect"));
+      } else if (describePasskeyError(err, t) !== null) {
+        setError(describePasskeyError(err, t));
       } else {
         setError(t("settings.changePasswordFailed"));
       }
@@ -59,15 +64,24 @@ export function SecuritySection() {
   };
 
   return (
-    <Section icon={KeyRound} title={t("settings.changePassword")}>
-      <Row label={t("settings.currentPassword")}>
-        <PasswordInput
-          accessibilityLabel={t("settings.currentPassword")}
-          value={current}
-          onChangeText={setCurrent}
-          placeholder={t("settings.currentPasswordPlaceholder")}
-        />
-      </Row>
+    <Section
+      icon={KeyRound}
+      title={hasPassword ? t("settings.changePassword") : t("settings.setPassword")}
+    >
+      {hasPassword ? (
+        <Row label={t("settings.currentPassword")}>
+          <PasswordInput
+            accessibilityLabel={t("settings.currentPassword")}
+            value={current}
+            onChangeText={setCurrent}
+            placeholder={t("settings.currentPasswordPlaceholder")}
+          />
+        </Row>
+      ) : (
+        <Text className="py-3 text-sm text-neutral-600 dark:text-neutral-400">
+          {t("settings.setPasswordDesc")}
+        </Text>
+      )}
       <Row label={t("settings.newPassword")}>
         <PasswordInput
           accessibilityLabel={t("settings.newPassword")}
@@ -90,7 +104,9 @@ export function SecuritySection() {
       <View className={isWide ? "flex-row items-center gap-3 py-3" : "gap-2 py-3"}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={t("settings.updatePassword")}
+          accessibilityLabel={
+            hasPassword ? t("settings.updatePassword") : t("settings.setPassword")
+          }
           disabled={busy}
           onPress={() => void submit()}
           className={
@@ -98,7 +114,9 @@ export function SecuritySection() {
             (busy ? "opacity-60" : "")
           }
         >
-          <Text className="text-sm font-medium text-white">{t("settings.updatePassword")}</Text>
+          <Text className="text-sm font-medium text-white">
+            {hasPassword ? t("settings.updatePassword") : t("settings.setPassword")}
+          </Text>
         </Pressable>
         {error !== null && (
           <Text

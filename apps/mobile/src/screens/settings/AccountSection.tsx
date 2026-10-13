@@ -9,7 +9,9 @@ import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { Row, Section } from "../../ui/Section";
 import { LogOut, Trash2, UserRound } from "../../ui/icons";
 import { LocalAccountSection } from "./LocalAccountSection";
+import { PasskeysSection } from "./PasskeysSection";
 import { RecoveryPhraseSection } from "./RecoveryPhraseSection";
+import { describePasskeyError } from "../../auth/passkeyErrors";
 import { SecuritySection } from "./SecuritySection";
 import { DangerButton, DangerZone } from "./shared";
 
@@ -21,7 +23,9 @@ export function AccountSection() {
 
 function SignedInAccountSection() {
   const { t } = useTranslation();
-  const { session, deleteAccount } = useAuth();
+  const { session, deleteAccount, confirmWithPasskey } = useAuth();
+  // A passkey-only account confirms the deletion with a passkey.
+  const hasPassword = session?.user.has_password !== false;
   const { signOut, dialog: signOutDialog } = useSignOut();
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
@@ -57,6 +61,7 @@ function SignedInAccountSection() {
       </Section>
 
       <SecuritySection />
+      <PasskeysSection />
       <RecoveryPhraseSection />
 
       <DangerZone>
@@ -76,19 +81,19 @@ function SignedInAccountSection() {
         confirmLabel={t("auth.deleteAccount")}
         danger
         onConfirm={async () => {
-          if (deletePassword === "") {
+          if (hasPassword && deletePassword === "") {
             setDeleteError(t("settings.deletePasswordHint"));
             return;
           }
           setDeleteError(null);
           try {
-            await deleteAccount(deletePassword);
+            await deleteAccount(hasPassword ? deletePassword : await confirmWithPasskey());
             setConfirmDeleteAccount(false);
           } catch (e) {
             if (apiErrorCode(e) === "invalid_credentials") {
               setDeleteError(t("settings.passwordIncorrect"));
             } else {
-              setDeleteError(t("auth.genericError"));
+              setDeleteError(describePasskeyError(e, t) ?? t("auth.genericError"));
             }
           }
         }}
@@ -99,22 +104,30 @@ function SignedInAccountSection() {
         }}
       >
         <View className="gap-1">
-          <Text className="text-sm text-neutral-600 dark:text-neutral-400">
-            {t("auth.password")}
-          </Text>
-          <TextInput
-            accessibilityLabel={t("auth.password")}
-            value={deletePassword}
-            onChangeText={(v) => {
-              setDeletePassword(v);
-              setDeleteError(null);
-            }}
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
-            textContentType="password"
-            className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-          />
+          {hasPassword ? (
+            <>
+              <Text className="text-sm text-neutral-600 dark:text-neutral-400">
+                {t("auth.password")}
+              </Text>
+              <TextInput
+                accessibilityLabel={t("auth.password")}
+                value={deletePassword}
+                onChangeText={(v) => {
+                  setDeletePassword(v);
+                  setDeleteError(null);
+                }}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="password"
+                className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              />
+            </>
+          ) : (
+            <Text className="text-sm text-neutral-600 dark:text-neutral-400">
+              {t("settings.deleteAccountPasskeyHint")}
+            </Text>
+          )}
           {deleteError !== null && (
             <Text accessibilityRole="alert" className="text-xs text-red-600 dark:text-red-400">
               {deleteError}
