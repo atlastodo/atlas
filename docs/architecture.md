@@ -345,7 +345,9 @@ usage in [integrations.md](./integrations.md)).
 - **Limits.**
   - `InteractiveAuthUser` refuses a token session with 403 `interactive_session_required` on the
     account-critical routes: credentials, recovery, sessions, API tokens, account deletion,
-    export, the signing-key upload and admin.
+    export, the signing-key upload, the account root key and app keys, and admin.
+  - A token wraps the todo key (the DEK) and the todo identity only, never the account root key
+    or another app's key ([Account root key](#account-root-key)).
   - Sync, project keys, members and attachments accept token sessions.
   - An account holds at most 25 live tokens.
 - **Revoking.** Revoking a token, recovering the account or scheduling its deletion sets
@@ -378,29 +380,105 @@ ciphertext and wrapped keys.
 ```
 password + salt ── Argon2id (or PBKDF2) ── HKDF ──┬── auth hash ──► server (stored as Argon2id)
                                                   └── MEK (master encryption key, device only)
-                                                         │ wraps
-                               ┌─────────────────────────┴──────────────┐
-                               DEK (personal data key)            X25519 private key
-                               │ encrypts                              │ opens
-                               personal fields                   PEKs sealed to this user
-                               │ wraps                                 │
-                               ├── Ed25519 identity key: signs PEK deliveries
-                               │ wraps (own copy)                      │
-                               PEK (one per shared project) ◄──────────┘
+                                                         │ wraps (password slot)
+recovery phrase ── recovery key ─── wraps (recovery slot) ──┐
+                                                         ▼
+                                    account root key (random 256-bit)
+                                                         │ wraps, one per app (account_app_keys)
+                               ┌─────────────────────────┴──────────── … notes, vault (later)
+                               todo app key = the DEK (personal data key)
+                               │ encrypts                    │ wraps
+                               personal fields               X25519 private key (todo identity)
+                               │ wraps                       │ opens
+                               ├── Ed25519 identity key      PEKs sealed to this user
+                               │   (signs PEK deliveries)    │
+                               │ wraps (own copy)            │
+                               PEK (one per shared project) ◄┘
                                │ encrypts
                                fields of the project's tasks, sections, comments, …
 
-recovery phrase (24 words, BIP-39) ── HKDF ──┬── recovery key: wraps a second copy of the DEK and private key
+recovery phrase (24 words, BIP-39) ── HKDF ──┬── recovery key: wraps the root key (recovery slot)
                                              └── recovery X25519 keypair: answers the recovery challenge
 ```
+
+Deprecated, still written for clients predating the root key: the DEK and the X25519 private key
+wrapped directly under the MEK (`users.encrypted_dek`, `users.encrypted_private_key`) and under
+the recovery key (`users.recovery_encrypted_dek`, `users.recovery_encrypted_private_key`). See
+[Account root key](#account-root-key).
 
 - The DEK is a random 256-bit key that encrypts personal data.
 - Each shared project has a random 256-bit project key (PEK).
 - Each account has an X25519 key (deliveries are sealed to it) and an Ed25519 signing key,
   created at signup and wrapped under the DEK, so password changes and recovery leave them
   alone. Accounts that predate the signing key get one on their first unlock.
-- A password change re-wraps the DEK and private key under the new MEK on the device. The DEK
-  itself does not change.
+- A password change re-wraps the root key (and the deprecated DEK and private key wraps) under the
+  new MEK on the device. Neither the root nor the DEK changes.
+
+### Account root key
+
+Atlas is becoming a suite of apps on one account. Each app gets its own key, and one account root
+key sits above them (`crates/atlas-server/src/auth/root_key.rs`,
+`packages/client-core/src/crypto/rootKey.ts` for the formats, `packages/client-core/src/rootKey.ts`
+for the flows; vectors in `test-vectors/root_key_vectors.json`).
+
+- **Slots.** An unlock slot is the root wrapped under that slot's 32-byte key with AES-256-GCM:
+  `{ "v": 1, "iv", "ct" }`, associated data `["atlas-root-key", 1, user_id, slot]`. The slots
+  today are `password` (under the MEK, `users.encrypted_root_key`) and `recovery` (under the
+  phrase's recovery key, `users.recovery_encrypted_root_key`). `users.root_key_created_at` says
+  whether the root exists; no slot does, so an account without a password slot is possible.
+- **App keys.** `account_app_keys(user_id, app, wrapped_key, wrapped_private_key)`: the app's key
+  under the root, associated data `["atlas-app-key", 1, user_id, app]`, and the app's X25519
+  identity under the app key (`["atlas-app-identity", 1, user_id, app, "x25519"]`). The account's
+  existing DEK is the `todo` key, unchanged, and its existing keypairs are the todo identity, so
+  no data was re-encrypted: field values, PEK copies under the DEK, the signing key and API token
+  wraps all keep working. `PUT /auth/app-keys/:app` adds a new app's key, once.
+- **Hard rule.** Nothing belonging to another app, and never the root, is wrapped under the old
+  DEK (the todo key): API tokens carry a copy of it. Every route that reads or writes the root or
+  an app key row (`/auth/root-key`, `/auth/root-key/recovery`, `/auth/app-keys/:app`, and the
+  credential routes) is `InteractiveAuthUser`, so a token session gets 403
+  `interactive_session_required`. A token session opens as before and never receives the root.
+- **Opening.** Sign-in, refresh and cancelling a deletion return `encrypted_root_key`, `app_keys`,
+  `has_root_key`, `has_recovery_root_key` and `recovery_public_key`. The client opens root, then
+  the todo key, then the todo identity, and falls back to the legacy MEK wraps when the account
+  has no root or the slot does not open.
+- **Signup.** The client picks the account id (`user_id`, a v4 UUID, since the wraps bind it),
+  generates the root, and sends the password slot, the recovery slot (under the phrase's recovery
+  key) and the todo key with the legacy wraps.
+- **Migration.** An account from before root keys migrates on its next password sign-in or
+  unlock, on the device: a new root, the DEK as the todo key under it, the root under the MEK, and
+  `POST /auth/root-key` with the current auth hash. The phrase is not at hand then, so the
+  recovery slot is the root **sealed** to the account's recovery public key (ephemeral X25519,
+  HKDF info `atlas-root-seal-v1`, associated data
+  `["atlas-root-key", 1, user_id, "recovery-sealed", recovery_public_key]`, wire form
+  `{ "v", "epk", "iv", "ct" }`). An account with no phrase-derived recovery key (version 1) gets
+  no recovery slot until it registers one; the next sign-in or unlock then seals one
+  (`PUT /auth/root-key/recovery`, also used after a phrase replaced by an old client). The server
+  sets the root once, in a transaction: a second device gets 409 `root_key_exists` and loads the
+  stored root (`GET /auth/root-key`). A failed migration leaves the legacy path working and is
+  retried at the next sign-in.
+- **Credential changes.** Password change and KDF upgrade send the root re-wrapped under the new
+  MEK; phrase replacement sends it wrapped under the new phrase. Each lands in the `UPDATE` that
+  swaps the credential, together with the legacy wraps.
+- **Recovery.** `GET /auth/recovery-keys` adds the account id, the recovery slot and the todo
+  key, with same-shaped dummies when absent (the slot is always padded with an `epk`, and the
+  client tries both forms). The client opens the slot with the phrase and keeps that root only if
+  it opens the todo key to the DEK the phrase recovered from the legacy recovery wrap: anyone can
+  seal to the recovery public key, so an unchecked sealed slot could hold a root the server chose.
+  It then re-wraps the root under the new MEK and writes the slot in the phrase-wrapped form. When
+  there is no usable slot (an account without a recovery key, or not migrated), the client sends
+  a new root and todo key instead (`app_keys`), which the server accepts only while the account
+  has no recovery slot.
+- **Older clients.** Clients predating root keys keep signing in on the legacy wraps, which every
+  write keeps current. Their password change, KDF upgrade or recovery carries no root slot, so the
+  stored one would no longer open: the server drops the root and its app keys
+  (`drop_for_legacy_write`), and the next current client re-creates them. If an app other than
+  `todo` holds a key, that would lose it, so the server refuses such a write with 409
+  `root_key_required` instead. Their phrase replacement empties the recovery slot. The legacy
+  wraps go once no supported client needs them; the recovery check above must then rely on the
+  phrase-wrapped form.
+- **Passkeys (planned).** A passkey is one more slot: the root wrapped under the WebAuthn PRF
+  output with slot name `passkey:<credential id>`, in a table of its own (one row per credential).
+  A passkey-only account has no password slot; `root_key_created_at` still marks the root.
 
 ### Login and the password KDF
 
@@ -670,13 +748,13 @@ Downloads are decrypted chunk by chunk and the hash is checked again.
 ### Recovery
 
 `POST /auth/recover` requires answering a challenge sealed to the recovery keypair, which only
-the 24-word phrase can derive. The client then unwraps its keys with the recovery key and sets a
-new password.
+the 24-word phrase can derive. The client then unwraps its keys with the recovery key, recovers
+the root key (see [Account root key](#account-root-key)) and sets a new password.
 
 A signed-in user can replace the phrase from Settings. The client generates a new one, derives
-its recovery key and keypair as signup does, and sends the recovery public key with the DEK and
-private key wrapped under the new key to `POST /auth/recovery-key/replace`. That checks the
-current password and swaps all three in one `UPDATE`. Challenges are bound to the key they were
+its recovery key and keypair as signup does, and sends the recovery public key with the root,
+the DEK and the private key wrapped under the new key to `POST /auth/recovery-key/replace`. That
+checks the current password and swaps them in one `UPDATE`. Challenges are bound to the key they were
 sealed to, so the old phrase stops working at once.
 
 ### Key storage on the client
