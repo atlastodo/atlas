@@ -161,6 +161,27 @@ it never receives.
 - Someone who copied a token's wrapped keys and its secret before the revocation keeps what they
   decrypted, as with any device that had your data.
 - Treat a token like your password. See [docs/integrations.md](./docs/integrations.md).
+- A token opens the todo data only. It never carries the account root key or the key of any
+  other Atlas app, and token sessions are refused on every route that reads or writes them.
+
+### Account root key
+
+Your password and your recovery phrase each unlock one account root key, a random key that the
+server only ever stores wrapped. The root key in turn wraps one key per Atlas app; the todo app's
+key is the data key your account always had, so nothing was re-encrypted when the root key was
+introduced. Details in [docs/architecture.md](./docs/architecture.md#account-root-key).
+
+- Accounts created before the root key get one on their next sign-in or unlock, on the device.
+  The recovery phrase is not needed for that: the device seals the root key to your phrase's
+  public key, which only the phrase can open. Because anyone can seal to a public key, recovery
+  accepts that root only if it opens the same data key the phrase itself recovers, so a server
+  cannot slip in a root key of its own.
+- Accounts without a phrase-derived recovery key (very old accounts that have not confirmed their
+  phrase) have no recovery copy of the root key until they confirm it. Recovering such an account
+  creates a new root key over the same data key.
+- Until all supported clients know the root key, the data key and your X25519 key are also still
+  stored wrapped directly under your password and phrase (the pre-root-key layout). Those copies
+  are deprecated and will be removed in a later release.
 
 ### Upgrading from a pre-public build
 

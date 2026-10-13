@@ -17,6 +17,7 @@ use super::api_tokens;
 use super::kdf::Kdf;
 use super::password::{hash_password, verify_password};
 use super::recovery::{self, Challenge};
+use super::root_key::{self, AppKeyInput, AppKeyView};
 use super::token::{generate_refresh_token, hash_refresh_token, issue_access_token};
 use super::{AuthUser, AuthUserAllowScheduled, InteractiveAuthUser};
 use crate::error::{AppError, AppResult};
@@ -33,7 +34,9 @@ pub struct SignupRequest {
     #[serde(default)]
     pub invite: Option<String>,
     // E2EE key material. The first four are required (see `signup`); optional here so a
-    // missing one is a typed 400, not a deserialization error.
+    // missing one is a typed 400, not a deserialization error. `encrypted_dek`,
+    // `encrypted_private_key` and the two `recovery_encrypted_*` wraps are the deprecated legacy
+    // slots, still required so clients predating the root key can sign in to the account.
     #[serde(default)]
     pub salt: Option<String>,
     #[serde(default)]
@@ -64,6 +67,17 @@ pub struct SignupRequest {
     pub signing_public_key: Option<String>,
     #[serde(default)]
     pub encrypted_signing_key: Option<serde_json::Value>,
+    /// The account root key (see [`super::root_key`]), all four together or none (a client
+    /// predating root keys; the account migrates on its next sign-in on a current client). The
+    /// account id is client-chosen with them, because the wraps' associated data binds it.
+    #[serde(default)]
+    pub user_id: Option<Uuid>,
+    #[serde(default)]
+    pub encrypted_root_key: Option<serde_json::Value>,
+    #[serde(default)]
+    pub recovery_encrypted_root_key: Option<serde_json::Value>,
+    #[serde(default)]
+    pub app_keys: Option<Vec<AppKeyInput>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,12 +142,24 @@ pub struct RecoveryKeysQuery {
 #[derive(Debug, Serialize)]
 pub struct RecoveryKeysResponse {
     pub salt: String,
+    /// Deprecated: the legacy DEK and private key wrapped under the phrase, still written for
+    /// clients predating root keys. A current client takes the DEK from here too, to check the
+    /// recovered root key against.
     pub recovery_encrypted_dek: serde_json::Value,
     pub recovery_encrypted_private_key: serde_json::Value,
     /// Which secret answers the challenge: 2 = phrase-derived recovery key, 1 = the account's
     /// X25519 private key (no recovery key registered yet).
     pub recovery_key_version: u8,
     pub challenge: Challenge,
+    /// The account id, which the root key wraps' associated data binds.
+    pub user_id: Uuid,
+    /// The root key's recovery slot and the todo app key under the root, which the client opens
+    /// to check the recovered root against the DEK. Dummies (like every field here) when the
+    /// account has none, so the response does not tell whether it migrated. The slot always has
+    /// an `epk` ([`recovery::padded_root_slot`]): the client tries it as sealed and as
+    /// phrase-wrapped.
+    pub recovery_encrypted_root_key: serde_json::Value,
+    pub todo_app_key: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -158,6 +184,11 @@ pub struct ChangePasswordRequest {
     /// and keeps the account's other sessions.
     #[serde(default)]
     pub kdf_upgrade: bool,
+    /// The root key re-wrapped under the new MEK. Required to keep an account's root key; a
+    /// request without it (a client predating root keys) drops the root, see
+    /// [`root_key::drop_for_legacy_write`].
+    #[serde(default)]
+    pub encrypted_root_key: Option<serde_json::Value>,
 }
 
 /// The salt, public key and recovery-wrapped blobs are absent: recovery replaces only the login
@@ -174,6 +205,17 @@ pub struct RecoverAccountRequest {
     pub kdf_version: Option<i16>,
     #[serde(default)]
     pub kdf_params: Option<serde_json::Value>,
+    /// The root key, recovered from its recovery slot (or new, with `app_keys`), wrapped under the
+    /// new MEK. Absent from a client predating root keys: the root is then dropped.
+    #[serde(default)]
+    pub encrypted_root_key: Option<serde_json::Value>,
+    /// The root wrapped under the phrase, replacing the recovery slot (the client has the phrase).
+    #[serde(default)]
+    pub recovery_encrypted_root_key: Option<serde_json::Value>,
+    /// Present when the client could not recover the root (no recovery slot): a new root, and the
+    /// app keys under it, replacing every stored one. Refused while a recovery slot exists.
+    #[serde(default)]
+    pub app_keys: Option<Vec<AppKeyInput>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -219,6 +261,9 @@ pub struct AuthResponse {
     pub salt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key: Option<String>,
+    /// Deprecated: the DEK and private key wrapped directly under the MEK, from before the root
+    /// key. Still written and returned so clients predating root keys keep working; a current
+    /// client opens `encrypted_root_key` and the todo app key first and falls back to these.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encrypted_dek: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -228,9 +273,23 @@ pub struct AuthResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encrypted_signing_key: Option<serde_json::Value>,
     pub is_e2ee: bool,
-    /// The KDF behind the key wrapping `encrypted_dek` and `encrypted_private_key`.
+    /// The KDF behind the key wrapping `encrypted_dek`, `encrypted_private_key` and
+    /// `encrypted_root_key`.
     pub kdf_version: i16,
     pub kdf_params: serde_json::Value,
+    /// The root key under the MEK, absent until the account migrates ([`super::root_key`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypted_root_key: Option<serde_json::Value>,
+    /// The app keys under the root key.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub app_keys: Vec<AppKeyView>,
+    /// The phrase-derived recovery public key, for sealing the root key's recovery slot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery_public_key: Option<String>,
+    pub has_recovery_root_key: bool,
+    /// Whether the account has a root key at all (the password slot alone does not say: a later
+    /// passkey-only account has none).
+    pub has_root_key: bool,
 }
 
 /// The user row every user SELECT/RETURNING in this module maps into ([`USER_COLUMNS`]). One
@@ -256,6 +315,9 @@ struct UserRow {
     is_e2ee: bool,
     kdf_version: i16,
     kdf_params: serde_json::Value,
+    root_key_created_at: Option<OffsetDateTime>,
+    encrypted_root_key: Option<serde_json::Value>,
+    recovery_encrypted_root_key: Option<serde_json::Value>,
     #[sqlx(default)]
     deletion_scheduled_at: Option<OffsetDateTime>,
     #[sqlx(default)]
@@ -268,7 +330,8 @@ struct UserRow {
 /// Columns selected for [`UserRow`], shared by every user SELECT/RETURNING.
 const USER_COLUMNS: &str = "id, email, display_name, password_hash, is_admin, salt, public_key, \
      recovery_public_key, encrypted_dek, encrypted_private_key, recovery_encrypted_dek, recovery_encrypted_private_key, \
-     signing_public_key, encrypted_signing_key, is_e2ee, kdf_version, kdf_params, deletion_scheduled_at, disabled_at, last_login_at, created_at";
+     signing_public_key, encrypted_signing_key, is_e2ee, kdf_version, kdf_params, root_key_created_at, encrypted_root_key, \
+     recovery_encrypted_root_key, deletion_scheduled_at, disabled_at, last_login_at, created_at";
 
 /// Upper bound roughly matching the RFC 5321 address limit.
 const MAX_EMAIL_LEN: usize = 254;
@@ -409,6 +472,20 @@ async fn verify_current_password(
     Ok(user)
 }
 
+/// [`verify_current_password`] for other auth modules: the verified Argon2 hash, which their
+/// UPDATE re-checks so a concurrent password change wins.
+pub(super) async fn verify_password_hash(
+    state: &AppState,
+    user_id: Uuid,
+    password: &str,
+) -> AppResult<String> {
+    let row = verify_current_password(state, user_id, password).await?;
+    if !row.is_e2ee {
+        return Err(AppError::LegacyAccount);
+    }
+    Ok(row.password_hash)
+}
+
 /// Revoke every live refresh-token family of `user_id` except `keep_device`'s (one family per
 /// (user, device)), and close those devices' sync sockets. `None` keeps nothing.
 async fn revoke_other_sessions(
@@ -496,7 +573,7 @@ async fn start_new_session(
         None => Vec::new(),
     };
     let session = start_session(
-        &mut *tx,
+        &mut tx,
         state,
         user,
         Uuid::now_v7(),
@@ -511,10 +588,11 @@ async fn start_new_session(
     Ok(session)
 }
 
-/// Create a session (access token + refresh token row) through `executor`, so a rotation can
-/// insert it in the transaction that consumed its predecessor.
+/// Create a session (access token + refresh token row) on `conn`, so a rotation can insert it in
+/// the transaction that consumed its predecessor. The response carries the account's key
+/// material, the root key slot and app keys included.
 async fn start_session(
-    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    conn: &mut sqlx::PgConnection,
     state: &AppState,
     user: &UserRow,
     device_id: Uuid,
@@ -554,8 +632,13 @@ async fn start_session(
     .bind(expires_at)
     .bind(&clean_device_name)
     .bind(&install_key_hash)
-    .execute(executor)
+    .execute(&mut *conn)
     .await?;
+    // No root key, no app keys: skip the query for accounts not migrated yet.
+    let app_keys = match user.root_key_created_at {
+        Some(_) => root_key::load_app_keys(&mut *conn, user.id).await?,
+        None => Vec::new(),
+    };
 
     Ok(AuthResponse {
         access_token,
@@ -573,6 +656,11 @@ async fn start_session(
         is_e2ee: user.is_e2ee,
         kdf_version: user.kdf().version(),
         kdf_params: user.kdf().params(),
+        encrypted_root_key: user.encrypted_root_key.clone(),
+        app_keys,
+        recovery_public_key: user.recovery_public_key.clone(),
+        has_recovery_root_key: user.recovery_encrypted_root_key.is_some(),
+        has_root_key: user.root_key_created_at.is_some(),
     })
 }
 
@@ -615,10 +703,11 @@ pub async fn get_salt(
     }))
 }
 
-/// Create the user row, never an admin (see [`crate::admin::set_admin_by_email`]). Takes any
-/// executor so the invite path can run it in the transaction that consumes the invite.
+/// Create the user row, never an admin (see [`crate::admin::set_admin_by_email`]), with its app
+/// keys. Runs on the caller's transaction, which on the invite path also consumes the invite.
+/// `None` when the email (or a client-chosen id) is taken.
 async fn insert_user(
-    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    conn: &mut sqlx::PgConnection,
     email: &str,
     password_hash: &str,
     display_name: &str,
@@ -626,9 +715,9 @@ async fn insert_user(
     req: &SignupRequest,
 ) -> AppResult<Option<UserRow>> {
     let inserted: Option<UserRow> = sqlx::query_as::<_, UserRow>(sqlx::AssertSqlSafe(format!(
-        "INSERT INTO users (email, password_hash, display_name, salt, public_key, encrypted_dek, encrypted_private_key, recovery_encrypted_dek, recovery_encrypted_private_key, recovery_public_key, kdf_version, kdf_params, signing_public_key, encrypted_signing_key, is_e2ee, last_login_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, TRUE, now())
-         ON CONFLICT (email) DO NOTHING
+        "INSERT INTO users (id, email, password_hash, display_name, salt, public_key, encrypted_dek, encrypted_private_key, recovery_encrypted_dek, recovery_encrypted_private_key, recovery_public_key, kdf_version, kdf_params, signing_public_key, encrypted_signing_key, encrypted_root_key, recovery_encrypted_root_key, root_key_created_at, is_e2ee, last_login_at)
+         VALUES (COALESCE($17, gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CASE WHEN $15::jsonb IS NULL THEN NULL ELSE now() END, TRUE, now())
+         ON CONFLICT DO NOTHING
          RETURNING {USER_COLUMNS}"
     )))
     .bind(email)
@@ -649,9 +738,51 @@ async fn insert_user(
             .map(|k| k.trim().to_ascii_lowercase()),
     )
     .bind(&req.encrypted_signing_key)
-    .fetch_optional(executor)
+    .bind(&req.encrypted_root_key)
+    .bind(&req.recovery_encrypted_root_key)
+    .bind(req.user_id)
+    .fetch_optional(&mut *conn)
     .await?;
+    if let (Some(user), Some(app_keys)) = (&inserted, &req.app_keys) {
+        root_key::replace_app_keys(conn, user.id, app_keys).await?;
+    }
     Ok(inserted)
+}
+
+/// The 409 for a signup whose insert hit a conflict: the email, or else the client-chosen id.
+async fn signup_conflict(conn: &mut sqlx::PgConnection, email: &str) -> AppError {
+    let taken: Result<bool, sqlx::Error> =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE email = $1)")
+            .bind(email)
+            .fetch_one(conn)
+            .await;
+    match taken {
+        Ok(true) => AppError::Conflict("email".into()),
+        Ok(false) => AppError::Conflict("user id".into()),
+        Err(e) => e.into(),
+    }
+}
+
+/// The root key fields of a signup: all of `user_id`, `encrypted_root_key`,
+/// `recovery_encrypted_root_key` and `app_keys` (the todo key among them), or none.
+fn validate_signup_root_key(req: &SignupRequest) -> AppResult<()> {
+    match (
+        req.user_id,
+        &req.encrypted_root_key,
+        &req.recovery_encrypted_root_key,
+        &req.app_keys,
+    ) {
+        (None, None, None, None) => Ok(()),
+        (Some(_), Some(root), Some(recovery), Some(app_keys)) => {
+            root_key::validate_wrap("encrypted_root_key", root)?;
+            root_key::validate_recovery_slot(recovery)?;
+            root_key::validate_app_keys(app_keys)
+        }
+        _ => Err(AppError::BadRequest(
+            "user_id, encrypted_root_key, recovery_encrypted_root_key and app_keys go together"
+                .into(),
+        )),
+    }
 }
 
 /// `POST /auth/signup`
@@ -686,6 +817,7 @@ pub async fn signup(
             .as_deref(),
         req.encrypted_signing_key.as_ref(),
     )?;
+    validate_signup_root_key(&req)?;
     let invite_code = req
         .invite
         .as_deref()
@@ -701,29 +833,27 @@ pub async fn signup(
     if display_name.len() > MAX_DISPLAY_NAME_LEN {
         return Err(AppError::BadRequest("display name is too long".into()));
     }
-    let user = match invite_code {
-        Some(code) => {
-            // The invite is validated and locked first, before the duplicate-email check and any
-            // Argon2 work (`invites::lock_valid`); user creation and invite consumption commit together.
-            let mut tx = state.pool.begin().await?;
-            let invite_id = crate::invites::lock_valid(&mut *tx, &code)
+    // User creation, its app keys and (on the invite path) the invite's consumption commit together.
+    let mut tx = state.pool.begin().await?;
+    // The invite is validated and locked first, before the duplicate-email check and any Argon2
+    // work (`invites::lock_valid`).
+    let invite_id = match invite_code {
+        Some(code) => Some(
+            crate::invites::lock_valid(&mut *tx, &code)
                 .await?
-                .ok_or(AppError::InviteInvalid)?;
-            let password_hash = hash_password(&req.password).map_err(|_| AppError::Internal)?;
-            let user = insert_user(&mut *tx, &email, &password_hash, display_name, kdf, &req)
-                .await?
-                .ok_or_else(|| AppError::Conflict("email".into()))?;
-            crate::invites::mark_used(&mut *tx, invite_id, user.id).await?;
-            tx.commit().await?;
-            user
-        }
-        None => {
-            let password_hash = hash_password(&req.password).map_err(|_| AppError::Internal)?;
-            insert_user(&state.pool, &email, &password_hash, display_name, kdf, &req)
-                .await?
-                .ok_or_else(|| AppError::Conflict("email".into()))?
-        }
+                .ok_or(AppError::InviteInvalid)?,
+        ),
+        None => None,
     };
+    let password_hash = hash_password(&req.password).map_err(|_| AppError::Internal)?;
+    let Some(user) = insert_user(&mut tx, &email, &password_hash, display_name, kdf, &req).await?
+    else {
+        return Err(signup_conflict(&mut tx, &email).await);
+    };
+    if let Some(invite_id) = invite_id {
+        crate::invites::mark_used(&mut *tx, invite_id, user.id).await?;
+    }
+    tx.commit().await?;
 
     let resp =
         start_new_session(&state, &user, req.device_name, req.install_key.as_deref()).await?;
@@ -798,7 +928,7 @@ pub async fn refresh(
         return Err(AppError::LegacyAccount);
     }
     let session = start_session(
-        &mut *tx,
+        &mut tx,
         &state,
         &user,
         device_id,
@@ -931,8 +1061,15 @@ pub async fn change_password(
         ));
     };
 
+    if let Some(root) = &req.encrypted_root_key {
+        root_key::validate_wrap("encrypted_root_key", root)?;
+    }
+
     let new_hash = hash_password(&req.new_password).map_err(|_| AppError::Internal)?;
-    let updated = sqlx::query(
+    let mut tx = state.pool.begin().await?;
+    // The root slot moves with the legacy wraps, and only for an account that has a root: a
+    // request cannot install one here (that is `POST /auth/root-key`, set once).
+    let updated: Option<bool> = sqlx::query_scalar(
         "UPDATE users
             SET password_hash = $1,
                 encrypted_dek = $2,
@@ -941,8 +1078,11 @@ pub async fn change_password(
                 recovery_encrypted_private_key = COALESCE($5, recovery_encrypted_private_key),
                 kdf_version = $6,
                 kdf_params = $7,
+                encrypted_root_key = CASE WHEN root_key_created_at IS NULL THEN NULL
+                                          ELSE COALESCE($10, encrypted_root_key) END,
                 updated_at = now()
-          WHERE id = $8 AND password_hash = $9",
+          WHERE id = $8 AND password_hash = $9
+      RETURNING root_key_created_at IS NOT NULL",
     )
     .bind(&new_hash)
     .bind(encrypted_dek)
@@ -953,11 +1093,17 @@ pub async fn change_password(
     .bind(kdf.params())
     .bind(user.user_id)
     .bind(&row.password_hash)
-    .execute(&state.pool)
+    .bind(&req.encrypted_root_key)
+    .fetch_optional(&mut *tx)
     .await?;
-    if updated.rows_affected() == 0 {
+    let Some(has_root) = updated else {
         return Err(AppError::InvalidCredentials);
+    };
+    // A client predating root keys sent no root slot; the stored one is under the old MEK.
+    if has_root && req.encrypted_root_key.is_none() {
+        root_key::drop_for_legacy_write(&mut tx, user.user_id).await?;
     }
+    tx.commit().await?;
 
     if !req.kdf_upgrade {
         revoke_other_sessions(&state, user.user_id, user.device_id).await?;
@@ -979,20 +1125,27 @@ pub async fn get_recovery_keys(
 ) -> AppResult<Json<RecoveryKeysResponse>> {
     #[derive(sqlx::FromRow)]
     struct Row {
+        id: Uuid,
         password_hash: String,
         salt: Option<String>,
         public_key: Option<String>,
         recovery_public_key: Option<String>,
         recovery_encrypted_dek: Option<serde_json::Value>,
         recovery_encrypted_private_key: Option<serde_json::Value>,
+        recovery_encrypted_root_key: Option<serde_json::Value>,
+        todo_app_key: Option<serde_json::Value>,
     }
     let email = query.email.trim().to_lowercase();
     let row: Option<Row> = sqlx::query_as(
-        "SELECT password_hash, salt, public_key, recovery_public_key, recovery_encrypted_dek,
-                recovery_encrypted_private_key
-           FROM users WHERE email = $1 AND is_e2ee = TRUE",
+        "SELECT u.id, u.password_hash, u.salt, u.public_key, u.recovery_public_key,
+                u.recovery_encrypted_dek, u.recovery_encrypted_private_key,
+                u.recovery_encrypted_root_key, k.wrapped_key AS todo_app_key
+           FROM users u
+           LEFT JOIN account_app_keys k ON k.user_id = u.id AND k.app = $2
+          WHERE u.email = $1 AND u.is_e2ee = TRUE",
     )
     .bind(&email)
+    .bind(root_key::TODO_APP)
     .fetch_optional(&state.pool)
     .await?;
 
@@ -1002,27 +1155,37 @@ pub async fn get_recovery_keys(
             recovery::recipient(r.recovery_public_key.as_deref(), r.public_key.as_deref())?;
         Some((r.salt.clone()?, version, recipient, r))
     });
-    let (salt, dek, priv_key, pwh, version, recipient) = match recoverable {
-        // A missing recovery blob gets the dummy too: a null would stand out.
-        Some((salt, version, recipient, r)) => (
-            salt,
-            r.recovery_encrypted_dek
-                .unwrap_or_else(|| recovery::dummy_wrapped_key(&seed, "dek")),
-            r.recovery_encrypted_private_key
-                .unwrap_or_else(|| recovery::dummy_wrapped_key(&seed, "priv")),
-            recovery::password_hash_fingerprint(&r.password_hash),
-            version,
-            recipient,
-        ),
-        None => (
-            seed.clone(),
-            recovery::dummy_wrapped_key(&seed, "dek"),
-            recovery::dummy_wrapped_key(&seed, "priv"),
-            recovery::dummy_fingerprint(&seed),
-            recovery::RECOVERY_KEY_V2,
-            recovery::dummy_public_key(&seed),
-        ),
-    };
+    let (salt, dek, priv_key, pwh, version, recipient, user_id, root_slot, todo_key) =
+        match recoverable {
+            // A missing blob gets the dummy too: a null would stand out.
+            Some((salt, version, recipient, r)) => (
+                salt,
+                r.recovery_encrypted_dek
+                    .unwrap_or_else(|| recovery::dummy_wrapped_key(&seed, "dek")),
+                r.recovery_encrypted_private_key
+                    .unwrap_or_else(|| recovery::dummy_wrapped_key(&seed, "priv")),
+                recovery::password_hash_fingerprint(&r.password_hash),
+                version,
+                recipient,
+                r.id,
+                r.recovery_encrypted_root_key
+                    .map(|slot| recovery::padded_root_slot(&seed, slot))
+                    .unwrap_or_else(|| recovery::dummy_root_slot(&seed)),
+                r.todo_app_key
+                    .unwrap_or_else(|| recovery::dummy_versioned_wrap(&seed, "todo")),
+            ),
+            None => (
+                seed.clone(),
+                recovery::dummy_wrapped_key(&seed, "dek"),
+                recovery::dummy_wrapped_key(&seed, "priv"),
+                recovery::dummy_fingerprint(&seed),
+                recovery::RECOVERY_KEY_V2,
+                recovery::dummy_public_key(&seed),
+                recovery::dummy_user_id(&seed),
+                recovery::dummy_root_slot(&seed),
+                recovery::dummy_versioned_wrap(&seed, "todo"),
+            ),
+        };
     let challenge = recovery::issue_challenge(
         &state.config.jwt_secret,
         &email,
@@ -1039,6 +1202,9 @@ pub async fn get_recovery_keys(
         recovery_encrypted_private_key: priv_key,
         recovery_key_version: version,
         challenge,
+        user_id,
+        recovery_encrypted_root_key: root_slot,
+        todo_app_key: todo_key,
     }))
 }
 
@@ -1107,8 +1273,30 @@ async fn recover(
         return Err(AppError::Unauthorized);
     }
 
+    if let Some(root) = &req.encrypted_root_key {
+        root_key::validate_wrap("encrypted_root_key", root)?;
+    }
+    if let Some(slot) = &req.recovery_encrypted_root_key {
+        root_key::validate_recovery_slot(slot)?;
+    }
+    if let Some(app_keys) = &req.app_keys {
+        root_key::validate_app_keys(app_keys)?;
+        if req.encrypted_root_key.is_none() {
+            return Err(AppError::BadRequest(
+                "app_keys come with a new encrypted_root_key".into(),
+            ));
+        }
+    }
+
     let new_hash = hash_password(&req.new_auth_hash).map_err(|_| AppError::Internal)?;
     let mut tx = state.pool.begin().await?;
+    let (has_root, has_recovery_slot): (bool, bool) = sqlx::query_as(
+        "SELECT root_key_created_at IS NOT NULL, recovery_encrypted_root_key IS NOT NULL
+           FROM users WHERE id = $1 FOR UPDATE",
+    )
+    .bind(user_id)
+    .fetch_one(&mut *tx)
+    .await?;
     let updated = sqlx::query(
         "UPDATE users
             SET password_hash = $1,
@@ -1130,6 +1318,53 @@ async fn recover(
     .await?;
     if updated.rows_affected() == 0 {
         return Err(AppError::Unauthorized);
+    }
+    match (&req.encrypted_root_key, &req.app_keys) {
+        // A client predating root keys: the stored password slot is under the old MEK.
+        (None, _) if has_root => root_key::drop_for_legacy_write(&mut tx, user_id).await?,
+        (None, _) => {}
+        // The root came back out of its recovery slot: re-wrap it, and take the phrase-form slot.
+        (Some(root), None) => {
+            if !has_root {
+                return Err(AppError::BadRequest(
+                    "the account has no root key to keep; send app_keys with a new one".into(),
+                ));
+            }
+            sqlx::query(
+                "UPDATE users
+                    SET encrypted_root_key = $2,
+                        recovery_encrypted_root_key = COALESCE($3, recovery_encrypted_root_key)
+                  WHERE id = $1",
+            )
+            .bind(user_id)
+            .bind(root)
+            .bind(&req.recovery_encrypted_root_key)
+            .execute(&mut *tx)
+            .await?;
+        }
+        // A new root. Only when the stored one has no recovery slot (an account without a
+        // phrase-derived recovery key, or not migrated): a root that recovery could reach is
+        // never thrown away, with whatever app keys it holds.
+        (Some(root), Some(app_keys)) => {
+            if has_recovery_slot {
+                return Err(AppError::BadRequest(
+                    "the account's root key is recoverable; recover it instead".into(),
+                ));
+            }
+            sqlx::query(
+                "UPDATE users
+                    SET root_key_created_at = now(),
+                        encrypted_root_key = $2,
+                        recovery_encrypted_root_key = $3
+                  WHERE id = $1",
+            )
+            .bind(user_id)
+            .bind(root)
+            .bind(&req.recovery_encrypted_root_key)
+            .execute(&mut *tx)
+            .await?;
+            root_key::replace_app_keys(&mut tx, user_id, app_keys).await?;
+        }
     }
     sqlx::query(
         "UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
@@ -1186,6 +1421,11 @@ pub struct ReplaceRecoveryKeyRequest {
     pub recovery_encrypted_dek: Option<serde_json::Value>,
     #[serde(default)]
     pub recovery_encrypted_private_key: Option<serde_json::Value>,
+    /// The root key wrapped under the new phrase. A request without it (a client predating root
+    /// keys) empties the recovery slot, which the next current client refills sealed to the new
+    /// recovery key (`PUT /auth/root-key/recovery`).
+    #[serde(default)]
+    pub recovery_encrypted_root_key: Option<serde_json::Value>,
 }
 
 /// `POST /auth/recovery-key/replace`: replace the recovery phrase for a user who lost it: the
@@ -1217,11 +1457,17 @@ pub async fn replace_recovery_key(
             "recovery_encrypted_dek and recovery_encrypted_private_key are required".into(),
         ));
     };
+    if let Some(slot) = &req.recovery_encrypted_root_key {
+        root_key::validate_recovery_slot(slot)?;
+    }
+    // The old phrase's root slot goes with its blobs; an account without a root keeps none.
     let updated = sqlx::query(
         "UPDATE users
             SET recovery_public_key = $1,
                 recovery_encrypted_dek = $2,
                 recovery_encrypted_private_key = $3,
+                recovery_encrypted_root_key = CASE WHEN root_key_created_at IS NULL THEN NULL
+                                                   ELSE $6::jsonb END,
                 updated_at = now()
           WHERE id = $4 AND password_hash = $5",
     )
@@ -1230,6 +1476,7 @@ pub async fn replace_recovery_key(
     .bind(recovery_private_key)
     .bind(user.user_id)
     .bind(&row.password_hash)
+    .bind(&req.recovery_encrypted_root_key)
     .execute(&state.pool)
     .await?;
     if updated.rows_affected() == 0 {
@@ -1442,6 +1689,7 @@ pub async fn export(
     .ok_or(AppError::NotFound)?;
 
     let operations = crate::sync::partition_ops(&state.pool, user.user_id).await?;
+    let app_keys = root_key::load_app_keys(&state.pool, user.user_id).await?;
 
     let body = Json(serde_json::json!({
         "exported_at": now_unix() * 1000,
@@ -1460,6 +1708,8 @@ pub async fn export(
             "kdf_params": row.kdf().params(),
             "signing_public_key": row.signing_public_key,
             "encrypted_signing_key": row.encrypted_signing_key,
+            "encrypted_root_key": row.encrypted_root_key,
+            "app_keys": app_keys,
         },
         "data": {
             "operations": operations,

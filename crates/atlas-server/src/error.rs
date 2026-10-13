@@ -47,6 +47,18 @@ pub enum AppError {
     /// `PUT /auth/signing-key` naming a key other than the one already stored.
     #[error("a different signing key is already stored")]
     SigningKeyAlreadySet,
+    /// `POST /auth/root-key` for an account that already has a root key (another device migrated
+    /// it first): the client fetches the stored one instead.
+    #[error("the account already has a root key")]
+    RootKeyExists,
+    /// A write of a key that is set once (`PUT /auth/root-key/recovery`, `PUT /auth/app-keys/:app`)
+    /// when one is already stored.
+    #[error("{0} is already stored")]
+    KeyAlreadyStored(&'static str),
+    /// A credential or recovery write without the root-key slot, from a client predating root
+    /// keys, on an account holding app keys that dropping the root would orphan.
+    #[error("this account needs an app version that knows the account root key")]
+    RootKeyRequired,
     /// `POST /projects/:id/key-rotation` with no rotation outstanding, or one another owner completed.
     #[error("no key rotation is pending for this project")]
     RotationNotPending,
@@ -92,6 +104,9 @@ impl AppError {
             AppError::Conflict(_)
             | AppError::RecoveryKeyAlreadySet
             | AppError::SigningKeyAlreadySet
+            | AppError::RootKeyExists
+            | AppError::KeyAlreadyStored(_)
+            | AppError::RootKeyRequired
             | AppError::RotationNotPending
             | AppError::AlreadyMember => StatusCode::CONFLICT,
             AppError::NotFound => StatusCode::NOT_FOUND,
@@ -114,6 +129,9 @@ impl AppError {
             AppError::RefreshSuperseded => Some("refresh_superseded"),
             AppError::RecoveryKeyAlreadySet => Some("recovery_key_already_set"),
             AppError::SigningKeyAlreadySet => Some("signing_key_already_set"),
+            AppError::RootKeyExists => Some("root_key_exists"),
+            AppError::KeyAlreadyStored(_) => Some("key_already_stored"),
+            AppError::RootKeyRequired => Some("root_key_required"),
             AppError::RotationNotPending => Some("rotation_not_pending"),
             AppError::AlreadyMember => Some("already_member"),
             AppError::InteractiveSessionRequired => Some("interactive_session_required"),

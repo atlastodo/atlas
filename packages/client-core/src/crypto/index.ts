@@ -9,3 +9,4 @@ export * from "./field";
 export * from "./keyring";
 export * from "./blob";
 export * from "./apiToken";
+export * from "./rootKey";
