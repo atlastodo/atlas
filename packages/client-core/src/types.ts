@@ -225,6 +225,36 @@ export interface SessionView {
   current: boolean;
 }
 
+/** A personal API token as listed: never its secret (unix millis). */
+export interface ApiTokenView {
+  id: string;
+  name: string;
+  created_at: number;
+  last_used_at?: number;
+}
+
+/** `POST /auth/api-tokens`: a token the client generated, with its keys wrapped for it. */
+export interface CreateApiTokenPayload {
+  id: string;
+  name: string;
+  auth: string;
+  wrapped_dek: { v: 1; iv: string; ct: string };
+  wrapped_private_key: { v: 1; iv: string; ct: string };
+}
+
+/** `POST /auth/api-token/session`: an access token (no refresh token) and the token's wraps. */
+export interface ApiTokenSessionResponse {
+  access_token: string;
+  expires_in: number;
+  token_id: string;
+  user_id: string;
+  wrapped_dek: { v: 1; iv: string; ct: string };
+  wrapped_private_key: { v: 1; iv: string; ct: string };
+  public_key?: string;
+  signing_public_key?: string;
+  encrypted_signing_key?: { v: 1; iv: string; ct: string };
+}
+
 export interface MemberView {
   user_id: string;
   email: string;

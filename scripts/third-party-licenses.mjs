@@ -3,7 +3,7 @@
 //
 // The JavaScript side is every package reachable through `dependencies` (and installed peer and
 // optional dependencies) from the workspace packages that end up in a build: the app, the desktop
-// shell and the two shared packages. Dev dependencies (build tools, tests) are not shipped and not
+// shell, the shared packages, and the SDK the `atlas` CLI bundles. Dev dependencies (build tools, tests) are not shipped and not
 // listed. The Rust side is the normal (non-dev, non-build) dependency closure of atlas-server for
 // Linux, from `cargo metadata`.
 //
@@ -19,7 +19,16 @@ import fs from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-const WORKSPACES = ["apps/mobile", "apps/electron", "packages/shared", "packages/client-core"];
+// The CLI bundles the SDK and everything under it into one file, so the SDK is listed for its
+// `dependencies` (the CLI itself has none at run time).
+const WORKSPACES = [
+  "apps/mobile",
+  "apps/electron",
+  "packages/shared",
+  "packages/client-core",
+  "packages/sdk",
+  "packages/cli",
+];
 
 // deny.toml's list, and the permissive licences the shipped JS tree adds (each checked by hand).
 const ALLOW = new Set([

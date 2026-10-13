@@ -13,11 +13,12 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::account_purge;
+use super::api_tokens;
 use super::kdf::Kdf;
 use super::password::{hash_password, verify_password};
 use super::recovery::{self, Challenge};
 use super::token::{generate_refresh_token, hash_refresh_token, issue_access_token};
-use super::{AuthUser, AuthUserAllowScheduled};
+use super::{AuthUser, AuthUserAllowScheduled, InteractiveAuthUser};
 use crate::error::{AppError, AppResult};
 use crate::ratelimit::{self, ClientIp};
 use crate::state::AppState;
@@ -907,7 +908,7 @@ pub(super) fn scheduled_deletion_error(scheduled_at: OffsetDateTime) -> AppError
 /// version than stored and revokes nothing.
 pub async fn change_password(
     State(state): State<AppState>,
-    user: AuthUser,
+    InteractiveAuthUser(user): InteractiveAuthUser,
     Json(req): Json<ChangePasswordRequest>,
 ) -> AppResult<StatusCode> {
     let row = verify_current_password(&state, user.user_id, &req.current_password).await?;
@@ -1136,6 +1137,8 @@ async fn recover(
     .bind(user_id)
     .execute(&mut *tx)
     .await?;
+    // A recovery assumes the account may have been in other hands: API tokens go too.
+    api_tokens::revoke_all(&mut *tx, user_id).await?;
     tx.commit().await?;
     state.hub.close_user_sockets(user_id);
 
@@ -1153,7 +1156,7 @@ pub struct RegisterRecoveryKeyRequest {
 /// phrase goes through [`replace_recovery_key`]).
 pub async fn register_recovery_key(
     State(state): State<AppState>,
-    user: AuthUser,
+    InteractiveAuthUser(user): InteractiveAuthUser,
     Json(req): Json<RegisterRecoveryKeyRequest>,
 ) -> AppResult<StatusCode> {
     let row = verify_current_password(&state, user.user_id, &req.current_password).await?;
@@ -1197,7 +1200,7 @@ pub struct ReplaceRecoveryKeyRequest {
 /// does not undo; a user who suspects that should change the password and then replace the phrase.
 pub async fn replace_recovery_key(
     State(state): State<AppState>,
-    user: AuthUser,
+    InteractiveAuthUser(user): InteractiveAuthUser,
     Json(req): Json<ReplaceRecoveryKeyRequest>,
 ) -> AppResult<StatusCode> {
     let row = verify_current_password(&state, user.user_id, &req.current_password).await?;
@@ -1309,7 +1312,7 @@ pub struct SessionView {
 /// `GET /auth/sessions`: the caller's live families, newest first. Dead families are not listed.
 pub async fn list_sessions(
     State(state): State<AppState>,
-    user: AuthUser,
+    InteractiveAuthUser(user): InteractiveAuthUser,
 ) -> AppResult<Json<Vec<SessionView>>> {
     #[derive(sqlx::FromRow)]
     struct Row {
@@ -1356,7 +1359,7 @@ pub struct RenameSessionRequest {
 
 pub async fn rename_session(
     State(state): State<AppState>,
-    user: AuthUser,
+    InteractiveAuthUser(user): InteractiveAuthUser,
     Path(device_id): Path<Uuid>,
     Json(req): Json<RenameSessionRequest>,
 ) -> AppResult<StatusCode> {
@@ -1387,7 +1390,7 @@ pub async fn rename_session(
 /// unknown or already-dead family is a 404.
 pub async fn revoke_session(
     State(state): State<AppState>,
-    user: AuthUser,
+    InteractiveAuthUser(user): InteractiveAuthUser,
     Path(device_id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
     if user.device_id == Some(device_id) {
@@ -1415,7 +1418,7 @@ pub async fn revoke_session(
 /// `change_password`).
 pub async fn revoke_other_devices(
     State(state): State<AppState>,
-    user: AuthUser,
+    InteractiveAuthUser(user): InteractiveAuthUser,
 ) -> AppResult<StatusCode> {
     revoke_other_sessions(&state, user.user_id, user.device_id).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -1486,7 +1489,7 @@ pub struct DeleteAccountRequest {
 /// sessions. Cancelling is `POST /auth/account/cancel-deletion`.
 pub async fn delete_account(
     State(state): State<AppState>,
-    user: AuthUser,
+    InteractiveAuthUser(user): InteractiveAuthUser,
     Json(req): Json<DeleteAccountRequest>,
 ) -> AppResult<StatusCode> {
     let row = verify_current_password(&state, user.user_id, &req.password).await?;
@@ -1502,6 +1505,8 @@ pub async fn delete_account(
     .bind(user.user_id)
     .execute(&state.pool)
     .await?;
+    // Cancelling the deletion signs in again; it must not bring integrations back with it.
+    api_tokens::revoke_all(&state.pool, user.user_id).await?;
 
     state.hub.close_user_sockets(user.user_id);
     broadcast_membership_change(&state, user.user_id).await;

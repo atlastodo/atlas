@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 #
-# Bump the project version across EVERY manifest in lockstep (root + mobile + electron +
-# client-core + shared package.json, apps/mobile/app.json, bun.lock, and Cargo.toml/Cargo.lock),
+# Bump the project version across EVERY manifest in lockstep (the root package.json and every
+# workspace package.json the root `workspaces` globs match -- apps/* and packages/*, so a new
+# package is picked up without editing this script -- apps/mobile/app.json, bun.lock, and
+# Cargo.toml/Cargo.lock),
 # ensuring all manifests stay synchronized with the release tag. Also regenerates nix/bun.nix (the
 # flake's npm dependency set) from bun.lock when nix is available.
 #
@@ -94,15 +96,23 @@ const edit = (f, fn) => {
 // either way, which is why the drift went unnoticed). The same exact match is safe there: third-party
 // packages are recorded as ["name@ver", ...] arrays, so the only `"version": "x.y.z"` keys in the
 // file are the workspace ones.
-const jsonFiles = [
-  "package.json",
-  "apps/mobile/package.json",
-  "apps/electron/package.json",
-  "packages/client-core/package.json",
-  "packages/shared/package.json",
-  "apps/mobile/app.json",
-  "bun.lock",
-];
+// Every workspace package, found from the root `workspaces` globs ("dir/*" or a plain path), so a
+// package added later is bumped and verified too. Directories without a package.json (or without
+// a version) are skipped.
+const workspaceManifests = JSON.parse(read("package.json"))
+  .workspaces.flatMap((pattern) => {
+    if (!pattern.endsWith("/*")) return [pattern];
+    const dir = pattern.slice(0, -2);
+    return fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => `${dir}/${d.name}`)
+      .sort();
+  })
+  .map((dir) => `${dir}/package.json`)
+  .filter((f) => fs.existsSync(f) && JSON.parse(read(f)).version !== undefined);
+const packageManifests = ["package.json", ...workspaceManifests];
+const jsonFiles = [...packageManifests, "apps/mobile/app.json", "bun.lock"];
 const versionKey = new RegExp(`"version": "${esc(OLD)}"`, "g");
 if (OLD !== NEW) {
   for (const f of jsonFiles) edit(f, (s) => s.replace(versionKey, `"version": "${NEW}"`));
@@ -133,7 +143,7 @@ const check = (label, actual) => {
   if (!ok) failed = true;
   console.log(`  ${ok ? "ok  " : "FAIL"} ${label.padEnd(34)} ${actual}${ok ? "" : ` (expected ${NEW})`}`);
 };
-for (const f of jsonFiles.slice(0, 5)) check(f, JSON.parse(read(f)).version ?? "");
+for (const f of packageManifests) check(f, JSON.parse(read(f)).version ?? "");
 check("apps/mobile/app.json", JSON.parse(read("apps/mobile/app.json")).expo?.version ?? "");
 // (Not when merely verifying: v0.1.3 and older carry the legacy +1 codes.)
 if (OLD !== NEW) {

@@ -9,7 +9,7 @@ use axum::Router;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::auth::AuthUser;
+use crate::auth::InteractiveAuthUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use crate::{admin_users, audit, invites, reports, settings};
@@ -40,7 +40,8 @@ impl FromRequestParts<AppState> for AdminUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let user = AuthUser::from_request_parts(parts, state).await?;
+        let InteractiveAuthUser(user) =
+            InteractiveAuthUser::from_request_parts(parts, state).await?;
         let is_admin: Option<bool> = sqlx::query_scalar("SELECT is_admin FROM users WHERE id = $1")
             .bind(user.user_id)
             .fetch_optional(&state.pool)

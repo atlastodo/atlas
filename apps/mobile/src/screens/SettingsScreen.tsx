@@ -17,6 +17,7 @@ import { AppearanceSection } from "./settings/AppearanceSection";
 import { CalendarSection } from "./settings/CalendarSection";
 import { DataSection } from "./settings/DataSection";
 import { DesktopSection } from "./settings/DesktopSection";
+import { ApiTokensSection } from "./settings/ApiTokensSection";
 import { DevicesSection } from "./settings/DevicesSection";
 import { FeaturesSection } from "./settings/FeaturesSection";
 import { HelpSection } from "./settings/HelpSection";
@@ -121,6 +122,9 @@ export function SettingsScreen({
       </SettingsPane>
       <SettingsPane id="devices" active={active}>
         <DevicesSection />
+      </SettingsPane>
+      <SettingsPane id="apiTokens" active={active}>
+        <ApiTokensSection />
       </SettingsPane>
       <SettingsPane id="desktop" active={active}>
         <DesktopSection />

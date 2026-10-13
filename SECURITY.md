@@ -147,6 +147,21 @@ shows with the member in person or on a call, then mark them verified. The mark 
 their keys change. A member you have not verified is only as trustworthy as the server was when
 you first saw them.
 
+### API tokens
+
+An API token (Settings → API tokens) holds a key that opens your account's DEK, so whoever
+holds it can read and change everything you can, as plaintext, on their own machine. The server
+still cannot. It stores only a hash of the token's auth value and the keys wrapped under a secret
+it never receives.
+
+- A token cannot reach the account-critical routes: password, recovery, sessions, tokens,
+  deletion, export and admin.
+- Revoking a token, recovering the account or scheduling its deletion drops its wrapped keys at
+  once.
+- Someone who copied a token's wrapped keys and its secret before the revocation keeps what they
+  decrypted, as with any device that had your data.
+- Treat a token like your password. See [docs/integrations.md](./docs/integrations.md).
+
 ### Upgrading from a pre-public build
 
 Installs from before the first public release migrate automatically. The first sync of the updated

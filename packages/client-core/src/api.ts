@@ -24,6 +24,9 @@ import type {
   ReplaceRecoveryKeyPayload,
   SaltResponse,
   SessionView,
+  ApiTokenView,
+  ApiTokenSessionResponse,
+  CreateApiTokenPayload,
   UserPublicKeyResponse,
   SigningKeyResponse,
   ChangePasswordPayload,
@@ -314,6 +317,7 @@ const CREDENTIAL_PATHS = new Set([
   "/auth/recovery-keys",
   "/auth/salt",
   "/auth/account/cancel-deletion",
+  "/auth/api-token/session",
 ]);
 
 const SUPERSEDED_WAITS = 8;
@@ -342,6 +346,11 @@ export interface ApiClientOptions {
   onUpgradeRequired?: (info: { minProtocol?: number }) => void;
   /** The refresh token was rejected: terminal. A 403 `reason` says why (e.g. `account_disabled`). */
   onAuthExpired?: (reason: ApiError) => void;
+  /**
+   * For a session without a refresh token that can open itself again (an API token): called on
+   * a 401, resolves a new access token, and the request is retried once with it.
+   */
+  reauthenticate?: () => Promise<string>;
 }
 
 export class ApiClient {
@@ -359,6 +368,8 @@ export class ApiClient {
   private readonly onAuthExpired?: (reason: ApiError) => void;
   private readonly tokenStore?: TokenStore;
   private readonly onUpgradeRequired?: (info: { minProtocol?: number }) => void;
+  private readonly reauthenticate?: () => Promise<string>;
+  private reauthenticating: Promise<string> | null = null;
   private refreshing: Promise<void> | null = null;
   private readonly consumed = new Set<string>();
 
@@ -374,6 +385,7 @@ export class ApiClient {
     this.onAuthExpired = opts.onAuthExpired;
     this.tokenStore = opts.tokenStore;
     this.onUpgradeRequired = opts.onUpgradeRequired;
+    this.reauthenticate = opts.reauthenticate;
   }
 
   setKeyring(keyring: Keyring | null): void {
@@ -485,6 +497,20 @@ export class ApiClient {
         !CREDENTIAL_PATHS.has(path.split("?")[0]!)
       ) {
         await this.doRefresh();
+        return this.rawRequest<T>(method, path, body);
+      }
+      if (
+        err instanceof ApiError &&
+        err.status === 401 &&
+        !this.refreshToken &&
+        this.reauthenticate &&
+        !CREDENTIAL_PATHS.has(path.split("?")[0]!)
+      ) {
+        // Concurrent 401s share one exchange.
+        this.reauthenticating ??= this.reauthenticate().finally(() => {
+          this.reauthenticating = null;
+        });
+        this.token = await this.reauthenticating;
         return this.rawRequest<T>(method, path, body);
       }
       throw err;
@@ -774,6 +800,21 @@ export class ApiClient {
   }
   exportData(): Promise<unknown> {
     return this.request("GET", "/auth/export");
+  }
+
+  listApiTokens(): Promise<ApiTokenView[]> {
+    return this.request("GET", "/auth/api-tokens");
+  }
+  /** Build the payload with `generateApiToken` and `wrapKeysForApiToken`. */
+  createApiToken(payload: CreateApiTokenPayload): Promise<ApiTokenView> {
+    return this.request("POST", "/auth/api-tokens", payload);
+  }
+  revokeApiToken(id: string): Promise<void> {
+    return this.request("DELETE", `/auth/api-tokens/${id}`);
+  }
+  /** Open a session with a token's id and auth value (`deriveApiTokenKeys`); no bearer needed. */
+  openApiTokenSession(tokenId: string, auth: string): Promise<ApiTokenSessionResponse> {
+    return this.request("POST", "/auth/api-token/session", { token_id: tokenId, auth });
   }
 
   listProjectKeys(): Promise<ProjectKeysResponse> {

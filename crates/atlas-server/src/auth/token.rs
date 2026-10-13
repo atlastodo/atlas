@@ -19,6 +19,19 @@ pub struct AccessClaims {
     pub did: Option<Uuid>,
     pub iat: i64,
     pub exp: i64,
+    /// What kind of credential the session stands on. Absent for a device session (password
+    /// sign-in plus refresh tokens); [`TokenKind::ApiToken`] for one an API token opened, whose
+    /// `did` is the token's id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<TokenKind>,
+}
+
+/// The non-default session kinds an access token can carry in its `kind` claim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenKind {
+    /// Opened with a personal API token (`POST /auth/api-token/session`).
+    ApiToken,
 }
 
 /// Mint a signed access token for `user_id` (issued to `device_id`) valid for `ttl_seconds`.
@@ -29,11 +42,24 @@ pub fn issue_access_token(
     secret: &[u8],
     now_unix: i64,
 ) -> Result<String, jsonwebtoken::errors::Error> {
+    issue_access_token_of_kind(user_id, device_id, None, ttl_seconds, secret, now_unix)
+}
+
+/// [`issue_access_token`] for a session of the given `kind`.
+pub fn issue_access_token_of_kind(
+    user_id: Uuid,
+    device_id: Uuid,
+    kind: Option<TokenKind>,
+    ttl_seconds: i64,
+    secret: &[u8],
+    now_unix: i64,
+) -> Result<String, jsonwebtoken::errors::Error> {
     let claims = AccessClaims {
         sub: user_id,
         did: Some(device_id),
         iat: now_unix,
         exp: now_unix + ttl_seconds,
+        kind,
     };
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
@@ -100,6 +126,22 @@ mod tests {
         assert_eq!(claims.sub, uid);
         assert_eq!(claims.did, Some(device), "the device claim rides the token");
         assert_eq!(claims.exp, iat + 900);
+        assert_eq!(claims.kind, None, "a device session carries no kind");
+    }
+
+    #[test]
+    fn api_token_session_kind_roundtrips() {
+        let token = issue_access_token_of_kind(
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Some(TokenKind::ApiToken),
+            900,
+            SECRET,
+            now(),
+        )
+        .unwrap();
+        let claims = verify_access_token(&token, SECRET).unwrap();
+        assert_eq!(claims.kind, Some(TokenKind::ApiToken));
     }
 
     #[test]

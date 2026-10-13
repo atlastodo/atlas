@@ -292,3 +292,49 @@ describe("ApiClient auth: refresh", () => {
     expect(bodyOf(fetchMock.mock.calls[0]!)).toEqual({ refresh_token: "abandoned" });
   });
 });
+
+describe("ApiClient auth: API tokens", () => {
+  it("re-opens a token session on a 401, once for concurrent requests", async () => {
+    let live = "old";
+    const fetchMock = vi.fn<FetchLike>(async (_url, init) => {
+      const auth = (init!.headers as Record<string, string>)["authorization"];
+      return auth === `Bearer ${live}` ? jsonResponse(200, []) : jsonResponse(401, {});
+    });
+    const reauthenticate = vi.fn(async () => {
+      live = "fresh";
+      return live;
+    });
+    const client = new ApiClient({
+      baseUrl: "http://x",
+      token: "stale",
+      fetch: fetchMock,
+      reauthenticate,
+    });
+
+    await Promise.all([client.listMembers("p"), client.listMembers("p")]);
+
+    expect(reauthenticate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-open on the exchange itself", async () => {
+    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(jsonResponse(401, {}));
+    const reauthenticate = vi.fn(async () => "x");
+    const client = new ApiClient({ baseUrl: "http://x", fetch: fetchMock, reauthenticate });
+
+    await expect(client.openApiTokenSession("id", "auth")).rejects.toMatchObject({ status: 401 });
+    expect(reauthenticate).not.toHaveBeenCalled();
+  });
+
+  it("manages tokens under /auth/api-tokens", async () => {
+    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(jsonResponse(204, undefined));
+    const client = new ApiClient({ baseUrl: "http://x", token: "tok", fetch: fetchMock });
+
+    await client.listApiTokens();
+    await client.revokeApiToken("t1");
+
+    expect(fetchMock.mock.calls.map(([url, init]) => `${init!.method} ${url}`)).toEqual([
+      "GET http://x/auth/api-tokens",
+      "DELETE http://x/auth/api-tokens/t1",
+    ]);
+  });
+});

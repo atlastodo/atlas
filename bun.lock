@@ -94,6 +94,19 @@
         "typescript": "~7.0.2",
       },
     },
+    "packages/cli": {
+      "name": "@atlastodo/cli",
+      "version": "0.1.11-rc.1",
+      "bin": {
+        "atlas": "./dist/atlas.mjs",
+      },
+      "devDependencies": {
+        "@atlas/sdk": "workspace:*",
+        "@types/node": "^26.6.4",
+        "typescript": "^7.0.2",
+        "vitest": "^5.0.3",
+      },
+    },
     "packages/client-core": {
       "name": "@atlas/client-core",
       "version": "0.1.11-rc.1",
@@ -106,6 +119,19 @@
       "devDependencies": {
         "@types/node": "^26.6.4",
         "fake-indexeddb": "^6.0.0",
+        "typescript": "^7.0.2",
+        "vitest": "^5.0.3",
+      },
+    },
+    "packages/sdk": {
+      "name": "@atlas/sdk",
+      "version": "0.1.11-rc.1",
+      "dependencies": {
+        "@atlas/client-core": "workspace:*",
+        "@atlas/shared": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/node": "^26.6.4",
         "typescript": "^7.0.2",
         "vitest": "^5.0.3",
       },
@@ -145,7 +171,11 @@
 
     "@atlas/mobile": ["@atlas/mobile@workspace:apps/mobile"],
 
+    "@atlas/sdk": ["@atlas/sdk@workspace:packages/sdk"],
+
     "@atlas/shared": ["@atlas/shared@workspace:packages/shared"],
+
+    "@atlastodo/cli": ["@atlastodo/cli@workspace:packages/cli"],
 
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
 

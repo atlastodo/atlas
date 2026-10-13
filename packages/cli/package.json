@@ -1,0 +1,36 @@
+{
+  "name": "@atlastodo/cli",
+  "version": "0.1.11-rc.1",
+  "description": "Command-line access to Atlas Todo with a personal API token, for scripts and automation tools like n8n. End-to-end encrypted: decryption happens on this machine.",
+  "license": "AGPL-3.0-only",
+  "homepage": "https://github.com/atlastodo/atlas-todo/blob/main/docs/integrations.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/atlastodo/atlas-todo.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/atlastodo/atlas-todo/issues"
+  },
+  "type": "module",
+  "bin": {
+    "atlas": "./dist/atlas.mjs"
+  },
+  "files": [
+    "dist/atlas.mjs"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "bun build src/main.ts --target=node --format=esm --outfile dist/atlas.mjs --banner '#!/usr/bin/env node'",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@atlas/sdk": "workspace:*",
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

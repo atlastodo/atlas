@@ -254,6 +254,12 @@ jobs:
       - name: shared
         working-directory: packages/shared
         run: bunx --bun vitest run
+      - name: sdk
+        working-directory: packages/sdk
+        run: bunx --bun vitest run
+      - name: cli
+        working-directory: packages/cli
+        run: bunx --bun vitest run
       - name: electron
         working-directory: apps/electron
         run: bunx --bun vitest run
