@@ -327,6 +327,31 @@ The client takes care not to trip this itself (`packages/client-core/src/api.ts`
   is dropped, so a dead token cannot loop into the auth rate limit. A 429 or a network failure is
   transient and leaves the session alone.
 
+### API tokens
+
+Integrations sign in with a personal API token instead of a password
+(`crates/atlas-server/src/auth/api_tokens.rs`, `packages/client-core/src/crypto/apiToken.ts`;
+usage in [integrations.md](./integrations.md)).
+
+- **Creating a token.** The app generates it: a 16-byte id and a 32-byte secret. HKDF over the
+  secret gives an auth value and a wrapping key. The app uploads the id, the auth value and the
+  DEK and X25519 private key wrapped under that key (`POST /auth/api-tokens`). The server stores
+  the auth value's SHA-256 and the wraps (`api_tokens`), and never sees the secret. A token is
+  one more key slot, like the recovery wraps, and only its holder can open it.
+- **Opening a session.** `POST /auth/api-token/session` checks the id and auth value and returns
+  an access token with `kind: "api_token"` and `did` set to the token id, plus the wraps. There is
+  no refresh token: the holder exchanges again. `authenticate_bearer` treats such a session as
+  live while its `api_tokens` row is unrevoked.
+- **Limits.**
+  - `InteractiveAuthUser` refuses a token session with 403 `interactive_session_required` on the
+    account-critical routes: credentials, recovery, sessions, API tokens, account deletion,
+    export, the signing-key upload and admin.
+  - Sync, project keys, members and attachments accept token sessions.
+  - An account holds at most 25 live tokens.
+- **Revoking.** Revoking a token, recovering the account or scheduling its deletion sets
+  `revoked_at` and nulls the wraps, so a token string that leaks afterwards opens nothing. A
+  password change leaves tokens alone, since the DEK does not change.
+
 ### Where a web session is stored
 
 Native apps keep the session in the OS keychain (`expo-secure-store`). The browser build, which
