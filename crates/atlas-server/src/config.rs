@@ -117,6 +117,10 @@ pub struct Config {
     /// Blob transfers in progress at once (`MAX_BLOB_TRANSFERS`, default
     /// [`DEFAULT_MAX_BLOB_TRANSFERS`]); one more answers `503`. Values below 1 are floored to 1.
     pub max_blob_transfers: usize,
+    /// The bundled apps this instance offers (`ATLAS_APPS`, comma-separated, default
+    /// [`DEFAULT_APPS`]), checked against the manifests compiled in (`atlas_core::manifest`).
+    /// Sync refuses and hides the kinds of every other app.
+    pub apps: Vec<String>,
 }
 
 // Manual `Debug` that never prints the JWT secret or the database URL (it carries the password).
@@ -143,6 +147,7 @@ impl fmt::Debug for Config {
             .field("blob_quota_bytes", &self.blob_quota_bytes)
             .field("blob_gc_grace_days", &self.blob_gc_grace_days)
             .field("max_blob_transfers", &self.max_blob_transfers)
+            .field("apps", &self.apps)
             .finish()
     }
 }
@@ -202,6 +207,7 @@ impl Config {
             blob_gc_grace_days: env_number("BLOB_GC_GRACE_DAYS", 30)?,
             max_blob_transfers: env_number("MAX_BLOB_TRANSFERS", DEFAULT_MAX_BLOB_TRANSFERS)?
                 .max(1),
+            apps: parse_apps(env_value("ATLAS_APPS").as_deref())?,
         };
         // Only fires when a caller hands us an enabled config with no root at all.
         if cfg.attachments_enabled && cfg.blob_dir.is_none() {
@@ -211,6 +217,35 @@ impl Config {
         crate::attachments::BlobStore::from_config(&cfg)?;
         Ok(cfg)
     }
+}
+
+/// The apps an instance offers when `ATLAS_APPS` is unset.
+pub const DEFAULT_APPS: &str = "todo";
+
+/// Parse `ATLAS_APPS` (comma-separated app ids; unset or empty is [`DEFAULT_APPS`]): trimmed,
+/// lowercased, deduplicated, and each one a manifest bundled in this build. An id the build does
+/// not bundle is a startup error, so a typo cannot silently turn an app off.
+pub fn parse_apps(raw: Option<&str>) -> Result<Vec<String>, String> {
+    let registry = atlas_core::Registry::bundled();
+    let mut apps: Vec<String> = Vec::new();
+    for id in raw.unwrap_or(DEFAULT_APPS).split(',') {
+        let id = id.trim().to_ascii_lowercase();
+        if id.is_empty() || apps.contains(&id) {
+            continue;
+        }
+        if registry.app(&id).is_none() {
+            let known: Vec<&str> = registry.apps().iter().map(|a| a.app.as_str()).collect();
+            return Err(format!(
+                "ATLAS_APPS names {id:?}, which this server does not bundle (it bundles: {})",
+                known.join(", ")
+            ));
+        }
+        apps.push(id);
+    }
+    if apps.is_empty() {
+        return Err("ATLAS_APPS must name at least one app".into());
+    }
+    Ok(apps)
 }
 
 /// Parse `ADMIN_EMAILS` (comma-separated) into trimmed, lowercased addresses with empties
@@ -322,6 +357,7 @@ mod tests {
             blob_quota_bytes: 1024 * 1024 * 1024,
             blob_gc_grace_days: 7,
             max_blob_transfers: 16,
+            apps: vec!["todo".into()],
         };
         let rendered = format!("{cfg:?}");
         assert!(!rendered.contains("hunter2"), "db password must not print");
@@ -414,6 +450,18 @@ mod tests {
             let err = parse_bind_addr(bad).unwrap_err();
             assert!(err.contains("BIND_ADDR"), "{err}");
         }
+    }
+
+    #[test]
+    fn apps_default_to_todo_and_must_be_bundled() {
+        assert_eq!(parse_apps(None), Ok(vec!["todo".to_string()]));
+        assert_eq!(parse_apps(Some(" TODO , todo,")), Ok(vec!["todo".into()]));
+        let err = parse_apps(Some("todo,notes")).unwrap_err();
+        assert!(err.contains("ATLAS_APPS") && err.contains("notes"), "{err}");
+        assert!(err.contains("bundles: todo"), "{err}");
+        assert!(parse_apps(Some(" , "))
+            .unwrap_err()
+            .contains("at least one"));
     }
 
     #[test]

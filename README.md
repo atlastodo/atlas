@@ -250,6 +250,7 @@ packages/client-core  TS: local store, sync client, E2EE
 packages/shared       TS: portable pure logic (recurrence, filters, habits, stats, i18n, …)
 packages/sdk          TS: headless client for integrations, signed in with an API token
 packages/cli          TS: the `atlas` command-line tool (bundles the SDK)
+manifests/            JSON app manifests (entity kinds, plaintext fields), bundled by server and clients
 test-vectors/         JSON fixtures shared by the Rust and TypeScript tests
 docker/               Dockerfile and the compose stack (included by compose.yaml)
 nix/                  Nix packages, the NixOS and Home Manager modules, the desktop tarball's flake

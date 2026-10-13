@@ -10,6 +10,8 @@
       enable = true;
       staticDir = webDist;
       adminEmails = [ "admin@example.com" ];
+      # Passed through like every other env knob; validated against the bundled manifests.
+      settings.ATLAS_APPS = "todo";
     };
   };
 
@@ -19,6 +21,7 @@
 
     machine.succeed("curl -sf http://localhost:8080/health")
     machine.succeed("curl -sf http://localhost:8080/ | grep -qi '<html'")
+    machine.succeed("curl -sf http://localhost:8080/discovery | grep -q '\"id\":\"todo\"'")
 
     # The generated secret survives a restart (sessions stay valid).
     before = machine.succeed("sha256sum /var/lib/atlas-todo/jwt_secret")

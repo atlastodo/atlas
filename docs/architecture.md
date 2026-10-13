@@ -11,16 +11,17 @@ records why the main choices were made.
 
 ## Components
 
-| Path                   | Language              | Role                                                                                                                                     |
-| ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `crates/atlas-core`    | Rust                  | The hybrid logical clock and the op log types. No I/O.                                                                                   |
-| `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.          |
-| `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                            |
-| `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client.                                                      |
-| `packages/shared`      | TypeScript            | Pure logic for every client: recurrence, quick-add parsing, filters, habits, stats, ordering, TickTick/Todoist import, i18n catalogs.    |
-| `apps/mobile`          | React Native + Expo   | The only UI. Runs natively on Android and iOS and in the browser through react-native-web.                                               |
-| `apps/electron`        | TypeScript (Electron) | Desktop shell that loads the web export from an `app://` origin.                                                                         |
-| `test-vectors/`        | JSON                  | Shared fixtures. The conflict and plaintext-field vectors are read by both the Rust and TypeScript tests; recurrence is TypeScript only. |
+| Path                   | Language              | Role                                                                                                                                            |
+| ---------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/atlas-core`    | Rust                  | The hybrid logical clock, the op log types and the bundled app manifest registry. No I/O.                                                       |
+| `manifests/`           | JSON                  | One manifest per app of the suite (`todo.json`): its entity kinds and their plaintext fields. Compiled into the server, bundled by the clients. |
+| `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.                 |
+| `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                                   |
+| `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client.                                                             |
+| `packages/shared`      | TypeScript            | Pure logic for every client: recurrence, quick-add parsing, filters, habits, stats, ordering, TickTick/Todoist import, i18n catalogs.           |
+| `apps/mobile`          | React Native + Expo   | The only UI. Runs natively on Android and iOS and in the browser through react-native-web.                                                      |
+| `apps/electron`        | TypeScript (Electron) | Desktop shell that loads the web export from an `app://` origin.                                                                                |
+| `test-vectors/`        | JSON                  | Shared fixtures. The conflict and recovery-challenge vectors are read by both the Rust and TypeScript tests; the others are TypeScript only.    |
 
 ## How the clients share code
 
@@ -62,6 +63,68 @@ Clients never update rows in place. Every change is an operation:
 
 An operation either sets one field or deletes the entity (`"op": "delete"`, a tombstone). The
 op id makes pushes idempotent.
+
+## Apps and manifests
+
+Atlas is becoming a suite of end-to-end encrypted apps (todo now; notes and a password vault
+later) on one generic server and one account. Each app has a first-party manifest in
+`manifests/<app>.json`: its id, a display name, a version, and its entity kinds with the fields
+of each that travel in plaintext. The manifests are part of the release: `atlas-core` compiles
+them in (`manifest.rs`, the `Registry`), and `packages/client-core` bundles the same files
+(`fieldPolicy.ts`), so server and clients read one table. Operators never load a manifest from
+disk. Bump a manifest's `version` whenever its kinds or plaintext fields change.
+
+Todo's kinds keep their original bare wire names (`task`, `project`, …); every later app must
+namespace its kinds as `<app>.<kind>` (`notes.note`), which the registry enforces. The registry
+maps each kind to its app by wire name. The Rust `EntityKind` enum stays closed: authorization
+and fan-out match on todo's kinds exhaustively, and an open kind would let an op of an unknown
+kind slip past those matches. A new app adds its kinds as variants with an explicit
+`#[serde(rename = "notes.note")]` next to its manifest; a test fails until every variant is in
+exactly one manifest and every manifest kind is a variant.
+
+Enablement has two levels:
+
+- Instance: `ATLAS_APPS` (default `todo`) names the bundled apps the server offers. An id the
+  release does not bundle stops the server at startup.
+- Account: the `account_apps` table (`user_id`, `app`, `enabled_at`). A trigger gives every new
+  user row `todo`, and the migration backfilled existing accounts. `GET /auth/apps` lists the
+  instance's apps with the caller's enablement and `PUT /auth/apps/:app` enables one; both take
+  an interactive session (an API token gets `403 interactive_session_required`).
+
+`POST /sync/push` refuses a batch with an op whose app is not enabled for both with
+`403 {"code":"app_not_enabled","app":…,"scope":"instance"|"account"}`. Pull, the WebSocket
+backfill and the snapshot leave such ops out: the cursor walks past them, and a pull page is
+filled from later ops so a short page still means caught up. Hidden data is kept and comes back
+when the app is enabled again. Live WebSocket deliveries and the account export are not filtered
+yet: only todo exists, and every account has it. Before a second app ships, fan-out must skip
+members who lack the app.
+
+### Discovery
+
+`GET /discovery` is public and reads no database:
+
+```json
+{
+  "service": "atlas-server",
+  "version": "0.1.11",
+  "protocol_version": 6,
+  "min_protocol_version": 6,
+  "capabilities": ["api_tokens", "app_manifests", "account_apps", "root_key"],
+  "apps": [{ "id": "todo", "name": "Atlas Todo", "version": 1 }]
+}
+```
+
+It sits next to every other route (at `/` and under `/api`), not at `/.well-known/atlas`: clients
+know the server by its API base URL, which may be a path such as `https://host/api` behind a
+proxy, and a well-known path at the origin root could belong to something else there.
+`protocol_version` is the newest sync protocol the server speaks (`SYNC_PROTOCOL`),
+`min_protocol_version` the oldest client it accepts. Capabilities are only ever added.
+
+`ApiClient.getDiscovery()` in client-core reads it. A server that predates the endpoint answers
+404, or the web app's HTML in its place, and counts as legacy: protocol 1, no capabilities, todo.
+`assertServerCompatible` checks a minimum protocol, capabilities and apps and throws
+`ServerIncompatibleError`; the app runs it before signing in or up (`auth/serverCompat.ts`) and
+says the server must be updated, or does not offer the app.
 
 ## Hybrid logical clock and last-writer-wins
 
@@ -785,10 +848,10 @@ loading (`session.web.ts`).
 
 ## What stays plaintext
 
-A field is encrypted unless it is listed in `test-vectors/plaintext_fields.json`. Those are the
-ids the server needs for routing and access checks (`project_id`, `task_id`, `assignee_id`,
-`actor_id`), the attachment blob hashes, and the already-encrypted attachment `wrapped_key` and
-`meta`. The client encrypts by this list, and the server only reads fields on it. See
+A field is encrypted unless its app manifest lists it in `plaintext_fields`
+(`manifests/todo.json`). Those are the ids the server needs for routing and access checks
+(`project_id`, `task_id`, `assignee_id`, `actor_id`), the attachment blob hashes, and the
+already-encrypted attachment `wrapped_key` and `meta`. The client encrypts by this list, and the server only reads fields on it. See
 [SECURITY.md](../SECURITY.md#fields-that-stay-plaintext-and-why) for the table.
 
 ## Server surfaces
@@ -804,5 +867,7 @@ ids the server needs for routing and access checks (`project_id`, `task_id`, `as
 | `/reports`                                                                                         | anonymous bug and crash reports                                               |
 | `/admin/*`                                                                                         | users, signup invites, reports, instance settings, audit log                  |
 | `/health`                                                                                          | liveness                                                                      |
+| `/discovery`                                                                                       | public: server version, sync protocol, capabilities, offered apps             |
+| `/auth/apps`, `/auth/apps/:app`                                                                    | the account's apps: list, enable (interactive sessions only)                  |
 
 Every route is mounted both at `/` and under `/api`. Other paths serve the web app.

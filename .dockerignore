@@ -21,7 +21,7 @@
 !packages/shared
 !crates
 !migrations
-!test-vectors
+!manifests
 
 # ...minus what never belongs in them: host installs and build output, native projects, signing
 # material, secrets, local state.

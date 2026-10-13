@@ -49,6 +49,7 @@ import {
   type WrappedProjectKey,
 } from "./crypto";
 import { SYNC_PROTOCOL, buildSyncWsUrl } from "./realtime";
+import { LEGACY_DISCOVERY, parseDiscovery, type ServerDiscovery } from "./discovery";
 import { shouldEncryptField } from "./fieldPolicy";
 import {
   EMPTY_SCOPE_STORE,
@@ -666,6 +667,20 @@ export class ApiClient {
         ? (res.body.getReader() as ReadableStreamDefaultReader<Uint8Array>)
         : null;
     return { size, chunks: reader ? readerChunks(reader) : wholeBody(res) };
+  }
+
+  /**
+   * `GET /discovery`, public. A server that predates it (a 404, or the web app's HTML in its
+   * place) is {@link LEGACY_DISCOVERY}; network and server errors still throw.
+   */
+  async getDiscovery(): Promise<ServerDiscovery> {
+    try {
+      return parseDiscovery(await this.rawRequest("GET", "/discovery"));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return LEGACY_DISCOVERY;
+      if (err instanceof SyntaxError) return LEGACY_DISCOVERY;
+      throw err;
+    }
   }
 
   /** A server too old to answer counts as enabled with `maxBlobBytes: null`. */

@@ -1122,6 +1122,8 @@
     "serverUrl": "URL du serveur",
     "serverUrlPlaceholder": "http://localhost:8080",
     "serverUrlRequired": "Saisissez l’URL de votre serveur (https://…)",
+    "serverTooOld": "Ce serveur exécute une version d’Atlas plus ancienne que celle requise par cette app. Demandez à son administrateur de le mettre à jour.",
+    "serverMissingApp": "Ce serveur ne propose pas Atlas Todo. Demandez à son administrateur de l’activer.",
     "invalidCredentials": "E-mail ou mot de passe incorrect",
     "signupDisabled": "Ce serveur n’autorise pas les nouvelles inscriptions.",
     "accountDisabled": "Ce compte a été désactivé.",

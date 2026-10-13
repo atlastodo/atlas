@@ -78,6 +78,7 @@ async fn make_state_with_transfers(
         blob_quota_bytes: quota_bytes,
         blob_gc_grace_days: grace_days,
         max_blob_transfers,
+        apps: vec!["todo".into()],
     };
     (AppState::new(pool, config), dir)
 }
@@ -782,6 +783,7 @@ async fn attachments_disabled_is_a_clean_404() {
         blob_quota_bytes: 1024 * 1024 * 1024,
         blob_gc_grace_days: 7,
         max_blob_transfers: 16,
+        apps: vec!["todo".into()],
     };
     let router = drop_router(AppState::new(pool, config));
     let token = new_user(&router).await.token;

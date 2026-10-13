@@ -22,6 +22,13 @@ minimum. Any route answers `429` with `Retry-After` when the user is over budget
 reads (pull, snapshot, socket tickets) have separate budgets. All routes are also served under
 `/api`.
 
+Before signing in, a client may read the public `GET /discovery` for the server's
+`protocol_version`, `capabilities` and offered `apps`; a 404 means a server older than discovery
+(protocol 1). An op whose entity kind belongs to an app (`manifests/<app>.json`) that is not
+enabled for the instance or the account is refused with
+`403 {"code": "app_not_enabled", "app": <id>, "scope": "instance" | "account"}`, and pull and
+the snapshot do not serve such ops. See [architecture.md](./architecture.md#apps-and-manifests).
+
 ## Operations
 
 All data is a set of entities, each a bag of fields with a client-generated UUIDv7 id. A change is
@@ -49,7 +56,7 @@ A delete has `"op": "delete"` and no `field` or `value`.
   moves to the next millisecond instead. `wall_ms` may be at most five minutes ahead of the
   server's clock.
 - `value` is any JSON value of at most 64 KiB serialized. Values are encrypted, except the
-  routing fields listed in [`test-vectors/plaintext_fields.json`](../test-vectors/plaintext_fields.json)
+  routing fields listed in the `plaintext_fields` of [`manifests/todo.json`](../manifests/todo.json)
   (such as a task's `project_id`), which the server reads to find who shares an entity.
   [architecture.md](./architecture.md#field-values) describes the envelope.
 

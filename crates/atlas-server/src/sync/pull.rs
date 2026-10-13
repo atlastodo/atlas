@@ -8,6 +8,7 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::{entity_from_str, PullResponse, SyncError, SyncResult};
+use crate::apps::EnabledApps;
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -75,28 +76,46 @@ pub(super) async fn partition_head(conn: &mut PgConnection, user: Uuid) -> AppRe
 
 /// Fetch a user's ops after `since` (ordered, bounded), for `/sync/pull` and WS backfill.
 ///
+/// Ops of an app not enabled for the user ([`EnabledApps`]) are skipped: the cursor moves past
+/// them, and the scan goes on until the page is full or the log is drained, so a page shorter
+/// than `limit` still means caught up.
+///
 /// Answers [`SyncError::CursorExpired`] when retention purged ops above a non-zero `since`; the
 /// watermark is read after the ops so any purge that thinned the page is visible.
 pub(super) async fn ops_page(
     pool: &sqlx::PgPool,
+    apps: &EnabledApps,
     user: Uuid,
     since: i64,
     limit: i64,
 ) -> SyncResult<PullResponse> {
     let limit = limit.clamp(1, MAX_PULL_LIMIT);
-    let rows = sqlx::query_as::<_, OpRow>(
-        "SELECT server_seq, op_id, entity, entity_id, field, value, is_delete,
-                hlc_wall_ms, hlc_counter, hlc_node
-         FROM operations
-         WHERE user_id = $1 AND server_seq > $2
-         ORDER BY server_seq
-         LIMIT $3",
-    )
-    .bind(user)
-    .bind(since)
-    .bind(limit)
-    .fetch_all(pool)
-    .await?;
+    let mut rows: Vec<OpRow> = Vec::new();
+    let mut cursor = since;
+    loop {
+        let want = limit - rows.len() as i64;
+        let scanned = sqlx::query_as::<_, OpRow>(
+            "SELECT server_seq, op_id, entity, entity_id, field, value, is_delete,
+                    hlc_wall_ms, hlc_counter, hlc_node
+             FROM operations
+             WHERE user_id = $1 AND server_seq > $2
+             ORDER BY server_seq
+             LIMIT $3",
+        )
+        .bind(user)
+        .bind(cursor)
+        .bind(want)
+        .fetch_all(pool)
+        .await?;
+        let drained = (scanned.len() as i64) < want;
+        if let Some(last) = scanned.last() {
+            cursor = last.server_seq;
+        }
+        rows.extend(scanned.into_iter().filter(|r| apps.allows_kind(&r.entity)));
+        if drained || rows.len() as i64 >= limit {
+            break;
+        }
+    }
 
     if since > 0 {
         let watermark: Option<i64> =
@@ -109,7 +128,6 @@ pub(super) async fn ops_page(
         }
     }
 
-    let cursor = rows.last().map(|r| r.server_seq).unwrap_or(since);
     let operations = rows
         .into_iter()
         .map(OpRow::into_operation)
@@ -129,7 +147,8 @@ pub(super) async fn pull(
     user: AuthUser,
     Query(q): Query<PullQuery>,
 ) -> SyncResult<Json<PullResponse>> {
+    let apps = EnabledApps::load(&state, user.user_id).await?;
     Ok(Json(
-        ops_page(&state.pool, user.user_id, q.since, q.limit).await?,
+        ops_page(&state.pool, &apps, user.user_id, q.since, q.limit).await?,
     ))
 }

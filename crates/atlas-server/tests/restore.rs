@@ -46,6 +46,7 @@ async fn setup() -> (Router, PgPool) {
         blob_quota_bytes: 1024 * 1024 * 1024,
         blob_gc_grace_days: 7,
         max_blob_transfers: 16,
+        apps: vec!["todo".into()],
         static_dir: None,
     };
     (app(AppState::new(pool.clone(), config)), pool)

@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use super::entity_from_str;
 use super::pull::partition_head;
+use crate::apps::EnabledApps;
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -120,15 +121,17 @@ pub(super) async fn snapshot(
     let more = keys.len() as i64 > limit;
     keys.truncate(limit as usize);
 
-    let operations = keys_ops(&mut *state.pool.acquire().await?, caller, &keys).await?;
-
-    // The token names the last emitted key, not the peeked one, so nothing between pages is skipped.
+    // The token names the last key of the page, not the peeked one, so nothing between pages is
+    // skipped; keys of an app not enabled for the caller are walked past but not served.
     let next = if more {
         keys.last()
             .map(|(entity, id)| SnapshotResume::token(entity, *id, cursor))
     } else {
         None
     };
+    let apps = EnabledApps::load(&state, caller).await?;
+    keys.retain(|(entity, _)| apps.allows_kind(entity));
+    let operations = keys_ops(&mut *state.pool.acquire().await?, caller, &keys).await?;
     Ok(Json(SnapshotResponse {
         operations,
         cursor,

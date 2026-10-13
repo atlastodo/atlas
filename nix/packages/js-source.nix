@@ -13,7 +13,7 @@ lib.fileset.toSource {
     (root + "/apps/mobile")
     (root + "/apps/electron")
     (root + "/packages")
-    # packages/client-core imports the shared plaintext-field fixture.
-    (root + "/test-vectors")
+    # packages/client-core bundles the app manifests (the plaintext-field policy).
+    (root + "/manifests")
   ];
 }

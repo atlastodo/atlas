@@ -90,13 +90,14 @@ jobs:
           if [ "$(grep -c . <<<"$files")" -ge 300 ]; then set_all true; exit 0; fi
           ci='^\.github/workflows/ci\.yml$'
           rust="^(crates/|migrations/|Cargo\.(toml|lock)$|\.config/nextest\.toml$|deny\.toml$)|$ci"
-          shared="^(packages/|package\.json$|bun\.lock$|bunfig\.toml$|test-vectors/)|$ci"
+          shared="^(packages/|package\.json$|bun\.lock$|bunfig\.toml$|test-vectors/|manifests/)|$ci"
           deps="^(Cargo\.(toml|lock)|deny\.toml|bun\.lock|package\.json|crates/[^/]+/Cargo\.toml|(apps|packages)/[^/]+/package\.json)$|$ci"
           has() { if grep -qE "$1" <<<"$files"; then echo true; else echo false; fi; }
           # Prettier checks Markdown, YAML and JSON too, so anything outside the Rust tree lints.
           lints() { if grep -vE "$rust" <<<"$files" | grep -q .; then echo true; else has "$ci"; fi; }
           {
-            echo "rust=$(has "$rust")"
+            # The server compiles manifests/ in; kept out of $rust so Prettier still lints them.
+            echo "rust=$(has "$rust|^manifests/")"
             echo "lint_ts=$(lints)"
             echo "test_ts=$(has "$shared|^apps/electron/")"
             echo "mobile=$(has "$shared|^apps/mobile/")"

@@ -64,6 +64,7 @@ import {
   type Session,
 } from "./session";
 import { setServerUrlOverride } from "./serverUrl";
+import { ensureServerCompatible } from "./serverCompat";
 import { readCachedSalt, writeCachedSalt } from "./saltCache";
 import { cancelAllAppNotifications } from "../lib/notify";
 import { detectDeviceName } from "../lib/deviceName";
@@ -701,6 +702,8 @@ export function AuthProvider({
     async (email: string, password: string) => {
       const client = apiRef.current;
       if (!client) return;
+      // A server too old for this app fails here with a clear error, before any credential work.
+      await ensureServerCompatible(client);
       const normalizedEmail = email.trim().toLowerCase();
 
       // Signing in over a session that cannot unlock (the unlock screen's fallback): end its device
@@ -758,6 +761,7 @@ export function AuthProvider({
     async (email: string, password: string, displayName = "", invite?: string) => {
       const client = apiRef.current;
       if (!client) return;
+      await ensureServerCompatible(client);
       const normalizedEmail = email.trim().toLowerCase();
       // The lookup says whether this server stores a KDF per account (an unknown address gets the
       // current one); one that does not needs a version-1 credential.

@@ -5,6 +5,7 @@
 
 pub mod admin;
 pub mod admin_users;
+pub mod apps;
 pub mod attachments;
 pub mod audit;
 pub mod auth;
@@ -127,6 +128,7 @@ pub fn app(state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(health))
         .merge(auth_routes)
+        .merge(apps::routes())
         .merge(projects::routes())
         .merge(members::routes(invite_rl))
         .merge(sync_routes)
@@ -394,6 +396,7 @@ mod tests {
             blob_quota_bytes: 1024 * 1024 * 1024,
             blob_gc_grace_days: 7,
             max_blob_transfers: 16,
+            apps: vec!["todo".into()],
             static_dir,
         }
     }

@@ -181,9 +181,11 @@ Where the tests live:
   `TEST_DATABASE_URL` themselves.
 - `packages/*/src/*.test.ts`, `apps/electron/src/*.test.ts` and `apps/mobile/src/**/*.test.tsx`:
   next to the code they test.
-- `test-vectors/`: JSON fixtures. Conflict resolution, recovery challenges and the plaintext
-  field list are read by both the Rust and the TypeScript tests, so the two sides agree; the
-  recurrence vectors are TypeScript only. The merge rule exists in TypeScript
+- `manifests/`: the app manifests (entity kinds and their plaintext fields), compiled into the
+  server and bundled by the clients; both sides test against them.
+- `test-vectors/`: JSON fixtures. Conflict resolution and recovery challenges are read by both
+  the Rust and the TypeScript tests, so the two sides agree; the recurrence vectors are
+  TypeScript only. The merge rule exists in TypeScript
   (`packages/client-core`) and in the server's SQL fold (`crates/atlas-server/src/sync/apply.rs`). If
   you change one side of that logic, change the other and extend the vectors.
 
