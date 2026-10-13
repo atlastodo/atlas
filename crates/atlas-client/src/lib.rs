@@ -12,11 +12,13 @@
 //! - [`session`]: an API-token session holding all of that.
 
 pub mod api;
+pub mod client;
 pub mod crypto;
 pub mod discovery;
 pub mod error;
 pub mod field_policy;
 pub mod project_keys;
+pub mod rules;
 pub mod scope;
 pub mod session;
 pub mod store;
