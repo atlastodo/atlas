@@ -188,9 +188,9 @@ change the _Server URL_ field on the sign-in screen.
   for the Nix setup.
 - iOS: there is no published build. You can build one yourself with Expo EAS and an Apple
   Developer account; see [apps/mobile/RELEASE.md](./apps/mobile/RELEASE.md).
-- Command line and automation: the `atlas` CLI (`atlas-cli-X.Y.Z.mjs` on each release) works
-  with an API token from Settings, for scripts and tools like n8n. Your data stays end-to-end
-  encrypted. See [docs/integrations.md](./docs/integrations.md).
+- Command line and automation: the `atlas` CLI (a static binary per platform on each release)
+  works with an API token from Settings, for scripts and tools like n8n. Your data stays
+  end-to-end encrypted. See [docs/integrations.md](./docs/integrations.md).
 
 ## Getting help
 
@@ -249,7 +249,8 @@ apps/electron         Electron shell around the web export
 packages/client-core  TS: local store, sync client, E2EE
 packages/shared       TS: portable pure logic (recurrence, filters, habits, stats, i18n, …)
 packages/sdk          TS: headless client for integrations, signed in with an API token
-packages/cli          TS: the `atlas` command-line tool (bundles the SDK)
+crates/atlas-client   Rust: headless client (E2EE, sync, task rules) at parity with the TS core
+crates/atlas-cli      Rust: the `atlas` command-line tool, one static binary
 manifests/            JSON app manifests (entity kinds, plaintext fields), bundled by server and clients
 test-vectors/         JSON fixtures shared by the Rust and TypeScript tests
 docker/               Dockerfile and the compose stack (included by compose.yaml)

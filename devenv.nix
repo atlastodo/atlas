@@ -282,7 +282,6 @@ in
     (cd packages/client-core && bunx --bun vitest run)
     (cd packages/shared && bunx --bun vitest run)
     (cd packages/sdk && bunx --bun vitest run)
-    (cd packages/cli && bunx --bun vitest run)
     (cd apps/electron && bunx --bun vitest run)
     (cd apps/mobile && bun run test)
   '';

@@ -1,4 +1,4 @@
-//! `test-vectors/cli_golden.json`: the runs the TypeScript CLI recorded (`packages/cli/src/golden.test.ts`),
+//! `test-vectors/cli_golden.json`: runs recorded from the TypeScript CLI before its retirement,
 //! reproduced byte for byte by this CLI against the same fake server.
 
 use std::collections::HashMap;
@@ -50,22 +50,24 @@ fn kind(name: &str) -> EntityKind {
 }
 
 #[test]
-fn reproduces_the_typescript_cli() {
+fn reproduces_the_recorded_runs() {
     let path = format!(
         "{}/../../test-vectors/cli_golden.json",
         env!("CARGO_MANIFEST_DIR")
     );
-    let golden: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let update = std::env::var("GOLDEN_UPDATE").as_deref() == Ok("1");
+    let golden: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let mut recorded = golden.clone();
     let now = golden["now"].as_i64().unwrap();
     let fixed_store =
         move |node: Uuid| Store::with(node, Box::new(move || now as u64), Box::new(Uuid::new_v4));
-    for scenario in golden["scenarios"].as_array().unwrap() {
+    for (si, scenario) in golden["scenarios"].as_array().unwrap().iter().enumerate() {
         let name = scenario["name"].as_str().unwrap();
         let tz = scenario["tz"].as_str().unwrap();
         let server = FakeServer::new();
         let mut refs: HashMap<String, String> = HashMap::new();
         let mut ids = HashMap::new();
-        for step in scenario["steps"].as_array().unwrap() {
+        for (ti, step) in scenario["steps"].as_array().unwrap().iter().enumerate() {
             if let Some(seed) = step.get("seed") {
                 let mut opts = ConnectOptions::new("http://atlas.test", &server.token_string());
                 opts.transport = Some(server.transport());
@@ -158,6 +160,13 @@ fn reproduces_the_typescript_cli() {
                 normalize(&stdout, &mut ids)
             };
             let stderr: Vec<String> = err.iter().map(|e| normalize(e, &mut ids)).collect();
+            if update {
+                let s = &mut recorded["scenarios"][si]["steps"][ti];
+                s["exit"] = code.into();
+                s["stdout"] = stdout.into();
+                s["stderr"] = stderr.into();
+                continue;
+            }
             let what = format!("{name}: {argv:?}");
             assert_eq!(
                 code as i64,
@@ -171,5 +180,9 @@ fn reproduces_the_typescript_cli() {
                 "stderr of {what}"
             );
         }
+    }
+    if update {
+        let text = serde_json::to_string_pretty(&recorded).unwrap();
+        std::fs::write(&path, format!("{text}\n")).unwrap();
     }
 }

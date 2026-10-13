@@ -1,7 +1,8 @@
 # Release on a v* tag (pushed after `version:bump` + the `chore(release): vX.Y.Z` commit):
-# full CI, then the Docker image, the signed Android APK + AAB, the desktop tarball and the `atlas`
-# CLI (also published to npm as @atlastodo/cli when NPM_TOKEN is set), then a
-# GitHub Release carrying the tag's RELEASE_NOTES.md section and every artifact.
+# full CI, then the Docker image, the signed Android APK + AAB, the desktop tarball and the static
+# `atlas` CLI binaries (Linux musl x86_64 and aarch64, plus macOS and Windows in a public repo),
+# then a GitHub Release carrying the tag's RELEASE_NOTES.md section, every artifact, their build
+# provenance attestations and SHA256SUMS.txt.
 # A tag with a "-" (vX.Y.Z-rc.N, tagged by hand on the dev branch) is a pre-release: a GitHub
 # prerelease that is never "latest", the Docker tag X.Y.Z-rc.N (never latest), and the AAB goes to
 # the Play internal track; a stable release goes to PLAY_STORE_TRACK and internal. The Docker `dev`
@@ -26,6 +27,9 @@ defaults:
 env:
   BUN_VERSION: "1.4.2"
   NODE_VERSION: "26"
+  # The CLI builds with the same stable as ci.yml's RUST_TOOLCHAIN (and devenv) -- bump them together.
+  RUST_TOOLCHAIN: "1.98.1"
+  CARGO_TERM_COLOR: always
 
 jobs:
   ci:
@@ -272,62 +276,74 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # The `atlas` CLI (crates/atlas-cli) as one static binary per platform, named
+  # atlas-X.Y.Z-<target>[.exe]. Linux builds against musl with cargo-zigbuild (zig as the C
+  # toolchain for ring), so they run on any distribution, Alpine-based images such as n8n's included.
+  # macOS and Windows build on their own hosted runners, which cost extra minutes in a private
+  # repository: there only the Linux binaries are built.
   cli:
-    name: CLI
+    name: CLI (${{ matrix.target }})
     needs: [ci, prepare]
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      # npm provenance for the published package.
-      id-token: write
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.event.repository.private && '[{"target":"x86_64-unknown-linux-musl","runner":"ubuntu-24.04","zig":true,"run":true},{"target":"aarch64-unknown-linux-musl","runner":"ubuntu-24.04","zig":true,"run":false}]' || '[{"target":"x86_64-unknown-linux-musl","runner":"ubuntu-24.04","zig":true,"run":true},{"target":"aarch64-unknown-linux-musl","runner":"ubuntu-24.04","zig":true,"run":false},{"target":"aarch64-apple-darwin","runner":"macos-15","zig":false,"run":true},{"target":"x86_64-apple-darwin","runner":"macos-15","zig":false,"run":false},{"target":"x86_64-pc-windows-msvc","runner":"windows-2025","zig":false,"run":true}]') }}
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
+      TARGET: ${{ matrix.target }}
+      CARGO_PROFILE_RELEASE_LTO: thin
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+      CARGO_PROFILE_RELEASE_STRIP: symbols
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target "$TARGET" --no-self-update
+          rustup default "$RUST_TOOLCHAIN"
+      - if: ${{ matrix.zig }}
+        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          package-manager-cache: false
-          registry-url: https://registry.npmjs.org
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
-      - run: bun install --frozen-lockfile
+          tool: cargo-zigbuild@0.23.4
+          fallback: none
+      - name: Install zig
+        if: ${{ matrix.zig }}
+        # cargo-zigbuild finds zig as `python3 -m ziglang`.
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zig"
+          "$RUNNER_TEMP/zig/bin/pip" install --quiet ziglang==0.15.2
+          echo "$RUNNER_TEMP/zig/bin" >> "$GITHUB_PATH"
       - name: Build
-        working-directory: packages/cli
-        run: |
-          bun run build
-          node dist/atlas.mjs --version | grep -qx "$VERSION"
-          cp dist/atlas.mjs "$GITHUB_WORKSPACE/atlas-cli-$VERSION.mjs"
-      # Only when the NPM_TOKEN secret is set; a pre-release goes to the "next" dist-tag, never "latest".
-      - name: Publish to npm
-        working-directory: packages/cli
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          ZIG: ${{ matrix.zig }}
+          # The MSVC C runtime linked in, so the binary needs no Visual C++ redistributable.
+          RUSTFLAGS: ${{ contains(matrix.target, 'windows') && '-C target-feature=+crt-static' || '' }}
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "NPM_TOKEN is not set: skipping the npm publish."
-            exit 0
+          if [ "$ZIG" = true ]; then
+            cargo zigbuild --release --locked -p atlas-cli --target "$TARGET"
+          else
+            cargo build --release --locked -p atlas-cli --target "$TARGET"
           fi
-          if npm view "@atlastodo/cli@$VERSION" version >/dev/null 2>&1; then
-            echo "@atlastodo/cli@$VERSION is already published."
-            exit 0
+          ext=""
+          case "$TARGET" in *windows*) ext=".exe" ;; esac
+          cp "target/$TARGET/release/atlas$ext" "atlas-$VERSION-$TARGET$ext"
+          echo "FILE=atlas-$VERSION-$TARGET$ext" >> "$GITHUB_ENV"
+      - name: Check the binary
+        env:
+          RUN: ${{ matrix.run }}
+        run: |
+          case "$TARGET" in
+            *linux-musl) file "$FILE" | tee /dev/stderr | grep -q 'statically linked' ;;
+          esac
+          if [ "$RUN" = true ]; then
+            "./$FILE" --version | grep -qx "$VERSION"
           fi
-          tag=latest
-          if [ "$PRERELEASE" = true ]; then tag=next; fi
-          npm publish --access public --provenance --tag "$tag"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cli
-          path: atlas-cli-${{ env.VERSION }}.mjs
+          name: cli-${{ matrix.target }}
+          path: ${{ env.FILE }}
           if-no-files-found: error
           retention-days: 7
 
@@ -344,7 +360,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           # Not the docker-digest-* artifacts: those only carry digests between the image jobs.
-          pattern: "{release-notes,android,desktop,cli,third-party-notices}"
+          pattern: "{release-notes,android,desktop,cli-*,third-party-notices}"
           path: dist
           merge-multiple: true
       # Verify a download with: gh attestation verify <file> --repo atlastodo/atlas-todo
@@ -354,7 +370,7 @@ jobs:
             dist/*.apk
             dist/*.aab
             dist/*.tar.gz
-            dist/*.mjs
+            dist/atlas-[0-9]*
       - name: Create or update the release
         env:
           GH_TOKEN: ${{ github.token }}
