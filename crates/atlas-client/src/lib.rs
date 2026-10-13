@@ -6,6 +6,22 @@
 //!
 //! - [`crypto`]: key derivation, wraps, field envelopes, sealed boxes, signatures.
 //! - [`field_policy`]: which fields travel in plaintext, from the bundled app manifests.
+//! - [`store`], [`scope`], [`trust`], [`project_keys`], [`api`], [`sync`]: the in-memory store
+//!   with the client's conflict resolution, key scopes, the synced trust state, project key
+//!   hydration, the HTTP API and the sync cycle.
+//! - [`session`]: an API-token session holding all of that.
 
+pub mod api;
 pub mod crypto;
+pub mod discovery;
+pub mod error;
 pub mod field_policy;
+pub mod project_keys;
+pub mod scope;
+pub mod session;
+pub mod store;
+pub mod sync;
+pub mod testing;
+pub mod trust;
+
+pub use error::{Error, Result};
