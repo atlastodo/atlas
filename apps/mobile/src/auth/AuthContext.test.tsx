@@ -13,6 +13,11 @@ import {
   generateSalt,
   generateUserKeypair,
   kdfToWire,
+  generateRootKey,
+  openTodoAppKey,
+  todoAppKeyRow,
+  unwrapRootKey,
+  wrapRootKey,
   randomBytes,
   sealKey,
   unwrapKey,
@@ -805,3 +810,217 @@ async function recoverableAccount(version: 1 | 2) {
   routes["/auth/me"] = () => [200, USER];
   return { salt, phrase, dek, keypair };
 }
+
+describe("the account root key", () => {
+  /** An account on the current KDF; `root` migrates it (legacy wraps stay, as the server keeps them). */
+  async function account(root: boolean) {
+    const salt = generateSalt();
+    const { mek } = await deriveAuthAndMekAsync(PASSWORD, salt, CURRENT_KDF);
+    const dek = generateDek();
+    const keypair = generateUserKeypair();
+    const rootKey = generateRootKey();
+    const recovery = generateUserKeypair();
+    const rootFields = root
+      ? {
+          has_root_key: true,
+          encrypted_root_key: wrapRootKey(rootKey, mek, USER.id, "password"),
+          app_keys: [todoAppKeyRow(rootKey, USER.id, { dek, privateKey: keypair.secretKey })],
+          has_recovery_root_key: true,
+          recovery_public_key: recovery.publicKey,
+        }
+      : {
+          has_root_key: false,
+          has_recovery_root_key: false,
+          recovery_public_key: recovery.publicKey,
+        };
+    const auth: AuthResponse = {
+      ...authResponse(USER, {
+        salt,
+        public_key: keypair.publicKey,
+        encrypted_dek: wrapKey(dek, mek),
+        encrypted_private_key: wrapKey(keypair.secretKey, mek),
+      }),
+      ...kdfToWire(CURRENT_KDF),
+      ...rootFields,
+    };
+    routes["/auth/me"] = () => [200, USER];
+    routes["/auth/salt"] = saltAnswer(salt, CURRENT_KDF);
+    routes["/auth/login"] = () => [200, auth];
+    return { salt, mek, dek, keypair, rootKey, recovery, auth };
+  }
+
+  const body = (path: string, method = "POST") =>
+    JSON.parse(calls.find((c) => c.path === path && c.init.method === method)!.init.body as string);
+
+  it("signs up with a root key over the DEK, under the password and the phrase", async () => {
+    let signupBody: Record<string, unknown> = {};
+    routes["/auth/salt"] = saltAnswer("00112233445566778899aabbccddeeff", CURRENT_KDF);
+    routes["/auth/signup"] = (init) => {
+      signupBody = JSON.parse(init.body as string);
+      return [201, authResponse({ ...USER, id: signupBody.user_id as string })];
+    };
+    routes["/auth/me"] = () => [200, USER];
+
+    const auth = await renderProvider();
+    await act(() => auth.current().signup(USER.email, PASSWORD));
+
+    const userId = signupBody.user_id as string;
+    const salt = signupBody.salt as string;
+    const { mek } = await deriveAuthAndMekAsync(PASSWORD, salt, CURRENT_KDF);
+    const root = unwrapRootKey(
+      signupBody.encrypted_root_key as Parameters<typeof unwrapRootKey>[0],
+      mek,
+      userId,
+      "password",
+    );
+    const phraseRoot = unwrapRootKey(
+      signupBody.recovery_encrypted_root_key as Parameters<typeof unwrapRootKey>[0],
+      deriveRecoveryKey(auth.current().recoveryPhrase!, salt),
+      userId,
+      "recovery",
+    );
+    expect(phraseRoot).toEqual(root);
+    const todo = openTodoAppKey(
+      root,
+      userId,
+      signupBody.app_keys as Parameters<typeof openTodoAppKey>[2],
+    );
+    // The todo key is the very DEK the legacy wrap holds.
+    expect(bytesToHex(todo.dek)).toBe(persisted().dek);
+    expect(bytesToHex(unwrapKey(signupBody.encrypted_dek as { iv: string; ct: string }, mek))).toBe(
+      persisted().dek,
+    );
+  });
+
+  it("migrates an account without a root at sign-in", async () => {
+    const acct = await account(false);
+    routes["/auth/root-key"] = () => [204, undefined];
+
+    const auth = await renderProvider();
+    await act(() => auth.current().login(USER.email, PASSWORD));
+
+    const sent = body("/auth/root-key");
+    expect(sent.current_password).toBe(
+      (await deriveAuthAndMekAsync(PASSWORD, acct.salt, CURRENT_KDF)).authHash,
+    );
+    expect(sent.recovery_public_key).toBe(acct.recovery.publicKey);
+    const root = unwrapRootKey(sent.encrypted_root_key, acct.mek, USER.id, "password");
+    expect(openTodoAppKey(root, USER.id, sent.app_keys).dek).toEqual(acct.dek);
+    await waitFor(() => expect(persisted().hasRootKey).toBe(true));
+    expect(persisted().encryptedRootKey).toEqual(sent.encrypted_root_key);
+    expect(persisted().hasRecoveryRootKey).toBe(true);
+    expect(auth.current().keyring?.hasKeys()).toBe(true);
+  });
+
+  it("loads the stored root when another device migrated first", async () => {
+    const acct = await account(false);
+    const stored = generateRootKey();
+    const storedSlot = wrapRootKey(stored, acct.mek, USER.id, "password");
+    const appKeys = [
+      todoAppKeyRow(stored, USER.id, { dek: acct.dek, privateKey: acct.keypair.secretKey }),
+    ];
+    routes["/auth/root-key"] = (init) =>
+      init.method === "POST"
+        ? [409, { error: "exists", code: "root_key_exists" }]
+        : [
+            200,
+            {
+              has_root_key: true,
+              encrypted_root_key: storedSlot,
+              has_recovery_root_key: true,
+              recovery_public_key: acct.recovery.publicKey,
+              app_keys: appKeys,
+            },
+          ];
+
+    const auth = await renderProvider();
+    await act(() => auth.current().login(USER.email, PASSWORD));
+
+    await waitFor(() => expect(persisted().encryptedRootKey).toEqual(storedSlot));
+    expect(persisted().appKeys).toEqual(appKeys);
+  });
+
+  it("keeps working on the legacy wraps when the migration fails", async () => {
+    await account(false);
+    routes["/auth/root-key"] = () => [500, { error: "boom" }];
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    const auth = await renderProvider();
+    await act(() => auth.current().login(USER.email, PASSWORD));
+    warn.mockRestore();
+
+    expect(auth.current().keyring?.hasKeys()).toBe(true);
+    expect(persisted().hasRootKey).toBe(false);
+  });
+
+  it("opens the keys through the root, before the legacy wraps", async () => {
+    const acct = await account(true);
+    // Legacy wraps that no longer open: only the root path can produce the DEK.
+    routes["/auth/login"] = () => [
+      200,
+      {
+        ...acct.auth,
+        encrypted_dek: wrapKey(generateDek(), randomBytes(32)),
+        encrypted_private_key: wrapKey(generateDek(), randomBytes(32)),
+      },
+    ];
+
+    const auth = await renderProvider();
+    await act(() => auth.current().login(USER.email, PASSWORD));
+
+    expect(persisted().dek).toBe(bytesToHex(acct.dek));
+    expect(persisted().privateKey).toBe(bytesToHex(acct.keypair.secretKey));
+    expect(calls.find((c) => c.path === "/auth/root-key")).toBeUndefined();
+  });
+
+  it("unlocks a locked session through the root", async () => {
+    const acct = await account(true);
+    const { mek } = acct;
+    const session: Session = {
+      accessToken: "access-1",
+      refreshToken: "refresh-1",
+      deviceId: "device-1",
+      user: USER,
+      salt: acct.salt,
+      kdf: CURRENT_KDF,
+      publicKey: acct.keypair.publicKey,
+      encryptedDek: wrapKey(generateDek(), randomBytes(32)),
+      encryptedPrivateKey: wrapKey(acct.keypair.secretKey, mek),
+      hasRootKey: true,
+      encryptedRootKey: acct.auth.encrypted_root_key,
+      appKeys: acct.auth.app_keys,
+      hasRecoveryRootKey: true,
+      isE2ee: true,
+    };
+    mockKeychain.set("atlas.session", JSON.stringify(session));
+
+    const auth = await renderProvider();
+    expect(await auth.current().unlock("not the password")).toBe(false);
+    expect(await auth.current().unlock(PASSWORD)).toBe(true);
+    expect(persisted().dek).toBe(bytesToHex(acct.dek));
+  });
+
+  it("moves the root slot to the new password", async () => {
+    const acct = await account(true);
+    routes["/auth/root-key"] = () => [
+      200,
+      {
+        has_root_key: true,
+        encrypted_root_key: acct.auth.encrypted_root_key,
+        has_recovery_root_key: true,
+        recovery_public_key: acct.recovery.publicKey,
+        app_keys: acct.auth.app_keys,
+      },
+    ];
+    routes["/auth/change-password"] = () => [204, undefined];
+
+    const auth = await renderProvider();
+    await act(() => auth.current().login(USER.email, PASSWORD));
+    await act(() => auth.current().changePassword(PASSWORD, "a new password"));
+
+    const sent = body("/auth/change-password");
+    const { mek } = await deriveAuthAndMekAsync("a new password", acct.salt, CURRENT_KDF);
+    expect(unwrapRootKey(sent.encrypted_root_key, mek, USER.id, "password")).toEqual(acct.rootKey);
+    expect(persisted().encryptedRootKey).toEqual(sent.encrypted_root_key);
+  });
+});

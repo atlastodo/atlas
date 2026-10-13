@@ -22,8 +22,10 @@ import {
   buildRecoveryKeyRegistration,
   buildRecoveryPhraseReplacement,
   buildRecoveryRequest,
+  buildSignupRoot,
   deriveAuthAndMekAsync,
   deriveRecoveryKeys,
+  ensureRootKey,
   ensureSigningKey,
   generateDek,
   generateRecoveryPhrase,
@@ -36,15 +38,17 @@ import {
   kdfFromWire,
   Keyring,
   mergeRotatedTokens,
+  openAccountKeys,
   reconcileStoredSession,
   sameKdf,
-  unwrapKey,
   verifyAccountPassword,
   wrapKey,
   wrapSigningKey,
+  type AccountKeys,
   type ApiClient,
   type AuthResponse,
   type PasswordKdf,
+  type RootKeyState,
   type TokenStore,
 } from "@atlas/client-core";
 import { createApiClient } from "../data/api";
@@ -268,6 +272,69 @@ async function accountCredentialKdf(
     kdf: kdfFromWire(res.kdf_version, res.kdf_params) ?? LEGACY_KDF,
     newKdf: kdfForNewCredential(res),
   };
+}
+
+/** What a session knows about the account root key, as `ensureRootKey` takes it. */
+function rootStateOf(session: Session): RootKeyState {
+  return {
+    hasRootKey: session.hasRootKey,
+    encryptedRootKey: session.encryptedRootKey,
+    appKeys: session.appKeys,
+    hasRecoveryRootKey: session.hasRecoveryRootKey,
+    recoveryPublicKey: session.recoveryPublicKey,
+  };
+}
+
+/**
+ * The state after a credential write that carried no root slot: the server dropped the root
+ * (see `root_key::drop_for_legacy_write`), and the next sign-in re-creates it.
+ */
+const DROPPED_ROOT: RootKeyState = { hasRootKey: false, appKeys: [], hasRecoveryRootKey: false };
+
+/** A session with `state` folded in; a root that went away takes its slot with it. */
+function withRootState(session: Session, state: RootKeyState): Session {
+  const next: Session = { ...session, ...state };
+  if (state.hasRootKey === false) delete next.encryptedRootKey;
+  return next;
+}
+
+/**
+ * The root key state for a flow that re-wraps it (password change, phrase replacement): asked
+ * fresh, since another device may have migrated the account since this session last heard; the
+ * session's copy when the server cannot say (offline, or it predates root keys).
+ */
+async function currentRootState(client: ApiClient, session: Session): Promise<RootKeyState> {
+  try {
+    const res = await client.getRootKey();
+    return {
+      hasRootKey: res.has_root_key,
+      encryptedRootKey: res.encrypted_root_key ?? undefined,
+      appKeys: res.app_keys,
+      hasRecoveryRootKey: res.has_recovery_root_key,
+      recoveryPublicKey: res.recovery_public_key ?? undefined,
+    };
+  } catch {
+    return rootStateOf(session);
+  }
+}
+
+/**
+ * The account's keys from a sign-in response: through the root key when the account has one,
+ * else the legacy MEK wraps (`openAccountKeys`). Throws when neither opens.
+ */
+function openAuthKeys(auth: AuthResponse, mek: Uint8Array): AccountKeys {
+  return openAccountKeys({
+    userId: auth.user.id,
+    mek,
+    encryptedRootKey: auth.encrypted_root_key,
+    appKeys: auth.app_keys,
+    encryptedDek: auth.encrypted_dek,
+    encryptedPrivateKey: auth.encrypted_private_key,
+  });
+}
+
+function keyringOf(keys: AccountKeys, publicKey: string | undefined): Keyring {
+  return new Keyring({ dek: keys.dek, privateKey: keys.privateKey, publicKey });
 }
 
 /** The keyring a persisted session's unwrapped keys make, or null when it holds none (locked). */
@@ -508,12 +575,17 @@ export function AuthProvider({
       userId: string,
       password: string,
       credential: ResolvedCredential,
-      keys: { dek: Uint8Array; privateKey: Uint8Array },
+      keys: { dek: Uint8Array; privateKey: Uint8Array; rootKey: Uint8Array | null },
     ) => {
       let payload: Awaited<ReturnType<typeof buildKdfUpgrade>>;
       try {
         payload = await buildKdfUpgrade(
-          { salt: credential.salt, ...keys },
+          {
+            salt: credential.salt,
+            dek: keys.dek,
+            privateKey: keys.privateKey,
+            ...(keys.rootKey ? { root: { userId, rootKey: keys.rootKey } } : {}),
+          },
           password,
           credential.authHash,
         );
@@ -526,12 +598,15 @@ export function AuthProvider({
       // Into the session as it is now: the request may have rotated the tokens.
       const current = sessionRef.current;
       if (!current || current.user.id !== userId) return;
-      const next: Session = {
+      let next: Session = {
         ...current,
         encryptedDek: payload.encrypted_dek,
         encryptedPrivateKey: payload.encrypted_private_key,
         kdf: CURRENT_KDF,
       };
+      if (payload.encrypted_root_key) next.encryptedRootKey = payload.encrypted_root_key;
+      // Without the root slot the server dropped the root; the next sign-in re-creates it.
+      else if (current.hasRootKey) next = withRootState(next, DROPPED_ROOT);
       commitSession(next);
       try {
         await writeSession(next);
@@ -541,6 +616,54 @@ export function AuthProvider({
       }
     },
     [commitSession],
+  );
+
+  /** Fold a root key state into the session as it is now, and persist it. */
+  const applyRootState = useCallback(
+    async (userId: string, state: RootKeyState) => {
+      const current = sessionRef.current;
+      if (!current || current.user.id !== userId) return;
+      const next = withRootState(current, state);
+      commitSession(next);
+      await writeSession(next).catch((err) =>
+        console.warn("[atlas-root] could not persist the root key state:", err),
+      );
+    },
+    [commitSession],
+  );
+
+  /**
+   * After the password proved itself (sign-in or unlock): migrate an account without a root key,
+   * or fill its empty recovery slot (`ensureRootKey`). Best effort, since the account works on
+   * the legacy wraps meanwhile and the next sign-in retries. Resolves the root key, when known.
+   */
+  const settleRootKey = useCallback(
+    async (
+      client: ApiClient,
+      userId: string,
+      credential: { authHash: string; mek: Uint8Array },
+      keys: AccountKeys,
+      state: RootKeyState,
+    ): Promise<Uint8Array | null> => {
+      try {
+        const result = await ensureRootKey(client, {
+          userId,
+          authHash: credential.authHash,
+          mek: credential.mek,
+          dek: keys.dek,
+          privateKey: keys.privateKey,
+          rootKey: keys.rootKey,
+          state,
+        });
+        if (!result) return keys.rootKey;
+        await applyRootState(userId, result.state);
+        return result.rootKey;
+      } catch (err) {
+        console.warn("[atlas-root] could not bring the account root key up to date:", err);
+        return keys.rootKey;
+      }
+    },
+    [applyRootState],
   );
   // Load the identity signing key: from the session's wrapped copy, else fetched, else created and
   // uploaded once. Retried with the next keyring if it fails (offline, say).
@@ -599,29 +722,36 @@ export function AuthProvider({
 
       // Every account that can sign in has wrapped keys; one without them predates encryption.
       if (!auth.encrypted_dek || !auth.encrypted_private_key) throw legacyAccountError();
-      const dek = unwrapKey(auth.encrypted_dek, credential.mek);
-      const privKey = unwrapKey(auth.encrypted_private_key, credential.mek);
-      const activeKeyring = new Keyring({ dek, privateKey: privKey, publicKey: auth.public_key });
+      const keys = openAuthKeys(auth, credential.mek);
       const next = sessionFromAuth(auth);
-      next.dek = bytesToHex(dek);
-      next.privateKey = bytesToHex(privKey);
+      next.dek = bytesToHex(keys.dek);
+      next.privateKey = bytesToHex(keys.privateKey);
       // The blobs just opened with this KDF's key, whatever the response named.
       next.kdf = credential.kdf;
 
       await writeSession(next);
 
       client.setTokens(next.accessToken, next.refreshToken);
-      commitKeyring(activeKeyring);
+      commitKeyring(keyringOf(keys, auth.public_key));
       commitSession(next);
 
+      // Before a KDF upgrade: the migration proves the credential this sign-in derived, and the
+      // upgrade then re-wraps the root it made.
+      const rootKey = await settleRootKey(
+        client,
+        next.user.id,
+        credential,
+        keys,
+        rootStateOf(next),
+      );
       if (credential.serverNamesKdf && credential.kdf.version < CURRENT_KDF.version) {
         await upgradeKdf(client, normalizedEmail, next.user.id, password, credential, {
-          dek,
-          privateKey: privKey,
+          ...keys,
+          rootKey,
         });
       }
     },
-    [commitKeyring, commitSession, upgradeKdf],
+    [commitKeyring, commitSession, upgradeKdf, settleRootKey],
   );
 
   const signup = useCallback(
@@ -644,6 +774,13 @@ export function AuthProvider({
       const encryptedPrivateKey = wrapKey(keypair.secretKey, mek);
       const recoveryEncryptedDek = wrapKey(dek, recovery.wrapKey);
       const recoveryEncryptedPrivateKey = wrapKey(keypair.secretKey, recovery.wrapKey);
+      // The account root key over the DEK; the legacy wraps above stay for older clients.
+      const root = buildSignupRoot({
+        mek,
+        recoveryWrapKey: recovery.wrapKey,
+        dek,
+        privateKey: keypair.secretKey,
+      });
 
       const deviceName = await detectDeviceName().catch(() => undefined);
       const installKey = await getInstallKey();
@@ -665,6 +802,7 @@ export function AuthProvider({
         kdf,
         signingPublicKey: signing.publicKey,
         encryptedSigningKey: wrapSigningKey(signing.secretKey, dek),
+        root,
       });
       void writeCachedSalt(normalizedEmail, { salt, kdf });
 
@@ -762,8 +900,16 @@ export function AuthProvider({
         throw err;
       }
       await markRecoveryKeyRegistered();
+      // The root key's recovery slot can now be sealed to this key: the next sign-in or unlock
+      // does it (`ensureRootKey`), with the password it proves.
+      if (current.hasRootKey && !current.hasRecoveryRootKey) {
+        await applyRootState(current.user.id, {
+          recoveryPublicKey: body.recovery_public_key,
+          hasRecoveryRootKey: false,
+        });
+      }
     },
-    [markRecoveryKeyRegistered],
+    [markRecoveryKeyRegistered, applyRootState],
   );
 
   const replaceRecoveryPhrase = useCallback(
@@ -776,16 +922,31 @@ export function AuthProvider({
         throw new Error("unlock the session before replacing the recovery phrase");
       }
       const { salt, kdf } = await accountCredentialKdf(client, current);
+      const rootState = await currentRootState(client, current);
       const { phrase, payload } = await buildRecoveryPhraseReplacement(
-        { salt, kdf, dek: keyring.getDek(), privateKey },
+        {
+          salt,
+          kdf,
+          dek: keyring.getDek(),
+          privateKey,
+          root: rootState.encryptedRootKey
+            ? { userId: current.user.id, encryptedRootKey: rootState.encryptedRootKey }
+            : undefined,
+        },
         password,
       );
       await client.replaceRecoveryKey(payload);
       // The account now has a phrase-derived recovery key, whether or not it had one before.
       await markRecoveryKeyRegistered();
+      // The old phrase's root slot is gone; the new one holds the root when it could be opened.
+      await applyRootState(current.user.id, {
+        ...rootState,
+        recoveryPublicKey: payload.recovery_public_key,
+        hasRecoveryRootKey: payload.recovery_encrypted_root_key !== undefined,
+      });
       return phrase;
     },
-    [markRecoveryKeyRegistered],
+    [markRecoveryKeyRegistered, applyRootState],
   );
 
   /**
@@ -830,8 +991,17 @@ export function AuthProvider({
       }
       // The current credential derives with the account's KDF; the new one with the current KDF.
       const { salt, kdf, newKdf } = await accountCredentialKdf(client, session);
+      const rootState = await currentRootState(client, session);
       const payload = await buildE2eePasswordChange(
-        { salt, kdf, dek: hexToBytes(session.dek), privateKey: hexToBytes(session.privateKey) },
+        {
+          salt,
+          kdf,
+          dek: hexToBytes(session.dek),
+          privateKey: hexToBytes(session.privateKey),
+          root: rootState.encryptedRootKey
+            ? { userId: session.user.id, encryptedRootKey: rootState.encryptedRootKey }
+            : undefined,
+        },
         currentPassword,
         newPassword,
         newKdf,
@@ -844,12 +1014,21 @@ export function AuthProvider({
       // the tokens); the raw keys and the salt are unchanged.
       const current = sessionRef.current;
       if (!current) return;
-      const next: Session = {
-        ...current,
-        encryptedDek: payload.encrypted_dek,
-        encryptedPrivateKey: payload.encrypted_private_key,
-        kdf: newKdf,
-      };
+      const next: Session = withRootState(
+        {
+          ...current,
+          encryptedDek: payload.encrypted_dek,
+          encryptedPrivateKey: payload.encrypted_private_key,
+          kdf: newKdf,
+        },
+        // Without a root slot in the request the server dropped the root (re-created at the next
+        // sign-in); with one, the slot moved to the new password.
+        payload.encrypted_root_key
+          ? { ...rootState, encryptedRootKey: payload.encrypted_root_key }
+          : rootState.hasRootKey
+            ? DROPPED_ROOT
+            : {},
+      );
       await writeSession(next);
       commitSession(next);
     },
@@ -892,20 +1071,19 @@ export function AuthProvider({
         install_key: await getInstallKey(),
       });
       if (!auth.encrypted_dek || !auth.encrypted_private_key) throw legacyAccountError();
-      const dek = unwrapKey(auth.encrypted_dek, mek);
-      const privKey = unwrapKey(auth.encrypted_private_key, mek);
-      const activeKeyring = new Keyring({ dek, privateKey: privKey, publicKey: auth.public_key });
+      const keys = openAuthKeys(auth, mek);
       const next = sessionFromAuth(auth);
-      next.dek = bytesToHex(dek);
-      next.privateKey = bytesToHex(privKey);
+      next.dek = bytesToHex(keys.dek);
+      next.privateKey = bytesToHex(keys.privateKey);
       next.kdf = kdf;
 
       await writeSession(next);
       client.setTokens(next.accessToken, next.refreshToken);
-      commitKeyring(activeKeyring);
+      commitKeyring(keyringOf(keys, auth.public_key));
       commitSession(next);
+      await settleRootKey(client, next.user.id, { authHash, mek }, keys, rootStateOf(next));
     },
-    [commitKeyring, commitSession],
+    [commitKeyring, commitSession, settleRootKey],
   );
 
   const unlock = useCallback(
@@ -915,15 +1093,25 @@ export function AuthProvider({
         throw new Error("this session holds no wrapped keys; sign in again");
       }
       // The session keeps the KDF with the blobs; one stored before it did holds version-1 blobs.
-      const { mek } = await deriveAuthAndMekAsync(password, locked.salt, locked.kdf ?? LEGACY_KDF);
-      let dek: Uint8Array;
-      let privateKey: Uint8Array;
+      const credential = await deriveAuthAndMekAsync(
+        password,
+        locked.salt,
+        locked.kdf ?? LEGACY_KDF,
+      );
+      let keys: AccountKeys;
       try {
-        dek = unwrapKey(locked.encryptedDek, mek);
-        privateKey = unwrapKey(locked.encryptedPrivateKey, mek);
+        keys = openAccountKeys({
+          userId: locked.user.id,
+          mek: credential.mek,
+          encryptedRootKey: locked.encryptedRootKey,
+          appKeys: locked.appKeys,
+          encryptedDek: locked.encryptedDek,
+          encryptedPrivateKey: locked.encryptedPrivateKey,
+        });
       } catch {
         return false; // AES-GCM refuses a key derived from the wrong password
       }
+      const { dek, privateKey } = keys;
       // Merge into the session as it is now: tokens may have rotated during the derivation.
       const current = sessionRef.current;
       if (!current || current.user.id !== locked.user.id) return true; // signed out meanwhile
@@ -942,9 +1130,14 @@ export function AuthProvider({
       }
       commitKeyring(new Keyring({ dek, privateKey, publicKey }));
       commitSession(next);
+      // Migrate (or repair) the root key in the background: an unlock may well be offline.
+      const client = apiRef.current;
+      if (client) {
+        void settleRootKey(client, next.user.id, credential, keys, rootStateOf(next));
+      }
       return true;
     },
-    [commitKeyring, commitSession],
+    [commitKeyring, commitSession, settleRootKey],
   );
 
   const verifyPassword = useCallback(async (password: string): Promise<boolean> => {
