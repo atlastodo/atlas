@@ -541,9 +541,64 @@ for the flows; vectors in `test-vectors/root_key_vectors.json`).
   `root_key_required` instead. Their phrase replacement empties the recovery slot. The legacy
   wraps go once no supported client needs them; the recovery check above must then rely on the
   phrase-wrapped form.
-- **Passkeys (planned).** A passkey is one more slot: the root wrapped under the WebAuthn PRF
-  output with slot name `passkey:<credential id>`, in a table of its own (one row per credential).
-  A passkey-only account has no password slot; `root_key_created_at` still marks the root.
+- **Passkeys.** A passkey is one more slot, `passkey:<credential id>`, in a table of its own (see
+  [Passkeys](#passkeys)). A passkey-only account has no password slot; `root_key_created_at`
+  still marks the root.
+
+### Passkeys
+
+Passkeys sign in and unlock (`crates/atlas-server/src/auth/passkeys.rs` for the routes,
+`auth/webauthn.rs` for the relying party, `packages/client-core/src/crypto/passkey.ts` and
+`passkeys.ts` on the client; vectors in `test-vectors/passkey_vectors.json`). They are on when
+the server has `WEBAUTHN_RP_ID`, which adds the `passkeys` capability to discovery.
+
+- **PRF is required.** Every ceremony asks for the WebAuthn PRF extension with one fixed input,
+  SHA-256 of `atlas-passkey-prf-v1`: a discoverable sign-in cannot know which passkey will answer,
+  so it cannot name a per-credential input. Outputs still differ per passkey (the authenticator's
+  PRF secret is per credential). The slot key is HKDF-SHA256 over the 32-byte output, salt = the
+  raw credential id, info `atlas-passkey-slot-v1`; it wraps the root like any slot. A registration
+  whose `create()` returns no PRF output is followed by one `get()` of the new credential (some
+  authenticators only evaluate PRF on assertions); none at all is refused. The client strips the
+  output from every response, and the server refuses a response that carries `prf.results`. The
+  server stores the input per credential (`passkeys.prf_salt`) so a later scheme can differ.
+- **Storage.** `passkeys` holds the credential id (base64url), its COSE public key and algorithm,
+  the signature counter, transports, backup flags, name, created and last-used times, and the
+  wrapped root. Challenges live in `webauthn_challenges` (purpose, account, expiry), each spent by
+  the `DELETE … RETURNING` that answers it, within six minutes.
+- **Verification.** A small relying party over RustCrypto: `clientDataJSON` type, challenge and
+  exact origin (`WEBAUTHN_ORIGINS`, plus the Android app's `android:apk-key-hash:` origin), the RP
+  ID hash, user presence and user verification, the signature (ES256, EdDSA, RS256) and a counter
+  that must increase unless both sides are zero (synced passkeys keep none). Attestation is not
+  verified: options ask for `none`. webauthn-rs was not used because it is MPL-2.0, outside the
+  licence allow-list.
+- **Ceremonies.** `POST /auth/passkeys/signup/options` (unauthenticated, for the client-chosen
+  account id, which is the passkey's user handle) then `POST /auth/signup` with `passkey` and no
+  password: the account gets the passkey's slot and the recovery slot, no password slot, no
+  `password_hash` and no MEK-wrapped legacy keys. `POST /auth/passkeys/register/options` and
+  `POST /auth/passkeys` add one to a signed-in account, with the current password or a passkey
+  proof. `POST /auth/passkeys/login/options` (discoverable, or email-first with each credential
+  named; an unknown email gets a stand-in) and `POST /auth/passkeys/login` open a normal session
+  plus `passkey`: the credential and its wrapped root, from which the client opens the todo key and
+  identity.
+- **Re-authentication.** `POST /auth/passkeys/reauth/options` and `POST /auth/passkeys/reauth`
+  answer a single-use proof valid five minutes (only its SHA-256 is stored, in
+  `passkey_reauth_proofs`), and the passkey's slot, so a re-authentication also unlocks a locked
+  session. Every route that took `current_password` takes `reauth_token` instead: password change
+  (which is how a passkey-only account adds a password), recovery-key registration and
+  replacement, account deletion, the root-key routes, adding and removing passkeys and
+  `DELETE /auth/password`. API token creation never asked for the password and does not now.
+- **Lifecycle.** Passkeys can be renamed and removed; the last way in (the last passkey of an
+  account without a password, or the password of an account without passkeys) cannot be removed
+  (409 `last_unlock_method`). A password change keeps the passkeys (the root is unchanged). A
+  recovery, a scheduled deletion and a dropped root delete them. Recovery of a passkey-only
+  account sets a password; the user adds passkeys again afterwards. Cancelling a deletion takes
+  the password, so a passkey-only account recovers first.
+- **Platforms.** The web app uses `navigator.credentials`; Android uses Credential Manager through
+  the app's `modules/atlas-passkeys`, which passes WebAuthn JSON through unchanged and needs the
+  domain's Digital Asset Links (`/.well-known/assetlinks.json`, served from
+  `ANDROID_APP_PACKAGE` / `ANDROID_APP_CERT_SHA256`). The desktop app runs from `app://atlas-todo`,
+  an origin no relying party ID can match, so it offers no passkeys; iOS has no support yet. Every
+  route here except sign-up and sign-in is `InteractiveAuthUser`.
 
 ### Login and the password KDF
 
@@ -814,7 +869,8 @@ Downloads are decrypted chunk by chunk and the hash is checked again.
 
 `POST /auth/recover` requires answering a challenge sealed to the recovery keypair, which only
 the 24-word phrase can derive. The client then unwraps its keys with the recovery key, recovers
-the root key (see [Account root key](#account-root-key)) and sets a new password.
+the root key (see [Account root key](#account-root-key)) and sets a new password. It deletes the account's passkeys; a passkey-only account comes out of recovery with a
+password.
 
 A signed-in user can replace the phrase from Settings. The client generates a new one, derives
 its recovery key and keypair as signup does, and sends the recovery public key with the root,

@@ -86,6 +86,8 @@ Not there yet:
 - Attachments: Files and images on tasks, encrypted before upload.
 - Import and export: Import a TickTick CSV export, or a Todoist project CSV or full backup zip.
   Back up and restore your data as JSON.
+- Passkeys: Sign in and unlock with a passkey on the web and Android, with or without a
+  password, when the server enables them.
 - Admin panel: Manage accounts, close signups, create signup invites, read bug reports and
   review the audit log.
 - Languages: English, Danish, German, Spanish, French, Italian, Dutch, Polish and Brazilian
@@ -229,6 +231,8 @@ and shared projects use a per-project key sealed to each member's public key.
 The server sees who you are, which entities exist, when they change and a few plaintext routing
 fields such as a task's project id. It cannot read titles, notes, names or attachment contents.
 A 24-word recovery phrase, shown at signup, is the only way back if you forget your password.
+On servers that enable them, passkeys (with the WebAuthn PRF extension) can sign in and unlock your
+data too, next to a password or instead of one, in the web app and on Android.
 
 There is no telemetry, analytics or crash reporting SDK: the apps talk to your server and nothing
 else, with two exceptions. Release builds of the mobile app check Expo's update service
