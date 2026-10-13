@@ -36,6 +36,9 @@ pub enum AppError {
     InviteInvalid,
     #[error("forbidden: {0}")]
     Forbidden(String),
+    /// An API-token session on a route only a signed-in device may use.
+    #[error("this needs a signed-in device, not an API token")]
+    InteractiveSessionRequired,
     #[error("{0} already exists")]
     Conflict(String),
     /// `PUT /auth/recovery-key` naming a key other than the one already registered.
@@ -85,7 +88,7 @@ impl AppError {
             AppError::AccountDisabled => StatusCode::FORBIDDEN,
             AppError::LegacyAccount => StatusCode::FORBIDDEN,
             AppError::InviteInvalid => StatusCode::FORBIDDEN,
-            AppError::Forbidden(_) => StatusCode::FORBIDDEN,
+            AppError::Forbidden(_) | AppError::InteractiveSessionRequired => StatusCode::FORBIDDEN,
             AppError::Conflict(_)
             | AppError::RecoveryKeyAlreadySet
             | AppError::SigningKeyAlreadySet
@@ -113,6 +116,7 @@ impl AppError {
             AppError::SigningKeyAlreadySet => Some("signing_key_already_set"),
             AppError::RotationNotPending => Some("rotation_not_pending"),
             AppError::AlreadyMember => Some("already_member"),
+            AppError::InteractiveSessionRequired => Some("interactive_session_required"),
             _ => None,
         }
     }

@@ -15,7 +15,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::AuthUser;
+use super::{AuthUser, InteractiveAuthUser};
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
@@ -96,7 +96,7 @@ pub struct PutSigningKeyRequest {
 /// client then loads the stored one through `GET /auth/signing-key`.
 pub async fn put_signing_key(
     State(state): State<AppState>,
-    user: AuthUser,
+    InteractiveAuthUser(user): InteractiveAuthUser,
     Json(req): Json<PutSigningKeyRequest>,
 ) -> AppResult<StatusCode> {
     let public_key = req.signing_public_key.trim().to_ascii_lowercase();
