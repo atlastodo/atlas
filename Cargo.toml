@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/atlas-core", "crates/atlas-server"]
+members = ["crates/atlas-core", "crates/atlas-server", "crates/atlas-client"]
 
 [workspace.package]
 version = "0.1.11-rc.1"
@@ -27,4 +27,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 opt-level = 3
 
 [profile.dev.package.blake2]
+opt-level = 3
+
+# The client's vectors run PBKDF2 at 600 000 iterations (the version 1 password KDF and the
+# BIP-39 seed), likewise many times slower unoptimized.
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.pbkdf2]
+opt-level = 3
+
+[profile.dev.package.hmac]
 opt-level = 3

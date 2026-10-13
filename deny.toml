@@ -40,6 +40,8 @@ confidence-threshold = 0.8
 exceptions = [
     { name = "atlas-core", allow = ["AGPL-3.0-only"] },
     { name = "atlas-server", allow = ["AGPL-3.0-only"] },
+    { name = "atlas-client", allow = ["AGPL-3.0-only"] },
+    { name = "atlas-cli", allow = ["AGPL-3.0-only"] },
 ]
 
 [bans]
