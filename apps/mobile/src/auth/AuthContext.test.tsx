@@ -20,6 +20,7 @@ import {
   wrapRootKey,
   randomBytes,
   sealKey,
+  ServerIncompatibleError,
   unwrapKey,
   wrapKey,
   type AuthResponse,
@@ -424,6 +425,45 @@ describe("AuthProvider", () => {
     const logout = calls.find((c) => c.path === "/auth/logout")!;
     expect(JSON.parse(logout.init.body as string)).toEqual({ refresh_token: "refresh-1" });
     expect(auth.current().session?.refreshToken).toBe("refresh-new");
+    expect(auth.current().keyring?.hasKeys()).toBe(true);
+  });
+
+  it("checks the server's discovery before signing in, and stops at one that lacks todo", async () => {
+    routes["/discovery"] = () => [
+      200,
+      { protocol_version: 6, capabilities: [], apps: [{ id: "notes", version: 1 }] },
+    ];
+    const auth = await renderProvider();
+    await expect(auth.current().login(USER.email, PASSWORD)).rejects.toBeInstanceOf(
+      ServerIncompatibleError,
+    );
+    await expect(auth.current().signup(USER.email, PASSWORD)).rejects.toMatchObject({
+      incompatibility: { reason: "apps", missing: ["todo"] },
+    });
+    const paths = calls.map((c) => c.path);
+    expect(paths).toContain("/discovery");
+    expect(paths).not.toContain("/auth/salt");
+    expect(paths).not.toContain("/auth/login");
+  });
+
+  it("signs in to a server that predates discovery", async () => {
+    const { salt, session } = await unlockedAccount();
+    // No /discovery route: the server answers 404, which counts as a legacy todo server.
+    routes["/auth/salt"] = saltAnswer(salt);
+    routes["/auth/me"] = () => [200, USER];
+    routes["/auth/login"] = () => [
+      200,
+      authResponse(USER, {
+        salt,
+        public_key: session.publicKey,
+        encrypted_dek: session.encryptedDek,
+        encrypted_private_key: session.encryptedPrivateKey,
+      }),
+    ];
+    const auth = await renderProvider();
+    await act(() => auth.current().login(USER.email, PASSWORD));
+    const paths = calls.map((c) => c.path);
+    expect(paths.indexOf("/discovery")).toBeLessThan(paths.indexOf("/auth/login"));
     expect(auth.current().keyring?.hasKeys()).toBe(true);
   });
 

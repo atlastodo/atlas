@@ -1087,6 +1087,8 @@
     "serverUrl": "Server-URL",
     "serverUrlPlaceholder": "http://localhost:8080",
     "serverUrlRequired": "Voer de URL van je server in (https://…)",
+    "serverTooOld": "Deze server draait een oudere Atlas dan deze app nodig heeft. Vraag de beheerder om hem bij te werken.",
+    "serverMissingApp": "Deze server biedt Atlas Todo niet aan. Vraag de beheerder om het in te schakelen.",
     "invalidCredentials": "Ongeldig e-mailadres of wachtwoord",
     "signupDisabled": "Deze server staat geen nieuwe registraties toe.",
     "accountDisabled": "Dit account is uitgeschakeld.",

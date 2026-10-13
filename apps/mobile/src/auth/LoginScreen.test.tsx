@@ -1,7 +1,12 @@
 import type { ReactNode } from "react";
 import { Platform, StyleSheet } from "react-native";
 import { fireEvent, render as render, screen, waitFor } from "@testing-library/react-native";
-import { ApiError, RecoveryPhraseError } from "@atlas/client-core";
+import {
+  ApiError,
+  LEGACY_DISCOVERY,
+  RecoveryPhraseError,
+  ServerIncompatibleError,
+} from "@atlas/client-core";
 import { fakeAuth } from "../testutil";
 import { AuthContext, type AuthContextValue } from "./AuthContext";
 import { LoginScreen } from "./LoginScreen";
@@ -107,6 +112,39 @@ describe("LoginScreen", () => {
     expect(
       await screen.findByText(
         "This account was created before encryption was introduced; ask your server admin to recreate it.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says the server is too old when discovery rules it out", async () => {
+    const login = jest.fn(async () => {
+      throw new ServerIncompatibleError(
+        { reason: "protocol", required: 9, actual: 1 },
+        LEGACY_DISCOVERY,
+      );
+    });
+    await render(<LoginScreen />, { wrapper: withAuth({ login }) });
+
+    await fireEvent.press(screen.getByText("Sign in"));
+
+    expect(
+      await screen.findByText(
+        "This server runs an older Atlas than this app needs. Ask its operator to update it.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says the server does not offer the app", async () => {
+    const login = jest.fn(async () => {
+      throw new ServerIncompatibleError({ reason: "apps", missing: ["todo"] }, LEGACY_DISCOVERY);
+    });
+    await render(<LoginScreen />, { wrapper: withAuth({ login }) });
+
+    await fireEvent.press(screen.getByText("Sign in"));
+
+    expect(
+      await screen.findByText(
+        "This server does not offer Atlas Todo. Ask its operator to enable it.",
       ),
     ).toBeTruthy();
   });

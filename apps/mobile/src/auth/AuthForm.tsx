@@ -10,7 +10,12 @@ import {
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { ApiError, RecoveryPhraseError, apiErrorCode } from "@atlas/client-core";
+import {
+  ApiError,
+  RecoveryPhraseError,
+  ServerIncompatibleError,
+  apiErrorCode,
+} from "@atlas/client-core";
 import { CircleAlert } from "../ui/icons";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useAuth, type SignOutNotice } from "./AuthContext";
@@ -124,6 +129,12 @@ export function useAuthForm({
       ) {
         // A wrong phrase fails before anything is posted; a 401 from /auth/recover means the same.
         setError(t("unlock.recoveryPhraseInvalid"));
+      } else if (err instanceof ServerIncompatibleError) {
+        setError(
+          err.incompatibility.reason === "apps"
+            ? t("auth.serverMissingApp")
+            : t("auth.serverTooOld"),
+        );
       } else if (err instanceof ApiError) {
         if (err.message === "account_scheduled_deletion") {
           const remaining = (err.data as { days_remaining?: unknown } | undefined)?.days_remaining;
