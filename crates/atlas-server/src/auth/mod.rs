@@ -7,6 +7,7 @@ pub(crate) mod identity;
 pub mod kdf;
 pub mod password;
 mod recovery;
+pub mod root_key;
 pub mod token;
 
 use axum::extract::FromRequestParts;
@@ -61,6 +62,9 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/auth/api-tokens/{id}", delete(api_tokens::revoke))
         .route("/auth/api-token/session", post(api_tokens::open_session))
+        .route("/auth/root-key", get(root_key::get).post(root_key::migrate))
+        .route("/auth/root-key/recovery", put(root_key::put_recovery_slot))
+        .route("/auth/app-keys/{app}", put(root_key::put_app_key))
         .route("/users/public-key", get(handlers::get_public_key))
 }
 
