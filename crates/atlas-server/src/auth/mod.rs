@@ -5,10 +5,12 @@ pub mod api_tokens;
 mod handlers;
 pub(crate) mod identity;
 pub mod kdf;
+pub mod passkeys;
 pub mod password;
 mod recovery;
 pub mod root_key;
 pub mod token;
+pub mod webauthn;
 
 use axum::extract::FromRequestParts;
 use axum::http::header::AUTHORIZATION;
@@ -65,6 +67,33 @@ pub fn routes() -> Router<AppState> {
         .route("/auth/root-key", get(root_key::get).post(root_key::migrate))
         .route("/auth/root-key/recovery", put(root_key::put_recovery_slot))
         .route("/auth/app-keys/{app}", put(root_key::put_app_key))
+        .route("/auth/password", delete(handlers::remove_password))
+        .route(
+            "/auth/passkeys",
+            get(passkeys::list).post(passkeys::register),
+        )
+        .route(
+            "/auth/passkeys/{id}",
+            patch(passkeys::rename).delete(passkeys::remove),
+        )
+        .route(
+            "/auth/passkeys/signup/options",
+            post(passkeys::signup_options),
+        )
+        .route(
+            "/auth/passkeys/register/options",
+            post(passkeys::register_options),
+        )
+        .route(
+            "/auth/passkeys/login/options",
+            post(passkeys::login_options),
+        )
+        .route("/auth/passkeys/login", post(passkeys::login))
+        .route(
+            "/auth/passkeys/reauth/options",
+            post(passkeys::reauth_options),
+        )
+        .route("/auth/passkeys/reauth", post(passkeys::reauth))
         .route("/users/public-key", get(handlers::get_public_key))
 }
 

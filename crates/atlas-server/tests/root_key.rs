@@ -50,6 +50,8 @@ async fn setup() -> Router {
         max_blob_transfers: 16,
         static_dir: None,
         apps: vec!["todo".into()],
+        passkeys: None,
+        android_asset_links: None,
     };
     let pool = db::connect(&test_database_url())
         .await

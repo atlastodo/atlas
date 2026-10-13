@@ -178,6 +178,10 @@ Compose builds `DATABASE_URL` from the `POSTGRES_*` values and pins `PORT=8080` 
 | `ADMIN_EMAILS`                                                  | none                                                    | Comma-separated. At every startup, the listed accounts that exist are promoted to admin. It never demotes and never applies at signup.                                                                                                                                                 |
 | `BUG_REPORTS_ENABLED`                                           | `true`                                                  | `false` removes the anonymous `POST /reports` endpoint.                                                                                                                                                                                                                                |
 | `ATLAS_APPS`                                                    | `todo`                                                  | Comma-separated Atlas apps this instance offers, from those bundled in the release (today only `todo`). An app the release does not bundle stops the server at startup. Sync refuses and hides the data of an app left out. `GET /discovery` lists what is offered. See [Apps](#apps). |
+| `WEBAUTHN_RP_ID`                                                | unset (passkeys off)                                    | The domain passkeys belong to, normally the one serving the web app. Setting it turns passkeys on. Changing it later orphans every registered passkey. See [Passkeys](#passkeys).                                                                                                      |
+| `WEBAUTHN_ORIGINS`                                              | `https://<WEBAUTHN_RP_ID>`                              | Comma-separated exact origins a passkey ceremony may come from: https on that domain or a subdomain (`http://localhost` only with `WEBAUTHN_RP_ID=localhost`), or `android:apk-key-hash:` origins.                                                                                     |
+| `WEBAUTHN_RP_NAME`                                              | `Atlas Todo`                                            | The name an authenticator shows next to the passkey.                                                                                                                                                                                                                                   |
+| `ANDROID_APP_PACKAGE` / `ANDROID_APP_CERT_SHA256`               | unset                                                   | Both or neither. Serve `/.well-known/assetlinks.json` for the Android app (package name and comma-separated SHA-256 signing-certificate fingerprints), so it can use this domain's passkeys; the fingerprints also become allowed origins.                                             |
 | `AUTH_RATE_LIMIT_TRUST_FORWARDED`                               | `false`                                                 | Use `X-Forwarded-For` for the per-IP limits. Turn it on behind a reverse proxy, and only if the proxy is the only way in.                                                                                                                                                              |
 | `TRUSTED_PROXY_HOPS`                                            | `1`                                                     | How many proxies append to `X-Forwarded-For`. At least 1.                                                                                                                                                                                                                              |
 | `AUTH_RATE_LIMIT_MAX` / `AUTH_RATE_LIMIT_WINDOW_SECS`           | `30` / `60`                                             | Requests per client IP to the `/auth/*` endpoints.                                                                                                                                                                                                                                     |
@@ -215,6 +219,53 @@ data back.
 `GET /discovery` (also under `/api`) is public and tells clients the server version, its sync
 protocol, its capabilities and the apps it offers. The apps read it before signing in, so a server
 too old for an app says so instead of failing later.
+
+### Passkeys
+
+Passkeys let people sign in, and unlock their end-to-end encrypted data, with a fingerprint, face
+or device PIN instead of a password. They are off until you set `WEBAUTHN_RP_ID` to the domain
+the web app is served from:
+
+```sh
+WEBAUTHN_RP_ID=todo.example.com
+# WEBAUTHN_ORIGINS=https://todo.example.com   # the default
+```
+
+A passkey is bound to that domain (the WebAuthn "relying party ID") for good: changing it later
+leaves every registered passkey unusable, and their owners sign in with a password or the recovery
+phrase instead. Every web origin that offers passkeys must be `https://` on that domain or a
+subdomain, and must be listed in `WEBAUTHN_ORIGINS` when it is not the domain itself. For local
+development, `WEBAUTHN_RP_ID=localhost` with `WEBAUTHN_ORIGINS=http://localhost:8081` works over
+plain HTTP. `GET /discovery` lists the `passkeys` capability while they are on; the apps offer
+passkeys only then.
+
+Only passkeys that support the WebAuthn PRF extension are accepted, since the passkey also
+unlocks the account's keys: current Chrome, Edge, Safari and Firefox with Google Password Manager,
+iCloud Keychain, Windows Hello (Windows 11), 1Password, Bitwarden or a FIDO2 security key. The app
+says so when an authenticator cannot. The server never sees the key material.
+
+**Desktop app.** The desktop app runs from its own `app://atlas-todo` origin, which no WebAuthn
+relying party can match, so it does not offer passkeys: sign in there with the password (an
+account can have both). **iOS** is not supported yet; a passkey-only account cannot sign in on
+iOS.
+
+**Android.** The Android app uses Credential Manager, which only lets an app use a domain's
+passkeys when the domain vouches for the app through Digital Asset Links. Set both:
+
+```sh
+ANDROID_APP_PACKAGE=dev.sejder.atlastodo
+ANDROID_APP_CERT_SHA256=AB:CD:…:EF
+```
+
+The server then serves `https://<WEBAUTHN_RP_ID>/.well-known/assetlinks.json` (make sure your
+proxy passes it through, and that `WEBAUTHN_RP_ID` is the very domain it is served on) and accepts
+the app's `android:apk-key-hash:` origin. For the official Play Store build use the app signing
+key's SHA-256 shown in the Play Console under Setup → App signing; for an APK you signed yourself,
+`keytool -list -v -keystore <keystore>` prints it. List several fingerprints, comma-separated, to
+accept more than one build.
+
+Rate limits are those of every `/auth/*` route. A passkey ceremony must finish within five
+minutes, and each challenge answers once.
 
 ### S3 storage
 

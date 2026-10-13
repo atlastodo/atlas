@@ -27,7 +27,13 @@ use crate::state::AppState;
 #[derive(Debug, Deserialize)]
 pub struct SignupRequest {
     pub email: String,
-    pub password: String,
+    /// The auth hash; absent for a passkey-only signup ([`SignupPasskey`]).
+    #[serde(default)]
+    pub password: Option<String>,
+    /// Sign up with a passkey instead of a password: the account gets the passkey's root slot
+    /// and no password slot, credential hash or MEK-wrapped legacy keys.
+    #[serde(default)]
+    pub passkey: Option<super::passkeys::SignupPasskey>,
     #[serde(default)]
     pub display_name: String,
     /// A single-use signup invite code; only meaningful on a closed instance.
@@ -164,7 +170,12 @@ pub struct RecoveryKeysResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct ChangePasswordRequest {
-    pub current_password: String,
+    /// The current auth hash, or (instead, and the only way for an account without a password)
+    /// `reauth_token`, a passkey re-authentication proof ([`confirm_identity`]).
+    #[serde(default)]
+    pub current_password: Option<String>,
+    #[serde(default)]
+    pub reauth_token: Option<String>,
     pub new_password: String,
     // Key material re-wrapped under the new password's MEK. The first two are required;
     // optional here so a refusal is a typed 400.
@@ -228,6 +239,9 @@ pub struct UserView {
     /// Whether a phrase-derived recovery key is registered. When false the client should ask for
     /// the phrase and `PUT /auth/recovery-key`; recovery falls back to the device key meanwhile.
     pub has_recovery_key: bool,
+    /// Whether the account has a password; one signed up with a passkey has none until it adds
+    /// one (`POST /auth/change-password` with a passkey proof).
+    pub has_password: bool,
 }
 
 impl UserRow {
@@ -244,6 +258,7 @@ impl UserView {
             display_name: row.display_name.clone(),
             is_admin: row.is_admin,
             has_recovery_key: row.recovery_public_key.is_some(),
+            has_password: row.password_hash.is_some(),
         }
     }
 }
@@ -290,6 +305,9 @@ pub struct AuthResponse {
     /// Whether the account has a root key at all (the password slot alone does not say: a later
     /// passkey-only account has none).
     pub has_root_key: bool,
+    /// On a passkey sign-in: the passkey that signed in and the root key wrapped under its slot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub passkey: Option<super::passkeys::PasskeySlot>,
 }
 
 /// The user row every user SELECT/RETURNING in this module maps into ([`USER_COLUMNS`]). One
@@ -301,7 +319,7 @@ struct UserRow {
     id: Uuid,
     email: String,
     display_name: String,
-    password_hash: String,
+    password_hash: Option<String>,
     is_admin: bool,
     salt: Option<String>,
     public_key: Option<String>,
@@ -427,14 +445,21 @@ async fn verify_login(state: &AppState, email: &str, password: &str) -> AppResul
     .bind(email)
     .fetch_optional(&state.pool)
     .await?;
-    let user = match user {
-        Some(u) => u,
+    // An account without a password (passkey-only) answers like an unknown one.
+    let (user, hash) = match user {
+        Some(u) => match u.password_hash.clone() {
+            Some(hash) => (u, hash),
+            None => {
+                let _ = verify_password(password, DUMMY_HASH);
+                return Err(AppError::Unauthorized);
+            }
+        },
         None => {
             let _ = verify_password(password, DUMMY_HASH);
             return Err(AppError::Unauthorized);
         }
     };
-    if !verify_password(password, &user.password_hash).map_err(|_| AppError::Internal)? {
+    if !verify_password(password, &hash).map_err(|_| AppError::Internal)? {
         return Err(AppError::Unauthorized);
     }
     // Only after the password verifies: a disabled or legacy account answers like a wrong
@@ -466,24 +491,107 @@ async fn verify_current_password(
     .fetch_optional(&state.pool)
     .await?;
     let user = user.ok_or(AppError::Unauthorized)?;
-    if !verify_password(password, &user.password_hash).map_err(|_| AppError::Internal)? {
+    let Some(hash) = user.password_hash.as_deref() else {
+        return Err(AppError::InvalidCredentials);
+    };
+    if !verify_password(password, hash).map_err(|_| AppError::Internal)? {
         return Err(AppError::InvalidCredentials);
     }
     Ok(user)
 }
 
-/// [`verify_current_password`] for other auth modules: the verified Argon2 hash, which their
-/// UPDATE re-checks so a concurrent password change wins.
+/// Confirm the account holder is present before an account-critical change: the current auth
+/// hash, or a passkey re-authentication proof (`POST /auth/passkeys/reauth`), which is spent
+/// here. One of the two is required; a proof wins when both are sent. A wrong or spent one is
+/// [`AppError::InvalidCredentials`].
+///
+/// The row's `password_hash` (possibly `None`) is the snapshot the caller's UPDATE re-checks
+/// with `IS NOT DISTINCT FROM`, so a concurrent credential change wins.
+async fn confirm_identity(
+    state: &AppState,
+    user_id: Uuid,
+    current_password: Option<&str>,
+    reauth_token: Option<&str>,
+) -> AppResult<UserRow> {
+    match (reauth_token, current_password) {
+        (Some(token), _) => {
+            super::passkeys::consume_reauth_proof(&state.pool, user_id, token).await?;
+            sqlx::query_as::<_, UserRow>(sqlx::AssertSqlSafe(format!(
+                "SELECT {USER_COLUMNS} FROM users WHERE id = $1"
+            )))
+            .bind(user_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or(AppError::Unauthorized)
+        }
+        (None, Some(password)) => verify_current_password(state, user_id, password).await,
+        (None, None) => Err(AppError::BadRequest(
+            "current_password or reauth_token is required".into(),
+        )),
+    }
+}
+
+/// [`confirm_identity`] for other auth modules: the account's credential hash as verified,
+/// which their UPDATE re-checks (`IS NOT DISTINCT FROM`) so a concurrent password change wins.
 pub(super) async fn verify_password_hash(
     state: &AppState,
     user_id: Uuid,
-    password: &str,
-) -> AppResult<String> {
-    let row = verify_current_password(state, user_id, password).await?;
+    current_password: Option<&str>,
+    reauth_token: Option<&str>,
+) -> AppResult<Option<String>> {
+    let row = confirm_identity(state, user_id, current_password, reauth_token).await?;
     if !row.is_e2ee {
         return Err(AppError::LegacyAccount);
     }
     Ok(row.password_hash)
+}
+
+/// Start a session for an account a passkey assertion just proved, as a password login would:
+/// refused for a disabled, legacy or deletion-scheduled account; stamps the last sign-in.
+pub(super) async fn passkey_sign_in(
+    state: &AppState,
+    user_id: Uuid,
+    device_name: Option<String>,
+    install_key: Option<&str>,
+) -> AppResult<AuthResponse> {
+    let user: UserRow = sqlx::query_as::<_, UserRow>(sqlx::AssertSqlSafe(format!(
+        "SELECT {USER_COLUMNS} FROM users WHERE id = $1"
+    )))
+    .bind(user_id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(AppError::Unauthorized)?;
+    if user.disabled_at.is_some() {
+        return Err(AppError::AccountDisabled);
+    }
+    if !user.is_e2ee {
+        return Err(AppError::LegacyAccount);
+    }
+    if let Some(scheduled_at) = user.deletion_scheduled_at {
+        return Err(scheduled_deletion_error(scheduled_at));
+    }
+    sqlx::query("UPDATE users SET last_login_at = now() WHERE id = $1")
+        .bind(user.id)
+        .execute(&state.pool)
+        .await?;
+    start_new_session(state, &user, device_name, install_key).await
+}
+
+/// Drop every passkey of `user_id` and its outstanding re-auth proofs: a recovery, a scheduled
+/// deletion and a dropped root key all end what the passkeys unlock.
+pub(super) async fn drop_passkeys(
+    executor: &mut sqlx::PgConnection,
+    user_id: Uuid,
+) -> AppResult<()> {
+    sqlx::query("DELETE FROM passkeys WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut *executor)
+        .await?;
+    sqlx::query("DELETE FROM passkey_reauth_proofs WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut *executor)
+        .await?;
+    Ok(())
 }
 
 /// Revoke every live refresh-token family of `user_id` except `keep_device`'s (one family per
@@ -661,6 +769,7 @@ async fn start_session(
         recovery_public_key: user.recovery_public_key.clone(),
         has_recovery_root_key: user.recovery_encrypted_root_key.is_some(),
         has_root_key: user.root_key_created_at.is_some(),
+        passkey: None,
     })
 }
 
@@ -709,14 +818,14 @@ pub async fn get_salt(
 async fn insert_user(
     conn: &mut sqlx::PgConnection,
     email: &str,
-    password_hash: &str,
+    password_hash: Option<&str>,
     display_name: &str,
     kdf: Kdf,
     req: &SignupRequest,
 ) -> AppResult<Option<UserRow>> {
     let inserted: Option<UserRow> = sqlx::query_as::<_, UserRow>(sqlx::AssertSqlSafe(format!(
         "INSERT INTO users (id, email, password_hash, display_name, salt, public_key, encrypted_dek, encrypted_private_key, recovery_encrypted_dek, recovery_encrypted_private_key, recovery_public_key, kdf_version, kdf_params, signing_public_key, encrypted_signing_key, encrypted_root_key, recovery_encrypted_root_key, root_key_created_at, is_e2ee, last_login_at)
-         VALUES (COALESCE($17, gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CASE WHEN $15::jsonb IS NULL THEN NULL ELSE now() END, TRUE, now())
+         VALUES (COALESCE($17, gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CASE WHEN $15::jsonb IS NULL AND $16::jsonb IS NULL THEN NULL ELSE now() END, TRUE, now())
          ON CONFLICT DO NOTHING
          RETURNING {USER_COLUMNS}"
     )))
@@ -766,6 +875,25 @@ async fn signup_conflict(conn: &mut sqlx::PgConnection, email: &str) -> AppError
 /// The root key fields of a signup: all of `user_id`, `encrypted_root_key`,
 /// `recovery_encrypted_root_key` and `app_keys` (the todo key among them), or none.
 fn validate_signup_root_key(req: &SignupRequest) -> AppResult<()> {
+    // A passkey signup needs all but `encrypted_root_key`: its root slot is the passkey's.
+    if req.passkey.is_some() {
+        return match (
+            req.user_id,
+            &req.encrypted_root_key,
+            &req.recovery_encrypted_root_key,
+            &req.app_keys,
+        ) {
+            (Some(_), None, Some(recovery), Some(app_keys)) => {
+                root_key::validate_recovery_slot(recovery)?;
+                root_key::validate_app_keys(app_keys)
+            }
+            _ => Err(AppError::BadRequest(
+                "a passkey signup needs user_id, recovery_encrypted_root_key and app_keys, \
+                 and no password slot"
+                    .into(),
+            )),
+        };
+    }
     match (
         req.user_id,
         &req.encrypted_root_key,
@@ -786,6 +914,10 @@ fn validate_signup_root_key(req: &SignupRequest) -> AppResult<()> {
 }
 
 /// `POST /auth/signup`
+///
+/// With a password (the auth hash), or with a passkey instead (`passkey`, after
+/// `POST /auth/passkeys/signup/options`): that account has no password, no MEK-wrapped legacy keys
+/// and one root slot besides the recovery slot, the passkey's.
 pub async fn signup(
     State(state): State<AppState>,
     Json(req): Json<SignupRequest>,
@@ -794,12 +926,26 @@ pub async fn signup(
     // a valid invite code still opens the door. An `ADMIN_EMAILS` address is no key.
     let email = req.email.trim().to_lowercase();
     validate_email(&email)?;
-    validate_auth_hash(&req.password)?;
+    match (&req.password, &req.passkey) {
+        (Some(password), None) => validate_auth_hash(password)?,
+        (None, Some(_)) => {
+            if req.encrypted_dek.is_some() || req.encrypted_private_key.is_some() {
+                return Err(AppError::BadRequest(
+                    "a passkey signup has no password-wrapped keys".into(),
+                ));
+            }
+        }
+        _ => {
+            return Err(AppError::BadRequest(
+                "sign up with either a password or a passkey".into(),
+            ))
+        }
+    }
     // Every account is E2EE: without wrapped keys it could neither decrypt, share nor recover.
     let has_keys = req.salt.as_deref().is_some_and(|s| !s.is_empty())
         && req.public_key.as_deref().is_some_and(|k| !k.is_empty())
-        && req.encrypted_dek.is_some()
-        && req.encrypted_private_key.is_some();
+        && (req.passkey.is_some()
+            || (req.encrypted_dek.is_some() && req.encrypted_private_key.is_some()));
     if !has_keys {
         return Err(AppError::BadRequest(
             "salt, public_key, encrypted_dek and encrypted_private_key are required".into(),
@@ -818,6 +964,9 @@ pub async fn signup(
         req.encrypted_signing_key.as_ref(),
     )?;
     validate_signup_root_key(&req)?;
+    if let Some(passkey) = &req.passkey {
+        super::passkeys::validate_signup_passkey(&state, passkey)?;
+    }
     let invite_code = req
         .invite
         .as_deref()
@@ -845,18 +994,42 @@ pub async fn signup(
         ),
         None => None,
     };
-    let password_hash = hash_password(&req.password).map_err(|_| AppError::Internal)?;
-    let Some(user) = insert_user(&mut tx, &email, &password_hash, display_name, kdf, &req).await?
+    // A passkey signup answers the ceremony `POST /auth/passkeys/signup/options` began for this
+    // account id; it is verified (and spent) before the account exists.
+    let passkey = match (&req.passkey, req.user_id) {
+        (Some(passkey), Some(user_id)) => {
+            Some(super::passkeys::verify_signup_passkey(&state, &mut tx, user_id, passkey).await?)
+        }
+        _ => None,
+    };
+    let password_hash = match &req.password {
+        Some(password) => Some(hash_password(password).map_err(|_| AppError::Internal)?),
+        None => None,
+    };
+    let Some(user) = insert_user(
+        &mut tx,
+        &email,
+        password_hash.as_deref(),
+        display_name,
+        kdf,
+        &req,
+    )
+    .await?
     else {
         return Err(signup_conflict(&mut tx, &email).await);
+    };
+    let slot = match &passkey {
+        Some(verified) => Some(super::passkeys::store_passkey(&mut tx, user.id, verified).await?),
+        None => None,
     };
     if let Some(invite_id) = invite_id {
         crate::invites::mark_used(&mut *tx, invite_id, user.id).await?;
     }
     tx.commit().await?;
 
-    let resp =
+    let mut resp =
         start_new_session(&state, &user, req.device_name, req.install_key.as_deref()).await?;
+    resp.passkey = slot;
     Ok((StatusCode::CREATED, Json(resp)))
 }
 
@@ -1041,15 +1214,29 @@ pub async fn change_password(
     InteractiveAuthUser(user): InteractiveAuthUser,
     Json(req): Json<ChangePasswordRequest>,
 ) -> AppResult<StatusCode> {
-    let row = verify_current_password(&state, user.user_id, &req.current_password).await?;
+    // Shape checks first: a passkey proof is spent by `confirm_identity`.
+    validate_auth_hash(&req.new_password)?;
+    let kdf = Kdf::from_request(req.kdf_version, req.kdf_params.as_ref())?;
+    let row = confirm_identity(
+        &state,
+        user.user_id,
+        req.current_password.as_deref(),
+        req.reauth_token.as_deref(),
+    )
+    .await?;
     if !row.is_e2ee {
         return Err(AppError::LegacyAccount);
     }
-    validate_auth_hash(&req.new_password)?;
-    let kdf = Kdf::from_request(req.kdf_version, req.kdf_params.as_ref())?;
-    if req.kdf_upgrade && kdf.version() <= row.kdf().version() {
+    // An account without a password (passkey-only) adds one here.
+    let adding = row.password_hash.is_none();
+    if req.kdf_upgrade && (adding || kdf.version() <= row.kdf().version()) {
         return Err(AppError::BadRequest(
             "kdf_upgrade needs a newer kdf_version than the account's".into(),
+        ));
+    }
+    if adding && req.encrypted_root_key.is_none() {
+        return Err(AppError::BadRequest(
+            "adding a password needs encrypted_root_key".into(),
         ));
     }
     // A hash swap without the re-wrap would leave the account unloggable.
@@ -1081,7 +1268,7 @@ pub async fn change_password(
                 encrypted_root_key = CASE WHEN root_key_created_at IS NULL THEN NULL
                                           ELSE COALESCE($10, encrypted_root_key) END,
                 updated_at = now()
-          WHERE id = $8 AND password_hash = $9
+          WHERE id = $8 AND password_hash IS NOT DISTINCT FROM $9
       RETURNING root_key_created_at IS NOT NULL",
     )
     .bind(&new_hash)
@@ -1105,7 +1292,8 @@ pub async fn change_password(
     }
     tx.commit().await?;
 
-    if !req.kdf_upgrade {
+    // Adding a first password replaces no credential another device could hold.
+    if !req.kdf_upgrade && !adding {
         revoke_other_sessions(&state, user.user_id, user.device_id).await?;
     }
     Ok(StatusCode::NO_CONTENT)
@@ -1126,7 +1314,7 @@ pub async fn get_recovery_keys(
     #[derive(sqlx::FromRow)]
     struct Row {
         id: Uuid,
-        password_hash: String,
+        password_hash: Option<String>,
         salt: Option<String>,
         public_key: Option<String>,
         recovery_public_key: Option<String>,
@@ -1164,7 +1352,7 @@ pub async fn get_recovery_keys(
                     .unwrap_or_else(|| recovery::dummy_wrapped_key(&seed, "dek")),
                 r.recovery_encrypted_private_key
                     .unwrap_or_else(|| recovery::dummy_wrapped_key(&seed, "priv")),
-                recovery::password_hash_fingerprint(&r.password_hash),
+                recovery::password_hash_fingerprint(r.password_hash.as_deref().unwrap_or_default()),
                 version,
                 recipient,
                 r.id,
@@ -1252,7 +1440,7 @@ async fn recover(
     }
     let (user_id, old_hash, public_key, recovery_public_key): (
         Uuid,
-        String,
+        Option<String>,
         Option<String>,
         Option<String>,
     ) = sqlx::query_as(
@@ -1267,7 +1455,8 @@ async fn recover(
         .ok_or(AppError::Unauthorized)?;
     if claims.ver != version
         || claims.rk != recovery::key_fingerprint(&key)
-        || recovery::password_hash_fingerprint(&old_hash) != claims.pwh
+        || recovery::password_hash_fingerprint(old_hash.as_deref().unwrap_or_default())
+            != claims.pwh
         || !recovery::response_matches(secret, &req.challenge_token, &req.challenge_response)
     {
         return Err(AppError::Unauthorized);
@@ -1305,7 +1494,7 @@ async fn recover(
                 kdf_version = $4,
                 kdf_params = $5,
                 updated_at = now()
-          WHERE id = $6 AND password_hash = $7",
+          WHERE id = $6 AND password_hash IS NOT DISTINCT FROM $7",
     )
     .bind(&new_hash)
     .bind(&req.encrypted_dek)
@@ -1372,8 +1561,10 @@ async fn recover(
     .bind(user_id)
     .execute(&mut *tx)
     .await?;
-    // A recovery assumes the account may have been in other hands: API tokens go too.
+    // A recovery assumes the account may have been in other hands: API tokens and passkeys go
+    // too. A passkey-only account comes out of recovery with the password it set here.
     api_tokens::revoke_all(&mut *tx, user_id).await?;
+    drop_passkeys(&mut tx, user_id).await?;
     tx.commit().await?;
     state.hub.close_user_sockets(user_id);
 
@@ -1382,7 +1573,10 @@ async fn recover(
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterRecoveryKeyRequest {
-    pub current_password: String,
+    #[serde(default)]
+    pub current_password: Option<String>,
+    #[serde(default)]
+    pub reauth_token: Option<String>,
     pub recovery_public_key: String,
 }
 
@@ -1394,7 +1588,13 @@ pub async fn register_recovery_key(
     InteractiveAuthUser(user): InteractiveAuthUser,
     Json(req): Json<RegisterRecoveryKeyRequest>,
 ) -> AppResult<StatusCode> {
-    let row = verify_current_password(&state, user.user_id, &req.current_password).await?;
+    let row = confirm_identity(
+        &state,
+        user.user_id,
+        req.current_password.as_deref(),
+        req.reauth_token.as_deref(),
+    )
+    .await?;
     let key = req.recovery_public_key.trim().to_ascii_lowercase();
     validate_recovery_public_key(Some(&key), row.public_key.as_deref())?;
     let stored: Option<String> = sqlx::query_scalar(
@@ -1414,7 +1614,10 @@ pub async fn register_recovery_key(
 
 #[derive(Debug, Deserialize)]
 pub struct ReplaceRecoveryKeyRequest {
-    pub current_password: String,
+    #[serde(default)]
+    pub current_password: Option<String>,
+    #[serde(default)]
+    pub reauth_token: Option<String>,
     pub recovery_public_key: String,
     /// The DEK and private key wrapped under the new phrase's recovery key. Required.
     #[serde(default)]
@@ -1443,7 +1646,13 @@ pub async fn replace_recovery_key(
     InteractiveAuthUser(user): InteractiveAuthUser,
     Json(req): Json<ReplaceRecoveryKeyRequest>,
 ) -> AppResult<StatusCode> {
-    let row = verify_current_password(&state, user.user_id, &req.current_password).await?;
+    let row = confirm_identity(
+        &state,
+        user.user_id,
+        req.current_password.as_deref(),
+        req.reauth_token.as_deref(),
+    )
+    .await?;
     if !row.is_e2ee {
         return Err(AppError::LegacyAccount);
     }
@@ -1469,7 +1678,7 @@ pub async fn replace_recovery_key(
                 recovery_encrypted_root_key = CASE WHEN root_key_created_at IS NULL THEN NULL
                                                    ELSE $6::jsonb END,
                 updated_at = now()
-          WHERE id = $4 AND password_hash = $5",
+          WHERE id = $4 AND password_hash IS NOT DISTINCT FROM $5",
     )
     .bind(&key)
     .bind(recovery_dek)
@@ -1731,23 +1940,37 @@ pub async fn export(
 #[derive(Debug, Deserialize)]
 pub struct DeleteAccountRequest {
     /// The client-derived auth hash login sends. Required because a bearer token alone must not
-    /// schedule a deletion, which a password login cannot undo.
-    pub password: String,
+    /// schedule a deletion, which a password login cannot undo. Or `reauth_token` instead.
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub reauth_token: Option<String>,
 }
 
-/// `DELETE /auth/account`: verify the password, schedule deletion in 30 days and revoke active
-/// sessions. Cancelling is `POST /auth/account/cancel-deletion`.
+/// `DELETE /auth/account`: confirm the account holder (password or passkey proof), schedule
+/// deletion in 30 days, revoke active sessions and drop the passkeys. Cancelling is
+/// `POST /auth/account/cancel-deletion`, which takes the password; an account without one sets a
+/// password through recovery first.
 pub async fn delete_account(
     State(state): State<AppState>,
     InteractiveAuthUser(user): InteractiveAuthUser,
     Json(req): Json<DeleteAccountRequest>,
 ) -> AppResult<StatusCode> {
-    let row = verify_current_password(&state, user.user_id, &req.password).await?;
+    let row = confirm_identity(
+        &state,
+        user.user_id,
+        req.password.as_deref(),
+        req.reauth_token.as_deref(),
+    )
+    .await?;
 
+    let mut tx = state.pool.begin().await?;
     sqlx::query("UPDATE users SET deletion_scheduled_at = now() WHERE id = $1")
         .bind(row.id)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
+    drop_passkeys(&mut tx, row.id).await?;
+    tx.commit().await?;
 
     sqlx::query(
         "UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
@@ -1761,6 +1984,65 @@ pub async fn delete_account(
     state.hub.close_user_sockets(user.user_id);
     broadcast_membership_change(&state, user.user_id).await;
 
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RemovePasswordRequest {
+    #[serde(default)]
+    pub current_password: Option<String>,
+    #[serde(default)]
+    pub reauth_token: Option<String>,
+}
+
+/// `DELETE /auth/password`: make the account passkey-only. Drops the credential hash and every
+/// password-derived wrap (the root's password slot and the legacy MEK wraps). Refused with 409
+/// `last_unlock_method` unless a passkey remains; the passkeys and recovery slot are untouched,
+/// and so are sessions (nothing another device holds depends on the password).
+pub async fn remove_password(
+    State(state): State<AppState>,
+    InteractiveAuthUser(user): InteractiveAuthUser,
+    Json(req): Json<RemovePasswordRequest>,
+) -> AppResult<StatusCode> {
+    let row = confirm_identity(
+        &state,
+        user.user_id,
+        req.current_password.as_deref(),
+        req.reauth_token.as_deref(),
+    )
+    .await?;
+    if row.password_hash.is_none() {
+        return Err(AppError::BadRequest("the account has no password".into()));
+    }
+    let mut tx = state.pool.begin().await?;
+    // Locks the user row first, as passkey removal does, so the two cannot each leave the other
+    // as the account's last unlock method.
+    sqlx::query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE")
+        .bind(user.user_id)
+        .execute(&mut *tx)
+        .await?;
+    let passkeys: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM passkeys WHERE user_id = $1")
+        .bind(user.user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if passkeys == 0 {
+        return Err(AppError::LastUnlockMethod);
+    }
+    let updated = sqlx::query(
+        "UPDATE users
+            SET password_hash = NULL, encrypted_root_key = NULL,
+                encrypted_dek = NULL, encrypted_private_key = NULL, updated_at = now()
+          WHERE id = $1 AND password_hash IS NOT DISTINCT FROM $2
+            AND root_key_created_at IS NOT NULL",
+    )
+    .bind(user.user_id)
+    .bind(&row.password_hash)
+    .execute(&mut *tx)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(AppError::InvalidCredentials);
+    }
+    tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -10,10 +10,12 @@
 # Security advisories fail the audit by default. Exempt a known transitive advisory here ONLY with a
 # written rationale (crate, why it doesn't apply, upstream status) — never by disabling the check.
 ignore = [
-    # RUSTSEC-2023-0071 (rsa, Marvin timing attack): reached only through jsonwebtoken's
-    # `rust_crypto` provider. The server signs and verifies HS256 tokens exclusively, so no RSA
-    # operation ever runs. No patched rsa release exists; the alternative `aws_lc_rs` provider
-    # would pull a C toolchain into CI, Docker and Nix. Drop this once rsa is fixed.
+    # RUSTSEC-2023-0071 (rsa, Marvin timing attack on private-key operations): reached through
+    # jsonwebtoken's `rust_crypto` provider, where the server signs and verifies HS256 tokens only,
+    # and the passkey verifier (`auth/webauthn.rs`), which only verifies RS256 signatures with
+    # public keys. No private RSA key ever exists here, which is what the attack needs.
+    # No patched rsa release exists; the alternative `aws_lc_rs` provider would pull a C toolchain
+    # into CI, Docker and Nix. Drop this once rsa is fixed.
     "RUSTSEC-2023-0071",
 ]
 
