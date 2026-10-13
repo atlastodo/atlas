@@ -281,6 +281,8 @@ in
     # `--bun` runs vitest itself under Bun's runtime (supported since Bun 1.4), matching CI.
     (cd packages/client-core && bunx --bun vitest run)
     (cd packages/shared && bunx --bun vitest run)
+    (cd packages/sdk && bunx --bun vitest run)
+    (cd packages/cli && bunx --bun vitest run)
     (cd apps/electron && bunx --bun vitest run)
     (cd apps/mobile && bun run test)
   '';
