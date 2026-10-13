@@ -843,6 +843,33 @@ mod tests {
         assert_eq!(prf_input().len(), 43);
     }
 
+    /// The client's vectors: the same PRF input, and a slot key derivation an independent HKDF
+    /// reproduces (the server never derives one; this pins the documented scheme).
+    #[test]
+    fn matches_the_passkey_vectors() {
+        let vectors: Value = serde_json::from_str(include_str!(
+            "../../../../test-vectors/passkey_vectors.json"
+        ))
+        .unwrap();
+        assert_eq!(vectors["prf_input"], prf_input());
+        for v in vectors["vectors"].as_array().unwrap() {
+            let prf = hex::decode(v["prf_output"].as_str().unwrap()).unwrap();
+            let id = b64url_decode(v["credential_id"].as_str().unwrap()).unwrap();
+            let mut key = [0u8; 32];
+            hkdf::Hkdf::<Sha256>::new(Some(&id), &prf)
+                .expand(b"atlas-passkey-slot-v1", &mut key)
+                .unwrap();
+            assert_eq!(hex::encode(key), v["slot_key"].as_str().unwrap());
+            assert_eq!(
+                v["slot"].as_str().unwrap(),
+                format!(
+                    "passkey:{}",
+                    normalize_credential_id(v["credential_id"].as_str().unwrap()).unwrap()
+                )
+            );
+        }
+    }
+
     #[test]
     fn credential_ids_normalize_to_unpadded_base64url() {
         assert_eq!(normalize_credential_id("AQID").as_deref(), Some("AQID"));

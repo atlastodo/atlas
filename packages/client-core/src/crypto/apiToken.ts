@@ -12,7 +12,14 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { hkdf } from "@noble/hashes/hkdf.js";
 import { decryptAesGcm, encryptAesGcm } from "./aes";
-import { bytesToHex, hexToBytes, randomBytes, utf8ToBytes } from "./utils";
+import {
+  base64UrlToBytes,
+  bytesToBase64Url,
+  bytesToHex,
+  hexToBytes,
+  randomBytes,
+  utf8ToBytes,
+} from "./utils";
 
 export const API_TOKEN_PREFIX = "atlas_pat_";
 const ID_BYTES = 16;
@@ -38,34 +45,8 @@ export class InvalidApiTokenError extends Error {
   }
 }
 
-const B64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-function toBase64Url(bytes: Uint8Array): string {
-  let out = "";
-  for (let i = 0; i < bytes.length; i += 3) {
-    const n = (bytes[i]! << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
-    const chars = Math.min(4, Math.ceil(((bytes.length - i) * 8) / 6));
-    for (let c = 0; c < chars; c++) out += B64URL[(n >> (18 - 6 * c)) & 63];
-  }
-  return out;
-}
-
-function fromBase64Url(text: string): Uint8Array | null {
-  const bytes: number[] = [];
-  let bits = 0;
-  let acc = 0;
-  for (const ch of text) {
-    const v = B64URL.indexOf(ch);
-    if (v < 0) return null;
-    acc = (acc << 6) | v;
-    bits += 6;
-    if (bits >= 8) {
-      bits -= 8;
-      bytes.push((acc >> bits) & 0xff);
-    }
-  }
-  return new Uint8Array(bytes);
-}
+const toBase64Url = bytesToBase64Url;
+const fromBase64Url = base64UrlToBytes;
 
 function uuidFromBytes(b: Uint8Array): string {
   const h = bytesToHex(b);

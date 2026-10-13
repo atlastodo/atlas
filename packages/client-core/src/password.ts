@@ -48,6 +48,20 @@ export interface E2eeKeyMaterial {
   root?: { userId: string; rootKey?: Uint8Array; encryptedRootKey?: RootKeyWrap };
 }
 
+/**
+ * A passkey re-authentication (`reauthenticateWithPasskey`) standing in for the current password:
+ * the single-use proof the server takes as `reauth_token`, and the root key the passkey's slot
+ * opened (null when the authenticator gave no PRF output).
+ */
+export interface PasskeyProof {
+  reauthToken: string;
+  rootKey: Uint8Array | null;
+}
+
+function isPasskeyProof(proof: string | PasskeyProof): proof is PasskeyProof {
+  return typeof proof !== "string";
+}
+
 /** The root key `material.root` names, opened with `mek` when only its slot is given; else null. */
 function materialRoot(material: Pick<E2eeKeyMaterial, "root">, mek: Uint8Array) {
   const root = material.root;
@@ -69,15 +83,25 @@ function materialRoot(material: Pick<E2eeKeyMaterial, "root">, mek: Uint8Array) 
  */
 export async function buildE2eePasswordChange(
   material: E2eeKeyMaterial,
-  currentPassword: string,
+  currentPassword: string | PasskeyProof,
   newPassword: string,
   newKdf: PasswordKdf,
 ): Promise<ChangePasswordPayload> {
-  const current = await deriveAuthAndMekAsync(currentPassword, material.salt, material.kdf);
   const next = await deriveAuthAndMekAsync(newPassword, material.salt, newKdf);
-  const rootKey = materialRoot(material, current.mek);
+  let proof: Pick<ChangePasswordPayload, "current_password" | "reauth_token">;
+  let rootKey: Uint8Array | null;
+  if (isPasskeyProof(currentPassword)) {
+    // A passkey proof (the only one an account without a password has): the root comes from the
+    // passkey's slot, and an account without a password must send it.
+    proof = { reauth_token: currentPassword.reauthToken };
+    rootKey = currentPassword.rootKey ?? material.root?.rootKey ?? null;
+  } else {
+    const current = await deriveAuthAndMekAsync(currentPassword, material.salt, material.kdf);
+    proof = { current_password: current.authHash };
+    rootKey = materialRoot(material, current.mek);
+  }
   return {
-    current_password: current.authHash,
+    ...proof,
     new_password: next.authHash,
     encrypted_dek: wrapKey(material.dek, next.mek),
     encrypted_private_key: wrapKey(material.privateKey, next.mek),
@@ -230,7 +254,7 @@ export async function buildRecoveryKeyRegistration(
   recoveryKeys: RecoveryKeysResponse,
   material: Pick<E2eeKeyMaterial, "salt" | "kdf" | "dek">,
   phrase: string,
-  currentPassword: string,
+  currentPassword: string | PasskeyProof,
 ): Promise<RegisterRecoveryKeyPayload> {
   const blob = recoveryKeys.recovery_encrypted_dek;
   if (!blob) throw new RecoveryPhraseError();
@@ -243,6 +267,9 @@ export async function buildRecoveryKeyRegistration(
   } catch (err) {
     throw new RecoveryPhraseError(err);
   }
+  if (isPasskeyProof(currentPassword)) {
+    return { reauth_token: currentPassword.reauthToken, recovery_public_key: recoveryPublicKey };
+  }
   const { authHash } = await deriveAuthAndMekAsync(currentPassword, material.salt, material.kdf);
   return { current_password: authHash, recovery_public_key: recoveryPublicKey };
 }
@@ -253,18 +280,26 @@ export async function buildRecoveryKeyRegistration(
  */
 export async function buildRecoveryPhraseReplacement(
   material: E2eeKeyMaterial,
-  currentPassword: string,
+  currentPassword: string | PasskeyProof,
 ): Promise<{ phrase: string; payload: ReplaceRecoveryKeyPayload }> {
   const phrase = generateRecoveryPhrase();
   const recovery = deriveRecoveryKeys(phrase, material.salt);
-  const { authHash, mek } = await deriveAuthAndMekAsync(
-    currentPassword,
-    material.salt,
-    material.kdf,
-  );
-  const rootKey = materialRoot(material, mek);
+  let proof: Pick<ReplaceRecoveryKeyPayload, "current_password" | "reauth_token">;
+  let rootKey: Uint8Array | null;
+  if (isPasskeyProof(currentPassword)) {
+    proof = { reauth_token: currentPassword.reauthToken };
+    rootKey = currentPassword.rootKey ?? material.root?.rootKey ?? null;
+  } else {
+    const { authHash, mek } = await deriveAuthAndMekAsync(
+      currentPassword,
+      material.salt,
+      material.kdf,
+    );
+    proof = { current_password: authHash };
+    rootKey = materialRoot(material, mek);
+  }
   const payload: ReplaceRecoveryKeyPayload = {
-    current_password: authHash,
+    ...proof,
     recovery_public_key: recovery.auth.publicKey,
     recovery_encrypted_dek: wrapKey(material.dek, recovery.wrapKey),
     recovery_encrypted_private_key: wrapKey(material.privateKey, recovery.wrapKey),

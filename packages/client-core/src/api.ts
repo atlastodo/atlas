@@ -34,6 +34,13 @@ import type {
   MigrateRootKeyPayload,
   PutRecoveryRootKeyPayload,
   RootKeyResponse,
+  AccountProof,
+  PasskeyAssertionResponse,
+  PasskeyCreationOptions,
+  PasskeyReauthResponse,
+  PasskeyRegistrationPayload,
+  PasskeyRequestOptions,
+  PasskeyView,
 } from "./types";
 import {
   DEK_KEY_ID,
@@ -323,6 +330,9 @@ const CREDENTIAL_PATHS = new Set([
   "/auth/salt",
   "/auth/account/cancel-deletion",
   "/auth/api-token/session",
+  "/auth/passkeys/login",
+  "/auth/passkeys/login/options",
+  "/auth/passkeys/signup/options",
 ]);
 
 const SUPERSEDED_WAITS = 8;
@@ -704,7 +714,10 @@ export class ApiClient {
 
   signup(req: {
     email: string;
-    password: string;
+    /** The auth hash; absent for a passkey signup (`passkey`). */
+    password?: string;
+    /** Sign up with a passkey instead of a password (after `passkeySignupOptions`). */
+    passkey?: Omit<PasskeyRegistrationPayload, "current_password" | "reauth_token">;
     displayName?: string;
     invite?: string;
     deviceName?: string;
@@ -713,8 +726,9 @@ export class ApiClient {
     salt: string;
     publicKey: string;
     recoveryPublicKey: string;
-    encryptedDek: { iv: string; ct: string };
-    encryptedPrivateKey: { iv: string; ct: string };
+    /** The legacy MEK wraps; absent for a passkey signup. */
+    encryptedDek?: { iv: string; ct: string };
+    encryptedPrivateKey?: { iv: string; ct: string };
     recoveryEncryptedDek: { iv: string; ct: string };
     recoveryEncryptedPrivateKey: { iv: string; ct: string };
     kdf?: PasswordKdf;
@@ -723,7 +737,8 @@ export class ApiClient {
     /** The account root key (see `newAccountRoot`): the client-chosen id its wraps bind, its slots and app keys. */
     root?: {
       userId: string;
-      encryptedRootKey: { v: 1; iv: string; ct: string };
+      /** The password slot; absent for a passkey signup, whose slot is the passkey's. */
+      encryptedRootKey?: { v: 1; iv: string; ct: string };
       recoveryEncryptedRootKey: { v: 1; iv: string; ct: string };
       appKeys: AppKeyRow[];
     };
@@ -731,6 +746,7 @@ export class ApiClient {
     return this.request("POST", "/auth/signup", {
       email: req.email,
       password: req.password,
+      passkey: req.passkey,
       display_name: req.displayName ?? "",
       invite: req.invite,
       device_name: req.deviceName,
@@ -823,9 +839,90 @@ export class ApiClient {
     if (!refreshToken) return Promise.resolve();
     return this.request("POST", "/auth/logout", { refresh_token: refreshToken });
   }
-  /** Needs the current auth hash: a bearer token alone must not schedule a deletion. */
-  deleteAccount(password: string): Promise<void> {
-    return this.request("DELETE", "/auth/account", { password });
+  /**
+   * Needs the current auth hash, or a passkey proof: a bearer token alone must not schedule a
+   * deletion. The server drops the account's passkeys with it.
+   */
+  deleteAccount(proof: string | AccountProof): Promise<void> {
+    const body =
+      typeof proof === "string"
+        ? { password: proof }
+        : "reauth_token" in proof
+          ? { reauth_token: proof.reauth_token }
+          : { password: proof.current_password };
+    return this.request("DELETE", "/auth/account", body);
+  }
+  /** Make the account passkey-only; 409 `last_unlock_method` without a passkey. */
+  removePassword(proof: AccountProof): Promise<void> {
+    return this.request("DELETE", "/auth/password", proof);
+  }
+
+  /** Begin a passkey signup for the account id the signup will use. */
+  async passkeySignupOptions(req: {
+    userId: string;
+    email: string;
+    displayName?: string;
+  }): Promise<PasskeyCreationOptions> {
+    const res: { options: PasskeyCreationOptions } = await this.request(
+      "POST",
+      "/auth/passkeys/signup/options",
+      { user_id: req.userId, email: req.email, display_name: req.displayName ?? "" },
+    );
+    return res.options;
+  }
+  /** Begin adding a passkey to the signed-in account. */
+  async passkeyRegisterOptions(): Promise<PasskeyCreationOptions> {
+    const res: { options: PasskeyCreationOptions } = await this.request(
+      "POST",
+      "/auth/passkeys/register/options",
+    );
+    return res.options;
+  }
+  /** Finish adding a passkey; needs a proof (`current_password` or `reauth_token`). */
+  registerPasskey(payload: PasskeyRegistrationPayload): Promise<PasskeyView> {
+    return this.request("POST", "/auth/passkeys", payload);
+  }
+  listPasskeys(): Promise<PasskeyView[]> {
+    return this.request("GET", "/auth/passkeys");
+  }
+  renamePasskey(id: string, name: string): Promise<void> {
+    return this.request("PATCH", `/auth/passkeys/${id}`, { name });
+  }
+  /** 409 `last_unlock_method` for the last passkey of an account without a password. */
+  removePasskey(id: string, proof: AccountProof): Promise<void> {
+    return this.request("DELETE", `/auth/passkeys/${id}`, proof);
+  }
+  /** Begin a passkey sign-in: discoverable, or naming the account's passkeys for `email`. */
+  async passkeyLoginOptions(email?: string): Promise<PasskeyRequestOptions> {
+    const res: { options: PasskeyRequestOptions } = await this.request(
+      "POST",
+      "/auth/passkeys/login/options",
+      email ? { email } : {},
+    );
+    return res.options;
+  }
+  /** Finish a passkey sign-in: a session, plus `passkey` (the root key under its slot). */
+  passkeyLogin(req: {
+    credential: PasskeyAssertionResponse;
+    deviceName?: string;
+    installKey?: string;
+  }): Promise<AuthResponse> {
+    return this.request("POST", "/auth/passkeys/login", {
+      credential: req.credential,
+      device_name: req.deviceName,
+      install_key: req.installKey,
+    });
+  }
+  async passkeyReauthOptions(): Promise<PasskeyRequestOptions> {
+    const res: { options: PasskeyRequestOptions } = await this.request(
+      "POST",
+      "/auth/passkeys/reauth/options",
+    );
+    return res.options;
+  }
+  /** A single-use, five-minute proof that stands in for the current password. */
+  passkeyReauth(credential: PasskeyAssertionResponse): Promise<PasskeyReauthResponse> {
+    return this.request("POST", "/auth/passkeys/reauth", { credential });
   }
   cancelAccountDeletion(payload: {
     email: string;
