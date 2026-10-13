@@ -72,6 +72,10 @@ pub fn routes() -> Router<AppState> {
 /// key a rotation retired. History in `docs/architecture.md`.
 pub const MIN_SYNC_PROTOCOL: u32 = 6;
 
+/// The newest sync protocol this server speaks, announced by `GET /discovery` so a client can
+/// tell a server too old for it before signing in. A server predating discovery counts as 1.
+pub const SYNC_PROTOCOL: u32 = 6;
+
 /// Header carrying the client's sync protocol version on every `/sync/*` HTTP request.
 pub const SYNC_PROTOCOL_HEADER: &str = "x-atlas-sync-protocol";
 

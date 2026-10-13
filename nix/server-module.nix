@@ -145,14 +145,16 @@ in
       ]);
       default = { };
       example = {
+        ATLAS_APPS = "todo";
         OP_RETENTION_DAYS = 60;
         AUTH_RATE_LIMIT_TRUST_FORWARDED = true;
         CORS_ALLOWED_ORIGINS = "https://todo.example.com,app://atlas-todo";
       };
       description = ''
         Extra server settings, passed through as environment variables with the
-        same names. The full list (retention windows, rate limits, blob quotas,
-        CORS, TTLs, …) and every default lives in crates/atlas-server/src/config.rs
+        same names. The full list (the apps the instance offers, retention
+        windows, rate limits, blob quotas, CORS, TTLs, …) and every default
+        lives in crates/atlas-server/src/config.rs
         and docs/self-hosting.md — the module adds no defaults of its own. An
         empty value counts as unset; booleans pass as true/false. Never put
         secrets here: env values land in the nix store.

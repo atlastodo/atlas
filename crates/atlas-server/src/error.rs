@@ -39,6 +39,10 @@ pub enum AppError {
     /// An API-token session on a route only a signed-in device may use.
     #[error("this needs a signed-in device, not an API token")]
     InteractiveSessionRequired,
+    /// An op or request naming an app (`manifests/<app>.json`) that is not enabled for this
+    /// instance (`ATLAS_APPS`) or account (`account_apps`). 403 with `code: app_not_enabled`.
+    #[error("the {app} app is not enabled for this {scope}")]
+    AppNotEnabled { app: String, scope: &'static str },
     #[error("{0} already exists")]
     Conflict(String),
     /// `PUT /auth/recovery-key` naming a key other than the one already registered.
@@ -100,7 +104,9 @@ impl AppError {
             AppError::AccountDisabled => StatusCode::FORBIDDEN,
             AppError::LegacyAccount => StatusCode::FORBIDDEN,
             AppError::InviteInvalid => StatusCode::FORBIDDEN,
-            AppError::Forbidden(_) | AppError::InteractiveSessionRequired => StatusCode::FORBIDDEN,
+            AppError::Forbidden(_)
+            | AppError::InteractiveSessionRequired
+            | AppError::AppNotEnabled { .. } => StatusCode::FORBIDDEN,
             AppError::Conflict(_)
             | AppError::RecoveryKeyAlreadySet
             | AppError::SigningKeyAlreadySet
@@ -135,6 +141,7 @@ impl AppError {
             AppError::RotationNotPending => Some("rotation_not_pending"),
             AppError::AlreadyMember => Some("already_member"),
             AppError::InteractiveSessionRequired => Some("interactive_session_required"),
+            AppError::AppNotEnabled { .. } => Some("app_not_enabled"),
             _ => None,
         }
     }
@@ -153,6 +160,18 @@ impl IntoResponse for AppError {
                 Json(json!({
                     "error": "account_scheduled_deletion",
                     "days_remaining": days_remaining
+                })),
+            )
+                .into_response();
+        }
+        if let AppError::AppNotEnabled { app, scope } = &self {
+            return (
+                status,
+                Json(json!({
+                    "error": self.to_string(),
+                    "code": "app_not_enabled",
+                    "app": app,
+                    "scope": scope,
                 })),
             )
                 .into_response();

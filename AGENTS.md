@@ -27,6 +27,7 @@
 ## Layout
 
 - `crates/atlas-core` — pure Rust domain logic (HLC and op log types), no I/O. Conflict resolution and recurrence live in TypeScript only (`packages/client-core`, `packages/shared`); their JSON fixtures in `test-vectors/` are read by those tests.
+- `manifests/<app>.json` — the suite's app manifests (entity kinds and their plaintext fields), the single source of truth for which fields stay unencrypted: compiled into the server by `atlas-core` (`manifest.rs`, `Registry`) and bundled by `packages/client-core` (`fieldPolicy.ts`). Todo's kinds keep bare wire names; any new app's kinds must be `<app>.<kind>` and be added as `EntityKind` variants (a test checks both agree). Instances choose apps with `ATLAS_APPS`; accounts with `account_apps` (`/auth/apps`). `GET /discovery` is the public server/app/capability probe. See `docs/architecture.md` (Apps and manifests).
 - `crates/atlas-server` — Axum + sqlx over Postgres. `migrations/` is the schema source of truth.
 - `apps/mobile` — the single UI (React Native + Expo); the web app is the same code via react-native-web. `apps/electron` wraps the web export. Dynamic `accent-*` colors resolve to CSS variables (`--accent-<shade>` hex and `--accent-<shade>-rgb` channels from `@atlas/shared`) supporting Tailwind opacity modifiers (e.g. `bg-accent-100/60`, `dark:bg-accent-950/70`).
 - `packages/client-core` — local SQLite/IndexedDB store + sync client; `packages/shared` — portable pure TS logic.

@@ -50,6 +50,7 @@ async fn setup() -> Router {
         blob_quota_bytes: 1024 * 1024 * 1024,
         blob_gc_grace_days: 7,
         max_blob_transfers: 16,
+        apps: vec!["todo".into()],
         static_dir: None,
     })
     .await
@@ -364,6 +365,7 @@ async fn signup_closed_by_flag_returns_typed_error_while_login_still_works() {
             blob_quota_bytes: 1024 * 1024 * 1024,
             blob_gc_grace_days: 7,
             max_blob_transfers: 16,
+            apps: vec!["todo".into()],
             static_dir: None,
         }
     })

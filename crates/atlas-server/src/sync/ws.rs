@@ -15,6 +15,7 @@ use uuid::Uuid;
 use super::hub::{SocketHandle, Subscription, WS_TICKET_TTL};
 use super::pull::{ops_page, MAX_PULL_LIMIT};
 use super::{PullResponse, SyncError};
+use crate::apps::EnabledApps;
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -124,7 +125,11 @@ pub(super) async fn ws_handler(
     }
     // Subscribe before the backfill read so nothing committed in between is missed.
     let subscription = Subscription::new(&state.hub, user);
-    let first = match ops_page(&state.pool, user, params.since, MAX_PULL_LIMIT).await {
+    let apps = match EnabledApps::load(&state, user).await {
+        Ok(apps) => apps,
+        Err(e) => return e.into_response(),
+    };
+    let first = match ops_page(&state.pool, &apps, user, params.since, MAX_PULL_LIMIT).await {
         Ok(page) => page,
         Err(e) => return e.into_response(),
     };
@@ -136,7 +141,7 @@ pub(super) async fn ws_handler(
         subscription,
         handle,
     };
-    ws.on_upgrade(move |socket| handle_socket(socket, state, session, first))
+    ws.on_upgrade(move |socket| handle_socket(socket, state, session, apps, first))
 }
 
 fn close_message(code: u16, reason: &'static str) -> Message {
@@ -156,6 +161,7 @@ async fn handle_socket(
     socket: WebSocket,
     state: AppState,
     session: WsSession,
+    apps: EnabledApps,
     first: PullResponse,
 ) {
     let WsSession {
@@ -179,7 +185,7 @@ async fn handle_socket(
         if !full {
             break;
         }
-        page = match ops_page(&state.pool, user, cursor, MAX_PULL_LIMIT).await {
+        page = match ops_page(&state.pool, &apps, user, cursor, MAX_PULL_LIMIT).await {
             Ok(next) if next.operations.is_empty() => break,
             Ok(next) => next,
             Err(e) => {

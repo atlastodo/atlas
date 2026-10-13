@@ -44,6 +44,7 @@ async fn setup_state() -> AppState {
         blob_quota_bytes: 1024 * 1024 * 1024,
         blob_gc_grace_days: 7,
         max_blob_transfers: 16,
+        apps: vec!["todo".into()],
         static_dir: None,
     };
     AppState::new(pool, config)
@@ -379,6 +380,7 @@ async fn lww_higher_hlc_wins_regardless_of_arrival_order() {
         blob_quota_bytes: 1024 * 1024 * 1024,
         blob_gc_grace_days: 7,
         max_blob_transfers: 16,
+        apps: vec!["todo".into()],
         static_dir: None,
     };
     let router = app(AppState::new(pool.clone(), config));
@@ -438,6 +440,7 @@ async fn tombstone_records_delete() {
         blob_quota_bytes: 1024 * 1024 * 1024,
         blob_gc_grace_days: 7,
         max_blob_transfers: 16,
+        apps: vec!["todo".into()],
         static_dir: None,
     };
     let router = app(AppState::new(pool.clone(), config));
@@ -484,6 +487,7 @@ async fn oversized_push_body_answers_413() {
         blob_quota_bytes: 1024 * 1024 * 1024,
         blob_gc_grace_days: 7,
         max_blob_transfers: 16,
+        apps: vec!["todo".into()],
         static_dir: None,
     };
     config.max_push_bytes = 1024;

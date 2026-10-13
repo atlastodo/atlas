@@ -21,6 +21,7 @@ use super::{
     cap_future_skew, entity_str, hlc_key, observe_client_ts, physical_now_ms, successor_hlc,
     take_sync_write_lock, HlcKey, SyncError, SyncResult, MAX_FUTURE_SKEW_MS,
 };
+use crate::apps::EnabledApps;
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
 use crate::members::Role;
@@ -439,6 +440,8 @@ pub(super) async fn push(
 ) -> SyncResult<Json<PushResponse>> {
     let caller = user.user_id;
     let (ops, newest) = check_batch(caller, req.operations)?;
+    // Every op's app must be enabled for the instance and the account.
+    EnabledApps::load(&state, caller).await?.check_ops(&ops)?;
 
     let mut tx = state.pool.begin().await?;
     // Serialize all sync writes (see [`SYNC_WRITE_LOCK`]).
