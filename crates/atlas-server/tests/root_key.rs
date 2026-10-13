@@ -49,6 +49,7 @@ async fn setup() -> Router {
         blob_gc_grace_days: 7,
         max_blob_transfers: 16,
         static_dir: None,
+        apps: vec!["todo".into()],
     };
     let pool = db::connect(&test_database_url())
         .await

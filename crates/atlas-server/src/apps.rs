@@ -27,7 +27,7 @@ use crate::state::AppState;
 
 /// Features a client may check for in [`Discovery::capabilities`] before relying on them.
 /// Append a name when a feature lands; never remove one a released client may check for.
-pub const CAPABILITIES: &[&str] = &["api_tokens", "app_manifests", "account_apps"];
+pub const CAPABILITIES: &[&str] = &["api_tokens", "app_manifests", "account_apps", "root_key"];
 
 pub fn routes() -> Router<AppState> {
     Router::new()

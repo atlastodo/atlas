@@ -109,7 +109,7 @@ members who lack the app.
   "version": "0.1.11",
   "protocol_version": 6,
   "min_protocol_version": 6,
-  "capabilities": ["api_tokens", "app_manifests", "account_apps"],
+  "capabilities": ["api_tokens", "app_manifests", "account_apps", "root_key"],
   "apps": [{ "id": "todo", "name": "Atlas Todo", "version": 1 }]
 }
 ```

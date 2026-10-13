@@ -195,7 +195,7 @@ async fn discovery_is_public_and_describes_the_server() {
             .iter()
             .map(|c| c.as_str().unwrap())
             .collect();
-        for cap in ["api_tokens", "app_manifests", "account_apps"] {
+        for cap in ["api_tokens", "app_manifests", "account_apps", "root_key"] {
             assert!(capabilities.contains(&cap), "{cap} in {capabilities:?}");
         }
         assert_eq!(
