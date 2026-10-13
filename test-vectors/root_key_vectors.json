@@ -1,0 +1,54 @@
+{
+  "vectors": [
+    {
+      "name": "fixed keys",
+      "user_id": "01920000-0000-4000-8000-0000000000aa",
+      "root_key": "1111111111111111111111111111111111111111111111111111111111111111",
+      "mek": "2222222222222222222222222222222222222222222222222222222222222222",
+      "recovery_wrap_key": "3333333333333333333333333333333333333333333333333333333333333333",
+      "recovery_secret_key": "4444444444444444444444444444444444444444444444444444444444444444",
+      "recovery_public_key": "ff2ee45601ec1b67310c7790404585ae697331eee1c1f8cf2419731c1fff3e6b",
+      "passkey_credential": "cred-1",
+      "passkey_wrap_key": "5555555555555555555555555555555555555555555555555555555555555555",
+      "dek": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "private_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "notes_key": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "password_slot": {
+        "v": 1,
+        "iv": "fPcZbYRKyUzKLKqx",
+        "ct": "xc9zdbrNTcKMZYZNOj3V+yY4AC4k46Hokb6MCRn6sj5iTy6PZ447/Gd9oMD1iBqx"
+      },
+      "recovery_slot": {
+        "v": 1,
+        "iv": "gJ6BWc0V4DVmhsxu",
+        "ct": "vGCFncxPdGlGJiqNQ5mFIWGKhKYFd7VjYPM6UOYOZJAQ/Qb4NS7ma8vy0rvRQefx"
+      },
+      "sealed_recovery_slot": {
+        "v": 1,
+        "iv": "lyMIqYpYfOD+imSD",
+        "ct": "9GOM6VIAELr5Y0UoR6d3j9ubOjAacL0eXaFYBvnOdh5UTK8To9Qo0tAfuVEXJngj",
+        "epk": "737a2511e3046ccad3b61ab160815e855e504e52f23208447e8e50301458a173"
+      },
+      "passkey_slot": {
+        "v": 1,
+        "iv": "Z1JoVut81NAi4z3w",
+        "ct": "Rzw4ZC1QJiw3yQkgkFkVGfCUYyBVDtP0NY62e2unJzv6CbYKxpn8Po7InjxEOnvb"
+      },
+      "todo_app_key": {
+        "v": 1,
+        "iv": "g3v+pVgs8AFOFiVi",
+        "ct": "H+/akm8TSWBDBl5ualb54hnOqhmje/dtUCjDHNLzhFcDR/eXcO5uRwGR3yA5MaPL"
+      },
+      "todo_private_key": {
+        "v": 1,
+        "iv": "JRyvCmqE4cjl53Tk",
+        "ct": "QGfsSqlKGAvWGBTxva39sFlRXJfPmcDf8sgWyzJZ6lU59/ZHAY1muykMl8qAg8JK"
+      },
+      "notes_app_key": {
+        "v": 1,
+        "iv": "xOvQeFO/6/V2mhHJ",
+        "ct": "xgQ7zFLUROxrRF73qmbTCz8OnrEm93Yu9el4VpUq/6RtBGKmOOsEYrhFHxWfHs/P"
+      }
+    }
+  ]
+}

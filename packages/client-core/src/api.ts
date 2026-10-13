@@ -30,6 +30,10 @@ import type {
   UserPublicKeyResponse,
   SigningKeyResponse,
   ChangePasswordPayload,
+  AppKeyRow,
+  MigrateRootKeyPayload,
+  PutRecoveryRootKeyPayload,
+  RootKeyResponse,
 } from "./types";
 import {
   DEK_KEY_ID,
@@ -701,6 +705,13 @@ export class ApiClient {
     kdf?: PasswordKdf;
     signingPublicKey?: string;
     encryptedSigningKey?: { v?: number; iv: string; ct: string };
+    /** The account root key (see `newAccountRoot`): the client-chosen id its wraps bind, its slots and app keys. */
+    root?: {
+      userId: string;
+      encryptedRootKey: { v: 1; iv: string; ct: string };
+      recoveryEncryptedRootKey: { v: 1; iv: string; ct: string };
+      appKeys: AppKeyRow[];
+    };
   }): Promise<AuthResponse> {
     return this.request("POST", "/auth/signup", {
       email: req.email,
@@ -719,6 +730,14 @@ export class ApiClient {
       ...(req.kdf ? kdfToWire(req.kdf) : {}),
       signing_public_key: req.signingPublicKey,
       encrypted_signing_key: req.encryptedSigningKey,
+      ...(req.root
+        ? {
+            user_id: req.root.userId,
+            encrypted_root_key: req.root.encryptedRootKey,
+            recovery_encrypted_root_key: req.root.recoveryEncryptedRootKey,
+            app_keys: req.root.appKeys,
+          }
+        : {}),
     });
   }
   /** `installKey` survives a reinstall; the server replaces this install's older sessions. */
@@ -752,6 +771,25 @@ export class ApiClient {
   }
   changePassword(payload: ChangePasswordPayload): Promise<void> {
     return this.request("POST", "/auth/change-password", payload);
+  }
+  /** The account's root key password slot and app keys (interactive sessions only). */
+  getRootKey(): Promise<RootKeyResponse> {
+    return this.request("GET", "/auth/root-key");
+  }
+  /** Set once: 409 `root_key_exists` when another device migrated the account first. */
+  migrateRootKey(payload: MigrateRootKeyPayload): Promise<void> {
+    return this.request("POST", "/auth/root-key", payload);
+  }
+  /** Fill an empty recovery slot; 409 `key_already_stored` when one is set. */
+  putRecoveryRootKey(payload: PutRecoveryRootKeyPayload): Promise<void> {
+    return this.request("PUT", "/auth/root-key/recovery", payload);
+  }
+  /** Store a new app's key under the root key; set once (409 `key_already_stored`). */
+  putAppKey(
+    app: string,
+    wrapped: Pick<AppKeyRow, "wrapped_key" | "wrapped_private_key">,
+  ): Promise<void> {
+    return this.request("PUT", `/auth/app-keys/${encodeURIComponent(app)}`, wrapped);
   }
   getUserPublicKey(email: string): Promise<UserPublicKeyResponse> {
     return this.request("GET", `/users/public-key?email=${encodeURIComponent(email)}`);

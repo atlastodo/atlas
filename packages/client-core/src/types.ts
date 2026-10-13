@@ -150,11 +150,16 @@ export interface RecoveryChallenge {
 
 export interface RecoveryKeysResponse {
   salt?: string;
+  /** Deprecated legacy wraps (DEK and private key under the phrase); still the DEK's source. */
   recovery_encrypted_dek?: { iv: string; ct: string };
   recovery_encrypted_private_key?: { iv: string; ct: string };
   /** 2 = phrase-derived recovery key, 1 = account private key (no recovery key yet). */
   recovery_key_version?: number;
   challenge?: RecoveryChallenge;
+  /** Absent from a server predating root keys. Dummies when the account has none. */
+  user_id?: string;
+  recovery_encrypted_root_key?: import("./crypto").RootKeyWrap & { epk?: string };
+  todo_app_key?: import("./crypto").RootKeyWrap;
 }
 
 export interface ReplaceRecoveryKeyPayload {
@@ -162,6 +167,41 @@ export interface ReplaceRecoveryKeyPayload {
   recovery_public_key: string;
   recovery_encrypted_dek: { iv: string; ct: string };
   recovery_encrypted_private_key: { iv: string; ct: string };
+  /** The root key under the new phrase; without it the server empties the recovery slot. */
+  recovery_encrypted_root_key?: import("./crypto").RootKeyWrap;
+}
+
+/** An app's key under the account root key, and the app's identity under the app key. */
+export interface AppKeyRow {
+  app: string;
+  wrapped_key: import("./crypto").RootKeyWrap;
+  wrapped_private_key?: import("./crypto").RootKeyWrap;
+}
+
+/** `GET /auth/root-key`. */
+export interface RootKeyResponse {
+  has_root_key: boolean;
+  encrypted_root_key: import("./crypto").RootKeyWrap | null;
+  has_recovery_root_key: boolean;
+  recovery_public_key: string | null;
+  app_keys: AppKeyRow[];
+}
+
+/** `POST /auth/root-key`: migrate an account created before root keys (set once). */
+export interface MigrateRootKeyPayload {
+  current_password: string;
+  encrypted_root_key: import("./crypto").RootKeyWrap;
+  recovery_encrypted_root_key?: import("./crypto").SealedRootKeyWrap;
+  /** The recovery public key the slot was sealed to. */
+  recovery_public_key?: string;
+  app_keys: AppKeyRow[];
+}
+
+/** `PUT /auth/root-key/recovery`: fill an empty recovery slot. */
+export interface PutRecoveryRootKeyPayload {
+  current_password: string;
+  recovery_public_key: string;
+  recovery_encrypted_root_key: import("./crypto").RootKeyWrap;
 }
 
 export interface RegisterRecoveryKeyPayload {
@@ -179,6 +219,12 @@ export interface RecoverAccountPayload {
   encrypted_private_key: { iv: string; ct: string };
   kdf_version?: number;
   kdf_params?: Record<string, number>;
+  /** The recovered (or, with `app_keys`, new) root key under the new MEK. */
+  encrypted_root_key?: import("./crypto").RootKeyWrap;
+  /** The root key under the phrase: the recovery slot in its authenticated form. */
+  recovery_encrypted_root_key?: import("./crypto").RootKeyWrap;
+  /** A new root's app keys, when the old root had no recovery slot to come back from. */
+  app_keys?: AppKeyRow[];
 }
 
 export interface ChangePasswordPayload {
@@ -192,6 +238,8 @@ export interface ChangePasswordPayload {
   kdf_params?: Record<string, number>;
   /** Same password, newer KDF: other sessions are kept. */
   kdf_upgrade?: boolean;
+  /** The root key re-wrapped under the new MEK; without it the server drops the root. */
+  encrypted_root_key?: import("./crypto").RootKeyWrap;
 }
 
 export interface AuthResponse {
@@ -203,6 +251,10 @@ export interface AuthResponse {
   user: AuthUser;
   salt?: string;
   public_key?: string;
+  /**
+   * Deprecated: the DEK and private key directly under the MEK, from before the root key. Still
+   * sent for older clients; this one opens `encrypted_root_key` first and falls back to these.
+   */
   encrypted_dek?: { iv: string; ct: string };
   encrypted_private_key?: { iv: string; ct: string };
   signing_public_key?: string;
@@ -211,6 +263,13 @@ export interface AuthResponse {
   /** Absent from a server predating per-account KDFs (version 1). */
   kdf_version?: number;
   kdf_params?: Record<string, number>;
+  /** Absent (all of them) from a server predating root keys. */
+  has_root_key?: boolean;
+  /** The root key's password slot (under the MEK). */
+  encrypted_root_key?: import("./crypto").RootKeyWrap;
+  app_keys?: AppKeyRow[];
+  recovery_public_key?: string;
+  has_recovery_root_key?: boolean;
 }
 
 export type MemberRole = "owner" | "editor" | "commenter";
