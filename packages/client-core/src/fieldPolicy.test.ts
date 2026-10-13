@@ -1,19 +1,30 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { PLAINTEXT_FIELDS, shouldEncryptField } from "./index";
+import { BUNDLED_MANIFESTS, PLAINTEXT_FIELDS, appOfKind, shouldEncryptField } from "./index";
 import type { EntityKind } from "./types";
 
-const vectorPath = fileURLToPath(
-  new URL("../../../test-vectors/plaintext_fields.json", import.meta.url),
-);
-const vector = JSON.parse(readFileSync(vectorPath, "utf8")) as {
-  plaintext_fields: Record<string, string[] | "all">;
+const manifestPath = fileURLToPath(new URL("../../../manifests/todo.json", import.meta.url));
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+  app: string;
+  version: number;
+  kinds: Record<string, { plaintext_fields: string[] | "all" }>;
 };
 
 describe("field encryption policy", () => {
-  it("is exactly the shared plaintext_fields table", () => {
-    expect(PLAINTEXT_FIELDS).toEqual(vector.plaintext_fields);
+  it("is exactly the todo manifest's plaintext_fields", () => {
+    const fromManifest = Object.fromEntries(
+      Object.entries(manifest.kinds).map(([kind, spec]) => [kind, spec.plaintext_fields]),
+    );
+    expect(PLAINTEXT_FIELDS).toEqual(fromManifest);
+  });
+
+  it("bundles the todo manifest and maps its kinds to it", () => {
+    expect(BUNDLED_MANIFESTS.map((m) => m.app)).toEqual([manifest.app]);
+    expect(BUNDLED_MANIFESTS[0]!.version).toBe(manifest.version);
+    for (const kind of Object.keys(PLAINTEXT_FIELDS)) expect(appOfKind(kind)?.app).toBe("todo");
+    expect(appOfKind("notes.note")).toBeUndefined();
+    expect(appOfKind("toString")).toBeUndefined();
   });
 
   it.each<[EntityKind, string]>([

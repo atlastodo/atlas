@@ -95,7 +95,9 @@ This page lists what it protects.
 
 ### Fields that stay plaintext, and why
 
-The list lives in [`test-vectors/plaintext_fields.json`](./test-vectors/plaintext_fields.json).
+The list lives in the `plaintext_fields` of each kind in
+[`manifests/todo.json`](./manifests/todo.json), the todo app manifest that the server and the
+clients both bundle.
 The client encrypts by it, and the server checks that every field value it reads is on it.
 
 | Entity         | Plaintext fields                                          | Why                                                                          |

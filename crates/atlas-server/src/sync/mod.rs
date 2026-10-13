@@ -201,46 +201,12 @@ pub struct PullResponse {
 }
 
 fn entity_str(kind: EntityKind) -> &'static str {
-    match kind {
-        EntityKind::Task => "task",
-        EntityKind::Project => "project",
-        EntityKind::Section => "section",
-        EntityKind::Label => "label",
-        EntityKind::Comment => "comment",
-        EntityKind::Preference => "preference",
-        EntityKind::SavedFilter => "saved_filter",
-        EntityKind::Reminder => "reminder",
-        EntityKind::ProjectMember => "project_member",
-        EntityKind::Activity => "activity",
-        EntityKind::FocusSession => "focus_session",
-        EntityKind::Habit => "habit",
-        EntityKind::HabitCheckin => "habit_checkin",
-        EntityKind::Attachment => "attachment",
-    }
+    kind.as_str()
 }
 
 fn entity_from_str(s: &str) -> AppResult<EntityKind> {
-    Ok(match s {
-        "task" => EntityKind::Task,
-        "project" => EntityKind::Project,
-        "section" => EntityKind::Section,
-        "label" => EntityKind::Label,
-        "comment" => EntityKind::Comment,
-        "preference" => EntityKind::Preference,
-        "saved_filter" => EntityKind::SavedFilter,
-        "reminder" => EntityKind::Reminder,
-        "project_member" => EntityKind::ProjectMember,
-        "activity" => EntityKind::Activity,
-        "focus_session" => EntityKind::FocusSession,
-        "habit" => EntityKind::Habit,
-        "habit_checkin" => EntityKind::HabitCheckin,
-        "attachment" => EntityKind::Attachment,
-        other => {
-            return Err(AppError::BadRequest(format!(
-                "unknown entity kind: {other}"
-            )))
-        }
-    })
+    EntityKind::from_wire(s)
+        .ok_or_else(|| AppError::BadRequest(format!("unknown entity kind: {s}")))
 }
 
 type HlcKey = (i64, i32, Uuid);

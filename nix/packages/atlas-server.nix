@@ -13,7 +13,8 @@ rustPlatform.buildRustPackage {
   inherit version;
 
   # Only what cargo needs: the workspace manifests and lockfile, crates/,
-  # migrations/ (embedded at compile time by `sqlx::migrate!`) and the
+  # migrations/ (embedded at compile time by `sqlx::migrate!`), manifests/ (the
+  # bundled app manifests, compiled in by atlas-core) and the
   # test-vectors/ fixtures that the server tests read.
   src = lib.fileset.toSource {
     inherit root;
@@ -22,6 +23,7 @@ rustPlatform.buildRustPackage {
       (root + "/Cargo.lock")
       (root + "/crates")
       (root + "/migrations")
+      (root + "/manifests")
       (root + "/test-vectors")
     ];
   };

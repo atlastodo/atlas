@@ -55,7 +55,7 @@ pub(crate) enum ReadFieldKind {
 
 /// Every field whose value the server reads, per entity. Clients encrypt all other values, so
 /// these must arrive as plaintext: an envelope here silently breaks fan-out or authorization.
-/// `test-vectors/plaintext_fields.json` is the client's side of this contract.
+/// The `plaintext_fields` of `manifests/<app>.json` are the client's side of this contract.
 pub(crate) const SERVER_READ_FIELDS: &[(&str, &[(&str, ReadFieldKind)])] = &[
     (
         "task",
@@ -734,27 +734,19 @@ mod tests {
     use super::*;
     use crate::sync::entity_from_str;
 
-    const PLAINTEXT_FIELDS_JSON: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../test-vectors/plaintext_fields.json"
-    ));
-
     #[test]
     fn every_server_read_field_is_plaintext_on_the_client() {
-        let doc: Value = serde_json::from_str(PLAINTEXT_FIELDS_JSON).unwrap();
-        let table = &doc["plaintext_fields"];
+        let registry = atlas_core::Registry::bundled();
         for (entity, fields) in SERVER_READ_FIELDS {
             entity_from_str(entity).unwrap_or_else(|_| panic!("unknown entity {entity}"));
-            let listed = &table[*entity];
+            let kind = registry
+                .kind(entity)
+                .unwrap_or_else(|| panic!("{entity} is in no manifest"));
             for (field, _) in *fields {
-                let plaintext = listed == "all"
-                    || listed
-                        .as_array()
-                        .is_some_and(|a| a.iter().any(|f| f == *field));
                 assert!(
-                    plaintext,
-                    "{entity}.{field} is read by the server but plaintext_fields.json lets the \
-                     client encrypt it"
+                    kind.plaintext_fields.contains(field),
+                    "{entity}.{field} is read by the server but its manifest's plaintext_fields \
+                     let the client encrypt it"
                 );
             }
         }

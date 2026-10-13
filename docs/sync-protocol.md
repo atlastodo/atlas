@@ -49,7 +49,7 @@ A delete has `"op": "delete"` and no `field` or `value`.
   moves to the next millisecond instead. `wall_ms` may be at most five minutes ahead of the
   server's clock.
 - `value` is any JSON value of at most 64 KiB serialized. Values are encrypted, except the
-  routing fields listed in [`test-vectors/plaintext_fields.json`](../test-vectors/plaintext_fields.json)
+  routing fields listed in the `plaintext_fields` of [`manifests/todo.json`](../manifests/todo.json)
   (such as a task's `project_id`), which the server reads to find who shares an entity.
   [architecture.md](./architecture.md#field-values) describes the envelope.
 

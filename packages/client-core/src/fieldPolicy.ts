@@ -2,12 +2,31 @@
  * Which field values leave the device in plaintext. Everything else, including fields nothing
  * declares yet, is end-to-end encrypted, so a new field cannot leak because a list was forgotten.
  *
- * The table is `test-vectors/plaintext_fields.json`, shared with the server, which asserts that
- * every field value it reads is listed there.
+ * The table is the `plaintext_fields` of each kind in the bundled app manifests
+ * (`manifests/<app>.json`), which the server compiles in too and checks every field value it
+ * reads against.
  */
 
-import vector from "../../../test-vectors/plaintext_fields.json";
+import todoManifest from "../../../manifests/todo.json";
 import type { EntityKind } from "./types";
+
+/** A bundled app manifest: its id, version and the entity kinds it syncs. */
+export interface AppManifest {
+  app: string;
+  name: string;
+  version: number;
+  kinds: Record<string, { plaintext_fields: readonly string[] | "all" }>;
+}
+
+/** The manifests bundled into this client, as the server bundles them. */
+export const BUNDLED_MANIFESTS: readonly AppManifest[] = Object.freeze([
+  todoManifest as unknown as AppManifest,
+]);
+
+/** The bundled app owning the kind with this wire name, if any. */
+export function appOfKind(kind: string): AppManifest | undefined {
+  return BUNDLED_MANIFESTS.find((m) => Object.prototype.hasOwnProperty.call(m.kinds, kind));
+}
 
 /**
  * Every entity kind, as a record so adding a kind to `EntityKind` fails to compile until listed.
@@ -29,21 +48,23 @@ const ENTITY_KINDS: Record<EntityKind, true> = {
   attachment: true,
 };
 
-function loadTable(raw: Record<string, unknown>): Record<EntityKind, readonly string[] | "all"> {
+function loadTable(
+  manifests: readonly AppManifest[],
+): Record<EntityKind, readonly string[] | "all"> {
   const table = {} as Record<EntityKind, readonly string[] | "all">;
   for (const kind of Object.keys(ENTITY_KINDS) as EntityKind[]) {
-    const entry = raw[kind];
+    const owner = manifests.find((m) => Object.prototype.hasOwnProperty.call(m.kinds, kind));
+    const entry: unknown = owner?.kinds[kind]?.plaintext_fields;
     if (entry === "all") table[kind] = "all";
     else if (Array.isArray(entry) && entry.every((f) => typeof f === "string"))
       table[kind] = Object.freeze([...entry]);
-    else throw new Error(`plaintext_fields.json: no valid entry for "${kind}"`);
+    else throw new Error(`app manifests: no valid plaintext_fields for "${kind}"`);
   }
   return Object.freeze(table);
 }
 
-export const PLAINTEXT_FIELDS: Readonly<Record<EntityKind, readonly string[] | "all">> = loadTable(
-  vector.plaintext_fields,
-);
+export const PLAINTEXT_FIELDS: Readonly<Record<EntityKind, readonly string[] | "all">> =
+  loadTable(BUNDLED_MANIFESTS);
 
 export function shouldEncryptField(entity: EntityKind, field: string): boolean {
   const plain = PLAINTEXT_FIELDS[entity] as readonly string[] | "all" | undefined;

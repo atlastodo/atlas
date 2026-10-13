@@ -26,8 +26,8 @@ RUN bun install --frozen-lockfile
 
 COPY packages packages
 COPY apps/mobile apps/mobile
-# client-core bundles test-vectors/plaintext_fields.json, the field policy it shares with the server.
-COPY test-vectors test-vectors
+# client-core bundles the app manifests (manifests/), the field policy it shares with the server.
+COPY manifests manifests
 ARG PUBLIC_API_URL=/api
 ENV EXPO_PUBLIC_API_URL=$PUBLIC_API_URL
 # The About screen's source link: the AGPL offer of the source to every user of the web app. A
@@ -54,9 +54,11 @@ RUN mkdir -p crates/atlas-core/src crates/atlas-server/src \
     && echo "" > crates/atlas-server/src/lib.rs \
     && cargo build --release --locked -p atlas-server || true
 
-# Real sources, touched so cargo rebuilds over the stubs. migrations/ is embedded at compile time.
+# Real sources, touched so cargo rebuilds over the stubs. migrations/ and manifests/ are embedded
+# at compile time.
 COPY crates crates
 COPY migrations migrations
+COPY manifests manifests
 RUN touch crates/atlas-core/src/lib.rs crates/atlas-server/src/main.rs crates/atlas-server/src/lib.rs \
     && cargo build --release --locked -p atlas-server
 

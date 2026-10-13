@@ -40,6 +40,51 @@ pub enum EntityKind {
     Attachment,
 }
 
+impl EntityKind {
+    /// Every kind, in declaration order.
+    pub const ALL: [EntityKind; 14] = [
+        EntityKind::Task,
+        EntityKind::Project,
+        EntityKind::Section,
+        EntityKind::Label,
+        EntityKind::Comment,
+        EntityKind::Preference,
+        EntityKind::SavedFilter,
+        EntityKind::Reminder,
+        EntityKind::ProjectMember,
+        EntityKind::Activity,
+        EntityKind::FocusSession,
+        EntityKind::Habit,
+        EntityKind::HabitCheckin,
+        EntityKind::Attachment,
+    ];
+
+    /// The kind's wire name (its serde form), as the manifests and the op store key it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EntityKind::Task => "task",
+            EntityKind::Project => "project",
+            EntityKind::Section => "section",
+            EntityKind::Label => "label",
+            EntityKind::Comment => "comment",
+            EntityKind::Preference => "preference",
+            EntityKind::SavedFilter => "saved_filter",
+            EntityKind::Reminder => "reminder",
+            EntityKind::ProjectMember => "project_member",
+            EntityKind::Activity => "activity",
+            EntityKind::FocusSession => "focus_session",
+            EntityKind::Habit => "habit",
+            EntityKind::HabitCheckin => "habit_checkin",
+            EntityKind::Attachment => "attachment",
+        }
+    }
+
+    /// The kind with this wire name.
+    pub fn from_wire(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.as_str() == name)
+    }
+}
+
 /// A single change to one field of one entity, or a delete (tombstone).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Operation {
@@ -252,6 +297,15 @@ mod tests {
         let decoded: Operation = serde_json::from_value(v).unwrap();
         assert_eq!(op, decoded);
         assert_eq!(decoded.entity, EntityKind::HabitCheckin);
+    }
+
+    #[test]
+    fn wire_names_match_serde() {
+        for kind in EntityKind::ALL {
+            assert_eq!(serde_json::to_value(kind).unwrap(), kind.as_str());
+            assert_eq!(EntityKind::from_wire(kind.as_str()), Some(kind));
+        }
+        assert_eq!(EntityKind::from_wire("notes.note"), None);
     }
 
     #[test]
