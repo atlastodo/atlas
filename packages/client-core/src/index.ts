@@ -7,6 +7,7 @@ export * from "./hlc";
 export * from "./types";
 export * from "./api";
 export * from "./fieldPolicy";
+export * from "./discovery";
 export * from "./projectKeys";
 export * from "./rotation";
 export * from "./signingKey";
