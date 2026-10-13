@@ -85,6 +85,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "atlas-cli"
+version = "0.1.11-rc.1"
+dependencies = [
+ "atlas-client",
+ "atlas-core",
+ "atlas-server",
+ "axum",
+ "hex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "atlas-client"
 version = "0.1.11-rc.1"
 dependencies = [

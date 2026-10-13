@@ -32,6 +32,59 @@ fn inject(server: &FakeServer, op: Value) {
 }
 
 #[test]
+fn the_state_dir_caches_the_account_between_runs() {
+    let server = FakeServer::new();
+    let dir = std::env::temp_dir().join(format!("atlas-state-test-{}", Uuid::new_v4()));
+    let open = |dir: &std::path::Path| {
+        let mut opts = ConnectOptions::new("http://atlas.test", &server.token_string());
+        opts.transport = Some(server.transport());
+        opts.state_dir = Some(dir.to_path_buf());
+        Session::connect(opts).expect("connects")
+    };
+    let mut a = open(&dir);
+    let task = Uuid::new_v4().to_string();
+    a.store
+        .set(EntityKind::Task, &task, "title", json!("Cached"));
+    a.push().unwrap();
+    assert!(a.save_state().unwrap());
+    let file = std::fs::read_to_string(dir.join(format!("{}.state", server.token.id))).unwrap();
+    assert!(!file.contains("Cached"), "the cache is sealed");
+
+    // Another device writes meanwhile; the next run pulls only that.
+    let at = FieldLocation {
+        entity: "task",
+        entity_id: &task,
+        field: "notes",
+    };
+    let env = encrypt_field(&server.dek, "dek", &KeyScope::Personal, at, &json!("later")).unwrap();
+    inject(&server, wire_set("task", &task, "notes", env.to_value(), 1));
+    server.state.lock().unwrap().log.clear();
+    let b = open(&dir);
+    let log = server.state.lock().unwrap().log.clone();
+    assert!(!log.iter().any(|l| l.contains("/sync/snapshot")), "{log:?}");
+    let fields = b.store.get(EntityKind::Task, &task).unwrap();
+    assert_eq!(
+        (fields["title"].clone(), fields["notes"].clone()),
+        (json!("Cached"), json!("later"))
+    );
+    assert_eq!(b.sync.cursor(), 2);
+
+    // Another token does not open the file: it syncs from scratch.
+    let other = FakeServer::new();
+    std::fs::copy(
+        dir.join(format!("{}.state", server.token.id)),
+        dir.join(format!("{}.state", other.token.id)),
+    )
+    .unwrap();
+    let mut opts = ConnectOptions::new("http://atlas.test", &other.token_string());
+    opts.transport = Some(other.transport());
+    opts.state_dir = Some(dir.clone());
+    let c = Session::connect(opts).unwrap();
+    assert!(c.store.get(EntityKind::Task, &task).is_none());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn writes_travel_encrypted_and_another_session_reads_them() {
     let server = FakeServer::new();
     let mut a = connect(&server);

@@ -463,25 +463,24 @@ impl AtlasClient {
     /// Change a task's fields (`patch`, in order) and push. Unchanged values are skipped.
     pub fn update_task(&mut self, id: &str, patch: Vec<(String, Value)>) -> Result<TaskView> {
         let task = self.raw_task(id)?;
-        let mut clean = Vec::with_capacity(patch.len());
-        for (key, value) in patch {
-            let value = match key.as_str() {
-                "project_id" => match value.as_str().filter(|p| !p.is_empty()) {
-                    Some(p) => Value::from(self.project_id(p)?),
-                    None => value,
-                },
-                "priority" if !value.is_null() => Value::from(check_priority(&value)?),
-                "label_ids" => match value.as_array() {
-                    Some(ids) => Value::from(
-                        ids.iter()
-                            .map(|l| self.label_id(&json_text(l)))
-                            .collect::<Result<Vec<String>>>()?,
-                    ),
-                    None => value,
-                },
-                _ => value,
+        let mut clean = patch;
+        // Resolved in the SDK's order: the project, the priority, then the labels.
+        for name in ["project_id", "priority", "label_ids"] {
+            let Some((_, value)) = clean.iter_mut().find(|(k, _)| k == name) else {
+                continue;
             };
-            clean.push((key, value));
+            *value = match (name, &*value) {
+                ("project_id", Value::String(p)) if !p.is_empty() => {
+                    Value::from(self.project_id(p)?)
+                }
+                ("priority", v) if !v.is_null() => Value::from(check_priority(v)?),
+                ("label_ids", Value::Array(ids)) => Value::from(
+                    ids.iter()
+                        .map(|l| self.label_id(&json_text(l)))
+                        .collect::<Result<Vec<String>>>()?,
+                ),
+                (_, v) => v.clone(),
+            };
         }
         let now = (self.now)();
         let user = self.session.user_id.clone();

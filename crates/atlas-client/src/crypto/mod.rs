@@ -76,7 +76,7 @@ pub(crate) fn json_aad(parts: &[Value]) -> Vec<u8> {
     serde_json::to_vec(parts).expect("a JSON array serializes")
 }
 
-pub(crate) fn hkdf32(ikm: &[u8], salt: Option<&[u8]>, info: &str) -> [u8; 32] {
+pub fn hkdf32(ikm: &[u8], salt: Option<&[u8]>, info: &str) -> [u8; 32] {
     let mut out = [0u8; 32];
     Hkdf::<Sha256>::new(salt, ikm)
         .expand(info.as_bytes(), &mut out)

@@ -1,18 +1,21 @@
 //! A signed-in account held in memory (`AtlasClient.connect` in `packages/sdk`): an API-token
 //! session, the keys the token carries, the store and its sync.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use uuid::Uuid;
 
 use crate::api::{ApiClient, Transport, UreqTransport};
 use crate::crypto::{
-    derive_api_token_keys, parse_api_token, unwrap_api_token_keys, unwrap_signing_key, Keyring,
+    derive_api_token_keys, parse_api_token, unwrap_api_token_keys, unwrap_signing_key,
+    ApiTokenParts, Keyring,
 };
 use crate::discovery::{describe_incompatibility, server_incompatibility, ServerRequirements};
 use crate::error::{Error, Result};
 use crate::project_keys::{hydrate_project_keys, HydrateOptions};
 use crate::scope::{is_project_creator, revive_locked_values};
+use crate::state;
 use crate::store::Store;
 use crate::sync::{SyncClient, SyncContext, SyncResult};
 use crate::trust::read_key_trust;
@@ -30,6 +33,8 @@ pub struct ConnectOptions {
     pub check_discovery: bool,
     /// For tests: the store's clock and id source.
     pub store: Option<Box<dyn FnOnce(Uuid) -> Store>>,
+    /// Where the synced account is cached between runs ([`crate::state`]).
+    pub state_dir: Option<PathBuf>,
 }
 
 impl ConnectOptions {
@@ -41,6 +46,7 @@ impl ConnectOptions {
             transport: None,
             check_discovery: true,
             store: None,
+            state_dir: None,
         }
     }
 }
@@ -54,6 +60,9 @@ pub struct Session {
     pub sync: SyncClient,
     pub keyring: Keyring,
     pub user_id: String,
+    token: Arc<ApiTokenParts>,
+    server_url: String,
+    state_dir: Option<PathBuf>,
 }
 
 impl Session {
@@ -107,16 +116,28 @@ impl Session {
         }
         // The token id is this client's device: its HLC node and its session's device id.
         let node = Uuid::parse_str(&parts.id).map_err(|_| Error::Protocol("token id".into()))?;
-        let store = match opts.store {
+        let mut store = match opts.store {
             Some(make) => make(node),
             None => Store::new(node),
         };
+        let mut cursor = 0;
+        if let Some(dir) = &opts.state_dir {
+            if let Some(cached) = state::load(dir, &parts, &opts.server_url) {
+                if cached.user_id == session.user_id {
+                    store.apply_remote_batch(&cached.ops);
+                    cursor = cached.cursor;
+                }
+            }
+        }
         let mut s = Session {
             api,
             store,
-            sync: SyncClient::new(0),
+            sync: SyncClient::new(cursor),
             keyring,
             user_id: session.user_id,
+            token: parts.clone(),
+            server_url: opts.server_url.clone(),
+            state_dir: opts.state_dir,
         };
         s.initial_sync()?;
         Ok(s)
@@ -171,6 +192,24 @@ impl Session {
             user_id: Some(&self.user_id),
         };
         self.sync.sync(&mut cx)
+    }
+
+    /// Cache the synced state in the state directory, when there is one and nothing is pending.
+    /// Returns whether it was written.
+    pub fn save_state(&self) -> std::io::Result<bool> {
+        let Some(dir) = &self.state_dir else {
+            return Ok(false);
+        };
+        if !self.store.unsynced_ops().is_empty() {
+            return Ok(false);
+        }
+        let cached = state::CachedState {
+            user_id: self.user_id.clone(),
+            cursor: self.sync.cursor(),
+            ops: self.store.winning_ops(),
+        };
+        state::save(dir, &self.token, &self.server_url, &cached)?;
+        Ok(true)
     }
 
     /// Push pending writes; fails when any did not reach the server.

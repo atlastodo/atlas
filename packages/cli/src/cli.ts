@@ -19,7 +19,7 @@ Configuration (environment):
   ATLAS_TOKEN   an API token from Settings > API tokens (environment only, never a flag)
   ATLAS_TZ      time zone for dates, e.g. Europe/Copenhagen (default: the system's)
 
-Commands (all print JSON):
+Commands (all print JSON; each also works with its app first, e.g. \`atlas todo tasks list\`):
   projects list
   labels list
   tasks list [--project P] [--status open|completed|all] [--label L] [--search TEXT]
@@ -101,8 +101,11 @@ export async function run(argv: string[], io: Io): Promise<number> {
 
   let client: AtlasClient | null = null;
   try {
-    const command = positionals.slice(0, 2).join(" ");
-    const target = positionals[2];
+    // `atlas todo tasks list` is `atlas tasks list`: commands may name their app first.
+    const rest =
+      APPS.has(positionals[0]!) && positionals.length > 1 ? positionals.slice(1) : positionals;
+    const command = rest.slice(0, 2).join(" ");
+    const target = rest[2];
     // Check the command before connecting: a typo should not cost a full sync.
     if (!COMMANDS.has(command)) throw new UsageError(`unknown command "${positionals.join(" ")}"`);
     if (NEEDS_ID.has(command) && !target) throw new UsageError(`"${command}" needs a task id`);
@@ -121,6 +124,9 @@ export async function run(argv: string[], io: Io): Promise<number> {
     client?.close();
   }
 }
+
+/** The apps whose commands this CLI has, for `atlas <app> <command>`. */
+const APPS = new Set(["todo"]);
 
 const NEEDS_ID = new Set([
   "tasks get",

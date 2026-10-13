@@ -1,0 +1,739 @@
+{
+  "_doc": "Golden runs of the `atlas` CLI, which the TypeScript CLI (packages/cli/src/golden.test.ts) and the Rust one (crates/atlas-cli/tests/golden.rs) must both reproduce byte for byte. Each scenario runs its steps against a fresh fake server with the clock fixed at `now` and ATLAS_TZ `tz`. A `seed` step writes an entity's fields from another device of the account and names it `ref`; a `revoke` step revokes the token. A run step passes `argv` ({name} is a ref or a value captured earlier: `capture` maps a name to a field of the step's JSON output) and optional `env` overrides, and expects `exit`, `stdout` (the text printed, \"<usage>\" for the help text) and `stderr` (the lines printed). In outputs every UUID is replaced by <id:N>, numbered by first appearance in the scenario. Regenerate `exit`, `stdout` and `stderr` from the TypeScript CLI with GOLDEN_UPDATE=1.",
+  "now": 1791972000000,
+  "scenarios": [
+    {
+      "name": "tasks from add to trash",
+      "tz": "Europe/Copenhagen",
+      "steps": [
+        {
+          "seed": {
+            "entity": "project",
+            "ref": "home",
+            "fields": {
+              "name": "Home",
+              "color": "",
+              "icon": "",
+              "kind": "project",
+              "parent_id": null,
+              "sort_order": 0
+            }
+          }
+        },
+        {
+          "seed": {
+            "entity": "label",
+            "ref": "errand",
+            "fields": {
+              "name": "errand",
+              "color": "red"
+            }
+          }
+        },
+        {
+          "argv": [
+            "changes"
+          ],
+          "capture": {
+            "start": "cursor"
+          },
+          "exit": 0,
+          "stdout": "{\n  \"cursor\": 8\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "Renew passport",
+            "--due",
+            "2026-11-02",
+            "--priority",
+            "2",
+            "--project",
+            "Home",
+            "--label",
+            "errand"
+          ],
+          "capture": {
+            "t1": "id"
+          },
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"project_id\": \"<id:2>\",\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"Renew passport\",\n  \"notes\": \"\",\n  \"priority\": 2,\n  \"start_at\": null,\n  \"due_at\": 1793660340000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": null,\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": \"Home\",\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--json",
+            "{\"title\":\"From n8n\",\"notes\":\"mail body\",\"due\":\"2026-11-02T09:00\"}"
+          ],
+          "capture": {
+            "t2": "id"
+          },
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:4>\",\n  \"project_id\": null,\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"From n8n\",\n  \"notes\": \"mail body\",\n  \"priority\": 4,\n  \"start_at\": null,\n  \"due_at\": 1793606400000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": null,\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": null,\n  \"labels\": []\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "quick",
+            "Pay rent every month on the 1st #Home p1 @errand"
+          ],
+          "capture": {
+            "t3": "id"
+          },
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:5>\",\n  \"project_id\": \"<id:2>\",\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"Pay rent on the 1st\",\n  \"notes\": \"\",\n  \"priority\": 1,\n  \"start_at\": null,\n  \"due_at\": 1792015140000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": \"Home\",\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Renew passport\",\n    \"notes\": \"\",\n    \"priority\": 2,\n    \"start_at\": null,\n    \"due_at\": 1793660340000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  {\n    \"id\": \"<id:4>\",\n    \"project_id\": null,\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"From n8n\",\n    \"notes\": \"mail body\",\n    \"priority\": 4,\n    \"start_at\": null,\n    \"due_at\": 1793606400000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": null,\n    \"labels\": []\n  },\n  {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--project",
+            "home",
+            "--label",
+            "errand"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Renew passport\",\n    \"notes\": \"\",\n    \"priority\": 2,\n    \"start_at\": null,\n    \"due_at\": 1793660340000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--filter",
+            "p1 | p2"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Renew passport\",\n    \"notes\": \"\",\n    \"priority\": 2,\n    \"start_at\": null,\n    \"due_at\": 1793660340000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--due-before",
+            "2026-11-03",
+            "--due-after",
+            "today"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Renew passport\",\n    \"notes\": \"\",\n    \"priority\": 2,\n    \"start_at\": null,\n    \"due_at\": 1793660340000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  {\n    \"id\": \"<id:4>\",\n    \"project_id\": null,\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"From n8n\",\n    \"notes\": \"mail body\",\n    \"priority\": 4,\n    \"start_at\": null,\n    \"due_at\": 1793606400000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": null,\n    \"labels\": []\n  },\n  {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--search",
+            "MAIL"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:4>\",\n    \"project_id\": null,\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"From n8n\",\n    \"notes\": \"mail body\",\n    \"priority\": 4,\n    \"start_at\": null,\n    \"due_at\": 1793606400000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": null,\n    \"labels\": []\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "get",
+            "{t1}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"project_id\": \"<id:2>\",\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"Renew passport\",\n  \"notes\": \"\",\n  \"priority\": 2,\n  \"start_at\": null,\n  \"due_at\": 1793660340000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": null,\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": \"Home\",\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "update",
+            "{t1}",
+            "--notes",
+            "bring photo",
+            "--due",
+            "none"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"project_id\": \"<id:2>\",\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"Renew passport\",\n  \"notes\": \"bring photo\",\n  \"priority\": 2,\n  \"start_at\": null,\n  \"due_at\": null,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": null,\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": \"Home\",\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "update",
+            "{t2}",
+            "--json",
+            "{\"priority\": 3, \"labels\": [\"errand\"], \"recurrence\": \"FREQ=WEEKLY\"}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:4>\",\n  \"project_id\": null,\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"From n8n\",\n  \"notes\": \"mail body\",\n  \"priority\": 3,\n  \"start_at\": null,\n  \"due_at\": 1793606400000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": \"FREQ=WEEKLY\",\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": null,\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "update",
+            "{t2}",
+            "--title",
+            "From n8n"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:4>\",\n  \"project_id\": null,\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"From n8n\",\n  \"notes\": \"mail body\",\n  \"priority\": 3,\n  \"start_at\": null,\n  \"due_at\": 1793606400000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": \"FREQ=WEEKLY\",\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": null,\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "complete",
+            "{t3}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"task\": {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": true,\n    \"completed_at\": 1791972000000,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  \"next\": {\n    \"id\": \"<id:6>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1794697140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  }\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "complete",
+            "{t3}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"task\": {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": true,\n    \"completed_at\": 1791972000000,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  \"next\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "reopen",
+            "{t3}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"task\": {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  \"next\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "delete",
+            "{t2}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"deleted\": \"<id:4>\"\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "get",
+            "{t2}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:4>\",\n  \"project_id\": null,\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"From n8n\",\n  \"notes\": \"mail body\",\n  \"priority\": 3,\n  \"start_at\": null,\n  \"due_at\": 1793606400000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": 1791972000000,\n  \"recurrence\": \"FREQ=WEEKLY\",\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": null,\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--status",
+            "all"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Renew passport\",\n    \"notes\": \"bring photo\",\n    \"priority\": 2,\n    \"start_at\": null,\n    \"due_at\": null,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  {\n    \"id\": \"<id:6>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1794697140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "changes",
+            "--since",
+            "{start}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"cursor\": 69,\n  \"created\": [\n    {\n      \"id\": \"<id:1>\",\n      \"project_id\": \"<id:2>\",\n      \"section_id\": null,\n      \"parent_id\": null,\n      \"title\": \"Renew passport\",\n      \"notes\": \"bring photo\",\n      \"priority\": 2,\n      \"start_at\": null,\n      \"due_at\": null,\n      \"is_completed\": false,\n      \"completed_at\": null,\n      \"archived_at\": null,\n      \"deleted_at\": null,\n      \"recurrence\": null,\n      \"assignee_id\": null,\n      \"estimate_min\": null,\n      \"label_ids\": [\n        \"<id:3>\"\n      ],\n      \"sort_order\": 0,\n      \"created_at\": 1791972000000,\n      \"updated_at\": 1791972000000,\n      \"project_name\": \"Home\",\n      \"labels\": [\n        \"errand\"\n      ]\n    },\n    {\n      \"id\": \"<id:5>\",\n      \"project_id\": \"<id:2>\",\n      \"section_id\": null,\n      \"parent_id\": null,\n      \"title\": \"Pay rent on the 1st\",\n      \"notes\": \"\",\n      \"priority\": 1,\n      \"start_at\": null,\n      \"due_at\": 1792015140000,\n      \"is_completed\": false,\n      \"completed_at\": null,\n      \"archived_at\": null,\n      \"deleted_at\": null,\n      \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n      \"assignee_id\": null,\n      \"estimate_min\": null,\n      \"label_ids\": [\n        \"<id:3>\"\n      ],\n      \"sort_order\": 0,\n      \"created_at\": 1791972000000,\n      \"updated_at\": 1791972000000,\n      \"project_name\": \"Home\",\n      \"labels\": [\n        \"errand\"\n      ]\n    },\n    {\n      \"id\": \"<id:6>\",\n      \"project_id\": \"<id:2>\",\n      \"section_id\": null,\n      \"parent_id\": null,\n      \"title\": \"Pay rent on the 1st\",\n      \"notes\": \"\",\n      \"priority\": 1,\n      \"start_at\": null,\n      \"due_at\": 1794697140000,\n      \"is_completed\": false,\n      \"completed_at\": null,\n      \"archived_at\": null,\n      \"deleted_at\": null,\n      \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n      \"assignee_id\": null,\n      \"estimate_min\": null,\n      \"label_ids\": [\n        \"<id:3>\"\n      ],\n      \"sort_order\": 0,\n      \"created_at\": 1791972000000,\n      \"updated_at\": 1791972000000,\n      \"project_name\": \"Home\",\n      \"labels\": [\n        \"errand\"\n      ]\n    }\n  ],\n  \"updated\": [],\n  \"completed\": [],\n  \"deleted\": [\n    {\n      \"id\": \"<id:4>\",\n      \"project_id\": null,\n      \"section_id\": null,\n      \"parent_id\": null,\n      \"title\": \"From n8n\",\n      \"notes\": \"mail body\",\n      \"priority\": 3,\n      \"start_at\": null,\n      \"due_at\": 1793606400000,\n      \"is_completed\": false,\n      \"completed_at\": null,\n      \"archived_at\": null,\n      \"deleted_at\": 1791972000000,\n      \"recurrence\": \"FREQ=WEEKLY\",\n      \"assignee_id\": null,\n      \"estimate_min\": null,\n      \"label_ids\": [\n        \"<id:3>\"\n      ],\n      \"sort_order\": 0,\n      \"created_at\": 1791972000000,\n      \"updated_at\": 1791972000000,\n      \"project_name\": null,\n      \"labels\": [\n        \"errand\"\n      ]\n    }\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "projects",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:2>\",\n    \"owner_id\": \"\",\n    \"name\": \"Home\",\n    \"color\": \"\",\n    \"icon\": \"\",\n    \"sort_order\": 0,\n    \"is_favorite\": false,\n    \"parent_id\": null,\n    \"kind\": \"project\",\n    \"default_view\": \"list\",\n    \"archived_at\": null,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "labels",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:3>\",\n    \"owner_id\": \"\",\n    \"name\": \"errand\",\n    \"color\": \"red\"\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "todo",
+            "tasks",
+            "list",
+            "--status",
+            "completed"
+          ],
+          "exit": 0,
+          "stdout": "[]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "todo",
+            "projects",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:2>\",\n    \"owner_id\": \"\",\n    \"name\": \"Home\",\n    \"color\": \"\",\n    \"icon\": \"\",\n    \"sort_order\": 0,\n    \"is_favorite\": false,\n    \"parent_id\": null,\n    \"kind\": \"project\",\n    \"default_view\": \"list\",\n    \"archived_at\": null,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        }
+      ]
+    },
+    {
+      "name": "errors",
+      "tz": "UTC",
+      "steps": [
+        {
+          "argv": [
+            "tasks",
+            "get",
+            "00000000-0000-4000-8000-000000000099"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"no task \\\"<id:1>\\\"\",\"code\":\"unknown_task\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "bogus"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"unknown command \\\"tasks bogus\\\"\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "todo",
+            "nothing",
+            "here"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"unknown command \\\"todo nothing here\\\"\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "get"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"tasks get\\\" needs a task id\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "quick"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"tasks quick\\\" needs the text\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--status",
+            "nope"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"--status is open, completed or all\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--label",
+            "a",
+            "--label",
+            "b"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"tasks list takes one --label\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--notes",
+            "x"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"tasks add needs --title (or a title in --json)\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "   "
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"a task needs a title\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "x",
+            "--priority",
+            "7"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"priority must be 1 (highest) to 4 (none)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "x",
+            "--priority",
+            "high"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"priority must be 1 (highest) to 4 (none)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "x",
+            "--due",
+            "someday"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"cannot read the date \\\"someday\\\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "x",
+            "--due",
+            "2026-02-30"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"cannot read the date \\\"2026-02-30\\\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "x",
+            "--project",
+            "Nope"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"no project \\\"Nope\\\"\",\"code\":\"unknown_project\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "x",
+            "--label",
+            "nope"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"no label \\\"nope\\\"\",\"code\":\"unknown_label\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--json",
+            "[1]"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"--json must be an object\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--json",
+            "{"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"--json is not valid JSON\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--json",
+            "{\"title\": \"x\", \"labels\": \"a\"}"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"labels must be a list\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--filter",
+            "(p1"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"expected ')' (at 3)\",\"code\":\"bad_filter\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--filter",
+            "due:soon"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"unknown due value 'soon' (expected today, tomorrow, week, month, weekend, next-week, overdue, none, or Nd e.g. 7d) (at 0)\",\"code\":\"bad_filter\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--project",
+            "Nope"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"no project \\\"Nope\\\"\",\"code\":\"unknown_project\"}"
+          ]
+        },
+        {
+          "argv": [
+            "changes",
+            "--since",
+            "abc"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"--since takes a cursor from an earlier run\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "changes",
+            "--since",
+            "1.5"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"--since takes a cursor from an earlier run\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--foo"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"Unknown option '--foo'. To specify a positional argument starting with a '-', place it at the end of the command after '--', as in '-- \\\"--foo\\\"\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"Option '--title <value>' argument missing\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "env": {
+            "ATLAS_TOKEN": "nope"
+          },
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"ATLAS_TOKEN is not an Atlas API token\",\"code\":\"invalid_token\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "env": {
+            "ATLAS_TOKEN": ""
+          },
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"set ATLAS_TOKEN to an API token\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "env": {
+            "ATLAS_URL": ""
+          },
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"set ATLAS_URL (or pass --url)\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "--version"
+          ],
+          "exit": 0,
+          "stdout": "0.1.11-rc.1",
+          "stderr": []
+        },
+        {
+          "argv": [],
+          "exit": 2,
+          "stdout": "<usage>",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "--help"
+          ],
+          "exit": 0,
+          "stdout": "<usage>",
+          "stderr": []
+        },
+        {
+          "revoke": true
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"unauthorized (revoked or wrong token?)\",\"code\":\"unauthorized\",\"status\":401}"
+          ]
+        }
+      ]
+    }
+  ]
+}

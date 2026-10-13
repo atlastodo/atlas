@@ -412,6 +412,42 @@ impl Store {
         }
     }
 
+    /// The ops the current state is built from (each field's winner and each tombstone), with the
+    /// values as held here: what rebuilds this state in another store.
+    pub fn winning_ops(&self) -> Vec<Operation> {
+        let mut out = Vec::new();
+        for (entity, kind) in &self.entities {
+            for id in &kind.order {
+                let state = &kind.by_id[id];
+                let Ok(entity_id) = Uuid::parse_str(id) else {
+                    continue;
+                };
+                if let (Some(ts), Some(op)) = (state.deleted, state.deleted_op) {
+                    out.push(Operation {
+                        id: op,
+                        entity: *entity,
+                        entity_id,
+                        change: Change::Delete,
+                        ts,
+                    });
+                }
+                for (field, fs) in &state.fields {
+                    out.push(Operation {
+                        id: fs.op,
+                        entity: *entity,
+                        entity_id,
+                        change: Change::Set {
+                            field: field.clone(),
+                            value: fs.value.clone(),
+                        },
+                        ts: fs.ts,
+                    });
+                }
+            }
+        }
+        out
+    }
+
     pub fn unsynced_ops(&self) -> Vec<Operation> {
         self.outbox.clone()
     }

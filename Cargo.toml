@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/atlas-core", "crates/atlas-server", "crates/atlas-client"]
+members = ["crates/atlas-core", "crates/atlas-server", "crates/atlas-client", "crates/atlas-cli"]
 
 [workspace.package]
 version = "0.1.11-rc.1"

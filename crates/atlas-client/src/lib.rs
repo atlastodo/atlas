@@ -21,6 +21,7 @@ pub mod project_keys;
 pub mod rules;
 pub mod scope;
 pub mod session;
+pub mod state;
 pub mod store;
 pub mod sync;
 pub mod testing;
