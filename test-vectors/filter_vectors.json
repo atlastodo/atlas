@@ -1,0 +1,1613 @@
+{
+  "_doc": "The filter query language (packages/shared/src/filterQuery.ts). Each case parses `query` and evaluates it on every task at `now` in `tz` (weeks start on Monday): `expected` lists the ids that match, or `error` and `at` (a UTF-16 offset) say why it does not parse. A task's `labels` and `project` are names. Asserted by packages/shared/src/rulesVectors.test.ts and crates/atlas-client.",
+  "tasks": [
+    {
+      "id": "t1",
+      "title": "Write report",
+      "priority": 1,
+      "due_at": 1791979200000,
+      "labels": [
+        "work"
+      ],
+      "project": "Work"
+    },
+    {
+      "id": "t2",
+      "title": "Buy milk",
+      "priority": 4,
+      "due_at": 1791885600000,
+      "labels": [
+        "errand"
+      ],
+      "project": null
+    },
+    {
+      "id": "t3",
+      "title": "Plan trip",
+      "priority": 2,
+      "due_at": null,
+      "labels": [],
+      "project": "Home"
+    },
+    {
+      "id": "t4",
+      "title": "Call plumber",
+      "priority": 3,
+      "due_at": 1792231200000,
+      "labels": [
+        "Errand",
+        "home"
+      ],
+      "project": "Home"
+    },
+    {
+      "id": "t5",
+      "title": "Weekend hike",
+      "priority": 4,
+      "due_at": 1792249200000,
+      "labels": [],
+      "project": null
+    },
+    {
+      "id": "t6",
+      "title": "Next week sync",
+      "priority": 2,
+      "due_at": 1792490400000,
+      "labels": [
+        "work"
+      ],
+      "project": "Work"
+    },
+    {
+      "id": "t7",
+      "title": "Done overdue",
+      "priority": 1,
+      "due_at": 1791799200000,
+      "labels": [],
+      "project": null,
+      "is_completed": true
+    },
+    {
+      "id": "t8",
+      "title": "Month end",
+      "priority": 4,
+      "due_at": 1793476800000,
+      "labels": [],
+      "project": "work"
+    },
+    {
+      "id": "t9",
+      "title": "Next month",
+      "priority": 4,
+      "due_at": 1793606400000,
+      "labels": [],
+      "project": null
+    }
+  ],
+  "cases": [
+    {
+      "query": "p1",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1",
+        "t7"
+      ]
+    },
+    {
+      "query": "P2",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t3",
+        "t6"
+      ]
+    },
+    {
+      "query": "@work",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1",
+        "t6"
+      ]
+    },
+    {
+      "query": "@ERRAND",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t2",
+        "t4"
+      ]
+    },
+    {
+      "query": "#home",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t3",
+        "t4"
+      ]
+    },
+    {
+      "query": "#Work",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1",
+        "t6",
+        "t8"
+      ]
+    },
+    {
+      "query": "today",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": []
+    },
+    {
+      "query": "due:today",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1"
+      ]
+    },
+    {
+      "query": "due:tomorrow",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": []
+    },
+    {
+      "query": "due:week",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1",
+        "t4",
+        "t5",
+        "t6"
+      ]
+    },
+    {
+      "query": "due:this-week",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1",
+        "t4",
+        "t5",
+        "t6"
+      ]
+    },
+    {
+      "query": "due:month",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1",
+        "t2",
+        "t4",
+        "t5",
+        "t6",
+        "t7",
+        "t8"
+      ]
+    },
+    {
+      "query": "due:weekend",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t4",
+        "t5"
+      ]
+    },
+    {
+      "query": "due:next-week",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t6"
+      ]
+    },
+    {
+      "query": "due:nextweek",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t6"
+      ]
+    },
+    {
+      "query": "due:overdue",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t2"
+      ]
+    },
+    {
+      "query": "overdue",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t2"
+      ]
+    },
+    {
+      "query": "due:none",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t3"
+      ]
+    },
+    {
+      "query": "due:3d",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1"
+      ]
+    },
+    {
+      "query": "due:0d",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": []
+    },
+    {
+      "query": "milk",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t2"
+      ]
+    },
+    {
+      "query": "MILK",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t2"
+      ]
+    },
+    {
+      "query": "plan trip",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t3"
+      ]
+    },
+    {
+      "query": "p1 | p2",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1",
+        "t3",
+        "t6",
+        "t7"
+      ]
+    },
+    {
+      "query": "p1 & @work",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1"
+      ]
+    },
+    {
+      "query": "p1 @work",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1"
+      ]
+    },
+    {
+      "query": "!due:none",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1",
+        "t2",
+        "t4",
+        "t5",
+        "t6",
+        "t7",
+        "t8",
+        "t9"
+      ]
+    },
+    {
+      "query": "not p4",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1",
+        "t3",
+        "t4",
+        "t6",
+        "t7"
+      ]
+    },
+    {
+      "query": "(p1 | p2) & #work",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1",
+        "t6"
+      ]
+    },
+    {
+      "query": "@work or #home and not p3",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1",
+        "t3",
+        "t6"
+      ]
+    },
+    {
+      "query": "!(p1 | p4)",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t3",
+        "t4",
+        "t6"
+      ]
+    },
+    {
+      "query": "p5",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": []
+    },
+    {
+      "query": "@",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "error": "expected a label name after '@'",
+      "at": 0
+    },
+    {
+      "query": "#",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "error": "expected a project name after '#'",
+      "at": 0
+    },
+    {
+      "query": "due:soon",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "error": "unknown due value 'soon' (expected today, tomorrow, week, month, weekend, next-week, overdue, none, or Nd e.g. 7d)",
+      "at": 0
+    },
+    {
+      "query": "(p1",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "error": "expected ')'",
+      "at": 3
+    },
+    {
+      "query": "p1)",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "error": "unexpected trailing input",
+      "at": 2
+    },
+    {
+      "query": "",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "error": "empty query",
+      "at": 0
+    },
+    {
+      "query": "   ",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "error": "empty query",
+      "at": 0
+    },
+    {
+      "query": "& p1",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "error": "unexpected 'and'",
+      "at": 0
+    },
+    {
+      "query": "p1 &",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "error": "unexpected end of query",
+      "at": 4
+    },
+    {
+      "query": "!",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "error": "unexpected end of query",
+      "at": 1
+    },
+    {
+      "query": "()",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "error": "unexpected 'rparen'",
+      "at": 1
+    },
+    {
+      "query": "ünïcödé (",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "error": "unexpected end of query",
+      "at": 9
+    },
+    {
+      "query": "due:Week",
+      "now": 1791972000000,
+      "tz": "UTC",
+      "expected": [
+        "t1",
+        "t4",
+        "t5",
+        "t6"
+      ]
+    },
+    {
+      "query": "p1",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1",
+        "t7"
+      ]
+    },
+    {
+      "query": "P2",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t3",
+        "t6"
+      ]
+    },
+    {
+      "query": "@work",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1",
+        "t6"
+      ]
+    },
+    {
+      "query": "@ERRAND",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t2",
+        "t4"
+      ]
+    },
+    {
+      "query": "#home",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t3",
+        "t4"
+      ]
+    },
+    {
+      "query": "#Work",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1",
+        "t6",
+        "t8"
+      ]
+    },
+    {
+      "query": "today",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": []
+    },
+    {
+      "query": "due:today",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1"
+      ]
+    },
+    {
+      "query": "due:tomorrow",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": []
+    },
+    {
+      "query": "due:week",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1",
+        "t4",
+        "t5",
+        "t6"
+      ]
+    },
+    {
+      "query": "due:this-week",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1",
+        "t4",
+        "t5",
+        "t6"
+      ]
+    },
+    {
+      "query": "due:month",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1",
+        "t2",
+        "t4",
+        "t5",
+        "t6",
+        "t7",
+        "t8"
+      ]
+    },
+    {
+      "query": "due:weekend",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t4",
+        "t5"
+      ]
+    },
+    {
+      "query": "due:next-week",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t6"
+      ]
+    },
+    {
+      "query": "due:nextweek",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t6"
+      ]
+    },
+    {
+      "query": "due:overdue",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t2"
+      ]
+    },
+    {
+      "query": "overdue",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t2"
+      ]
+    },
+    {
+      "query": "due:none",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t3"
+      ]
+    },
+    {
+      "query": "due:3d",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1"
+      ]
+    },
+    {
+      "query": "due:0d",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": []
+    },
+    {
+      "query": "milk",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t2"
+      ]
+    },
+    {
+      "query": "MILK",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t2"
+      ]
+    },
+    {
+      "query": "plan trip",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t3"
+      ]
+    },
+    {
+      "query": "p1 | p2",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1",
+        "t3",
+        "t6",
+        "t7"
+      ]
+    },
+    {
+      "query": "p1 & @work",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1"
+      ]
+    },
+    {
+      "query": "p1 @work",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1"
+      ]
+    },
+    {
+      "query": "!due:none",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1",
+        "t2",
+        "t4",
+        "t5",
+        "t6",
+        "t7",
+        "t8",
+        "t9"
+      ]
+    },
+    {
+      "query": "not p4",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1",
+        "t3",
+        "t4",
+        "t6",
+        "t7"
+      ]
+    },
+    {
+      "query": "(p1 | p2) & #work",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1",
+        "t6"
+      ]
+    },
+    {
+      "query": "@work or #home and not p3",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1",
+        "t3",
+        "t6"
+      ]
+    },
+    {
+      "query": "!(p1 | p4)",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t3",
+        "t4",
+        "t6"
+      ]
+    },
+    {
+      "query": "p5",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": []
+    },
+    {
+      "query": "@",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "error": "expected a label name after '@'",
+      "at": 0
+    },
+    {
+      "query": "#",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "error": "expected a project name after '#'",
+      "at": 0
+    },
+    {
+      "query": "due:soon",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "error": "unknown due value 'soon' (expected today, tomorrow, week, month, weekend, next-week, overdue, none, or Nd e.g. 7d)",
+      "at": 0
+    },
+    {
+      "query": "(p1",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "error": "expected ')'",
+      "at": 3
+    },
+    {
+      "query": "p1)",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "error": "unexpected trailing input",
+      "at": 2
+    },
+    {
+      "query": "",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "error": "empty query",
+      "at": 0
+    },
+    {
+      "query": "   ",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "error": "empty query",
+      "at": 0
+    },
+    {
+      "query": "& p1",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "error": "unexpected 'and'",
+      "at": 0
+    },
+    {
+      "query": "p1 &",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "error": "unexpected end of query",
+      "at": 4
+    },
+    {
+      "query": "!",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "error": "unexpected end of query",
+      "at": 1
+    },
+    {
+      "query": "()",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "error": "unexpected 'rparen'",
+      "at": 1
+    },
+    {
+      "query": "ünïcödé (",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "error": "unexpected end of query",
+      "at": 9
+    },
+    {
+      "query": "due:Week",
+      "now": 1791972000000,
+      "tz": "America/New_York",
+      "expected": [
+        "t1",
+        "t4",
+        "t5",
+        "t6"
+      ]
+    },
+    {
+      "query": "p1",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t1",
+        "t7"
+      ]
+    },
+    {
+      "query": "P2",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t3",
+        "t6"
+      ]
+    },
+    {
+      "query": "@work",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t1",
+        "t6"
+      ]
+    },
+    {
+      "query": "@ERRAND",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t2",
+        "t4"
+      ]
+    },
+    {
+      "query": "#home",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t3",
+        "t4"
+      ]
+    },
+    {
+      "query": "#Work",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t1",
+        "t6",
+        "t8"
+      ]
+    },
+    {
+      "query": "today",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": []
+    },
+    {
+      "query": "due:today",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t4",
+        "t5"
+      ]
+    },
+    {
+      "query": "due:tomorrow",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": []
+    },
+    {
+      "query": "due:week",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t4",
+        "t5",
+        "t6"
+      ]
+    },
+    {
+      "query": "due:this-week",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t4",
+        "t5",
+        "t6"
+      ]
+    },
+    {
+      "query": "due:month",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t1",
+        "t2",
+        "t4",
+        "t5",
+        "t6",
+        "t7",
+        "t8"
+      ]
+    },
+    {
+      "query": "due:weekend",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t4",
+        "t5"
+      ]
+    },
+    {
+      "query": "due:next-week",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t6"
+      ]
+    },
+    {
+      "query": "due:nextweek",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t6"
+      ]
+    },
+    {
+      "query": "due:overdue",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t1",
+        "t2",
+        "t4"
+      ]
+    },
+    {
+      "query": "overdue",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t1",
+        "t2",
+        "t4"
+      ]
+    },
+    {
+      "query": "due:none",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t3"
+      ]
+    },
+    {
+      "query": "due:3d",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t4",
+        "t5"
+      ]
+    },
+    {
+      "query": "due:0d",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": []
+    },
+    {
+      "query": "milk",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t2"
+      ]
+    },
+    {
+      "query": "MILK",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t2"
+      ]
+    },
+    {
+      "query": "plan trip",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t3"
+      ]
+    },
+    {
+      "query": "p1 | p2",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t1",
+        "t3",
+        "t6",
+        "t7"
+      ]
+    },
+    {
+      "query": "p1 & @work",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t1"
+      ]
+    },
+    {
+      "query": "p1 @work",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t1"
+      ]
+    },
+    {
+      "query": "!due:none",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t1",
+        "t2",
+        "t4",
+        "t5",
+        "t6",
+        "t7",
+        "t8",
+        "t9"
+      ]
+    },
+    {
+      "query": "not p4",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t1",
+        "t3",
+        "t4",
+        "t6",
+        "t7"
+      ]
+    },
+    {
+      "query": "(p1 | p2) & #work",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t1",
+        "t6"
+      ]
+    },
+    {
+      "query": "@work or #home and not p3",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t1",
+        "t3",
+        "t6"
+      ]
+    },
+    {
+      "query": "!(p1 | p4)",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t3",
+        "t4",
+        "t6"
+      ]
+    },
+    {
+      "query": "p5",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": []
+    },
+    {
+      "query": "@",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "error": "expected a label name after '@'",
+      "at": 0
+    },
+    {
+      "query": "#",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "error": "expected a project name after '#'",
+      "at": 0
+    },
+    {
+      "query": "due:soon",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "error": "unknown due value 'soon' (expected today, tomorrow, week, month, weekend, next-week, overdue, none, or Nd e.g. 7d)",
+      "at": 0
+    },
+    {
+      "query": "(p1",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "error": "expected ')'",
+      "at": 3
+    },
+    {
+      "query": "p1)",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "error": "unexpected trailing input",
+      "at": 2
+    },
+    {
+      "query": "",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "error": "empty query",
+      "at": 0
+    },
+    {
+      "query": "   ",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "error": "empty query",
+      "at": 0
+    },
+    {
+      "query": "& p1",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "error": "unexpected 'and'",
+      "at": 0
+    },
+    {
+      "query": "p1 &",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "error": "unexpected end of query",
+      "at": 4
+    },
+    {
+      "query": "!",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "error": "unexpected end of query",
+      "at": 1
+    },
+    {
+      "query": "()",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "error": "unexpected 'rparen'",
+      "at": 1
+    },
+    {
+      "query": "ünïcödé (",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "error": "unexpected end of query",
+      "at": 9
+    },
+    {
+      "query": "due:Week",
+      "now": 1792238400000,
+      "tz": "Europe/Copenhagen",
+      "expected": [
+        "t4",
+        "t5",
+        "t6"
+      ]
+    },
+    {
+      "query": "p1",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t1",
+        "t7"
+      ]
+    },
+    {
+      "query": "P2",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t3",
+        "t6"
+      ]
+    },
+    {
+      "query": "@work",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t1",
+        "t6"
+      ]
+    },
+    {
+      "query": "@ERRAND",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t2",
+        "t4"
+      ]
+    },
+    {
+      "query": "#home",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t3",
+        "t4"
+      ]
+    },
+    {
+      "query": "#Work",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t1",
+        "t6",
+        "t8"
+      ]
+    },
+    {
+      "query": "today",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": []
+    },
+    {
+      "query": "due:today",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": []
+    },
+    {
+      "query": "due:tomorrow",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t6"
+      ]
+    },
+    {
+      "query": "due:week",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t6"
+      ]
+    },
+    {
+      "query": "due:this-week",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t6"
+      ]
+    },
+    {
+      "query": "due:month",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t1",
+        "t2",
+        "t4",
+        "t5",
+        "t6",
+        "t7"
+      ]
+    },
+    {
+      "query": "due:weekend",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": []
+    },
+    {
+      "query": "due:next-week",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t8"
+      ]
+    },
+    {
+      "query": "due:nextweek",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t8"
+      ]
+    },
+    {
+      "query": "due:overdue",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t1",
+        "t2",
+        "t4",
+        "t5"
+      ]
+    },
+    {
+      "query": "overdue",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t1",
+        "t2",
+        "t4",
+        "t5"
+      ]
+    },
+    {
+      "query": "due:none",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t3"
+      ]
+    },
+    {
+      "query": "due:3d",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t6"
+      ]
+    },
+    {
+      "query": "due:0d",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": []
+    },
+    {
+      "query": "milk",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t2"
+      ]
+    },
+    {
+      "query": "MILK",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t2"
+      ]
+    },
+    {
+      "query": "plan trip",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t3"
+      ]
+    },
+    {
+      "query": "p1 | p2",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t1",
+        "t3",
+        "t6",
+        "t7"
+      ]
+    },
+    {
+      "query": "p1 & @work",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t1"
+      ]
+    },
+    {
+      "query": "p1 @work",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t1"
+      ]
+    },
+    {
+      "query": "!due:none",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t1",
+        "t2",
+        "t4",
+        "t5",
+        "t6",
+        "t7",
+        "t8",
+        "t9"
+      ]
+    },
+    {
+      "query": "not p4",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t1",
+        "t3",
+        "t4",
+        "t6",
+        "t7"
+      ]
+    },
+    {
+      "query": "(p1 | p2) & #work",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t1",
+        "t6"
+      ]
+    },
+    {
+      "query": "@work or #home and not p3",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t1",
+        "t3",
+        "t6"
+      ]
+    },
+    {
+      "query": "!(p1 | p4)",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t3",
+        "t4",
+        "t6"
+      ]
+    },
+    {
+      "query": "p5",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": []
+    },
+    {
+      "query": "@",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "error": "expected a label name after '@'",
+      "at": 0
+    },
+    {
+      "query": "#",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "error": "expected a project name after '#'",
+      "at": 0
+    },
+    {
+      "query": "due:soon",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "error": "unknown due value 'soon' (expected today, tomorrow, week, month, weekend, next-week, overdue, none, or Nd e.g. 7d)",
+      "at": 0
+    },
+    {
+      "query": "(p1",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "error": "expected ')'",
+      "at": 3
+    },
+    {
+      "query": "p1)",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "error": "unexpected trailing input",
+      "at": 2
+    },
+    {
+      "query": "",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "error": "empty query",
+      "at": 0
+    },
+    {
+      "query": "   ",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "error": "empty query",
+      "at": 0
+    },
+    {
+      "query": "& p1",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "error": "unexpected 'and'",
+      "at": 0
+    },
+    {
+      "query": "p1 &",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "error": "unexpected end of query",
+      "at": 4
+    },
+    {
+      "query": "!",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "error": "unexpected end of query",
+      "at": 1
+    },
+    {
+      "query": "()",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "error": "unexpected 'rparen'",
+      "at": 1
+    },
+    {
+      "query": "ünïcödé (",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "error": "unexpected end of query",
+      "at": 9
+    },
+    {
+      "query": "due:Week",
+      "now": 1792366200000,
+      "tz": "Asia/Tokyo",
+      "expected": [
+        "t6"
+      ]
+    }
+  ]
+}

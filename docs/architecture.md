@@ -11,17 +11,19 @@ records why the main choices were made.
 
 ## Components
 
-| Path                   | Language              | Role                                                                                                                                            |
-| ---------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `crates/atlas-core`    | Rust                  | The hybrid logical clock, the op log types and the bundled app manifest registry. No I/O.                                                       |
-| `manifests/`           | JSON                  | One manifest per app of the suite (`todo.json`): its entity kinds and their plaintext fields. Compiled into the server, bundled by the clients. |
-| `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.                 |
-| `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                                   |
-| `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client.                                                             |
-| `packages/shared`      | TypeScript            | Pure logic for every client: recurrence, quick-add parsing, filters, habits, stats, ordering, TickTick/Todoist import, i18n catalogs.           |
-| `apps/mobile`          | React Native + Expo   | The only UI. Runs natively on Android and iOS and in the browser through react-native-web.                                                      |
-| `apps/electron`        | TypeScript (Electron) | Desktop shell that loads the web export from an `app://` origin.                                                                                |
-| `test-vectors/`        | JSON                  | Shared fixtures. The conflict and recovery-challenge vectors are read by both the Rust and TypeScript tests; the others are TypeScript only.    |
+| Path                   | Language              | Role                                                                                                                                                                                           |
+| ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/atlas-core`    | Rust                  | The hybrid logical clock, the op log types and the bundled app manifest registry. No I/O.                                                                                                      |
+| `manifests/`           | JSON                  | One manifest per app of the suite (`todo.json`): its entity kinds and their plaintext fields. Compiled into the server, bundled by the clients.                                                |
+| `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.                                                                |
+| `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                                                                                  |
+| `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client.                                                                                                            |
+| `packages/shared`      | TypeScript            | Pure logic for every client: recurrence, quick-add parsing, filters, habits, stats, ordering, TickTick/Todoist import, i18n catalogs.                                                          |
+| `apps/mobile`          | React Native + Expo   | The only UI. Runs natively on Android and iOS and in the browser through react-native-web.                                                                                                     |
+| `apps/electron`        | TypeScript (Electron) | Desktop shell that loads the web export from an `app://` origin.                                                                                                                               |
+| `crates/atlas-client`  | Rust                  | A headless client for integrations: API-token sessions, the end-to-end encryption, sync and the task rules of `packages/client-core` and `packages/shared`, kept at parity by `test-vectors/`. |
+| `crates/atlas-cli`     | Rust                  | The `atlas` command line over `atlas-client`, released as one static binary per platform.                                                                                                      |
+| `test-vectors/`        | JSON                  | Shared fixtures (crypto, conflicts, recurrence, task rules, quick add, filters, CLI runs), read by both the Rust and the TypeScript tests.                                                     |
 
 ## How the clients share code
 

@@ -1,0 +1,729 @@
+{
+  "_doc": "The task rules (packages/shared/src/taskOps.ts). Each scenario seeds a store with `task` (the fields of task 00000000-0000-4000-8000-000000000001) and its `reminders`, then runs `action` at `now` in `tz` as `actor`: `create` with `input`, `update` with `patch` (fields in order), `complete`, `reopen` or `delete`. `expected` lists the field values the action wrote: to the task (`written`; for `create`, the new task), to a spawned next occurrence (`spawned`), and to new activity and reminder entities, in the order written. `<spawned>` and `<created>` stand for the new task's id. `result` is updateTask's or softDeleteTask's return value, or for complete/reopen whether a task was spawned. Asserted by packages/shared/src/rulesVectors.test.ts and crates/atlas-client.",
+  "scenarios": [
+    {
+      "name": "create a plain task",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "action": "create",
+      "input": {
+        "title": "Plain"
+      },
+      "result": null,
+      "expected": {
+        "written": {
+          "title": "Plain",
+          "priority": 4,
+          "is_completed": false,
+          "created_at": 1791972000000,
+          "updated_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [],
+        "reminders": []
+      }
+    },
+    {
+      "name": "create with every field",
+      "tz": "Europe/Copenhagen",
+      "now": 1791972000000,
+      "actor": "u1",
+      "action": "create",
+      "input": {
+        "title": "Full",
+        "notes": "n",
+        "priority": 2,
+        "project_id": "p1",
+        "section_id": "s1",
+        "parent_id": "t0",
+        "start_at": 1791972000000,
+        "due_at": 1792231200000,
+        "recurrence": "FREQ=WEEKLY",
+        "assignee_id": "u2",
+        "estimate_min": 30,
+        "label_ids": [
+          "l1",
+          "l2"
+        ],
+        "sort_order": 5
+      },
+      "result": null,
+      "expected": {
+        "written": {
+          "project_id": "p1",
+          "section_id": "s1",
+          "parent_id": "t0",
+          "title": "Full",
+          "priority": 2,
+          "is_completed": false,
+          "created_at": 1791972000000,
+          "updated_at": 1791972000000,
+          "notes": "n",
+          "due_at": 1792231200000,
+          "start_at": 1791972000000,
+          "recurrence": "FREQ=WEEKLY",
+          "assignee_id": "u2",
+          "estimate_min": 30,
+          "label_ids": [
+            "l1",
+            "l2"
+          ],
+          "sort_order": 5
+        },
+        "spawned": null,
+        "activities": [],
+        "reminders": []
+      }
+    },
+    {
+      "name": "create a monthly task anchors its day",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": null,
+      "action": "create",
+      "input": {
+        "title": "Rent",
+        "due_at": 1793437200000,
+        "recurrence": "FREQ=MONTHLY"
+      },
+      "result": null,
+      "expected": {
+        "written": {
+          "title": "Rent",
+          "priority": 4,
+          "is_completed": false,
+          "created_at": 1791972000000,
+          "updated_at": 1791972000000,
+          "due_at": 1793437200000,
+          "recurrence": "FREQ=MONTHLY;BYMONTHDAY=31"
+        },
+        "spawned": null,
+        "activities": [],
+        "reminders": []
+      }
+    },
+    {
+      "name": "create with empty labels",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": null,
+      "action": "create",
+      "input": {
+        "title": "No labels",
+        "label_ids": []
+      },
+      "result": null,
+      "expected": {
+        "written": {
+          "title": "No labels",
+          "priority": 4,
+          "is_completed": false,
+          "created_at": 1791972000000,
+          "updated_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [],
+        "reminders": []
+      }
+    },
+    {
+      "name": "complete a one-off task",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Once",
+        "priority": 4,
+        "is_completed": false,
+        "created_at": 1,
+        "updated_at": 1,
+        "due_at": 1791972000000
+      },
+      "action": "complete",
+      "result": false,
+      "expected": {
+        "written": {
+          "is_completed": true,
+          "completed_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "status",
+            "to": "completed",
+            "created_at": 1791972000000
+          }
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "name": "complete without an actor writes no activity",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": null,
+      "task": {
+        "title": "Once",
+        "is_completed": false
+      },
+      "action": "complete",
+      "result": false,
+      "expected": {
+        "written": {
+          "is_completed": true,
+          "completed_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [],
+        "reminders": []
+      }
+    },
+    {
+      "name": "complete a daily task spawns the next",
+      "tz": "Europe/Copenhagen",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Daily",
+        "notes": "x",
+        "priority": 2,
+        "project_id": "p1",
+        "is_completed": false,
+        "due_at": 1791928740000,
+        "start_at": 1791874800000,
+        "recurrence": "FREQ=DAILY",
+        "label_ids": [
+          "l1"
+        ],
+        "estimate_min": 15,
+        "assignee_id": "u2"
+      },
+      "reminders": [
+        {
+          "at": 1791921600000,
+          "created_at": 1
+        },
+        {
+          "offset_min_before_due": 30,
+          "created_at": 1
+        }
+      ],
+      "action": "complete",
+      "result": true,
+      "expected": {
+        "written": {
+          "is_completed": true,
+          "completed_at": 1791972000000
+        },
+        "spawned": {
+          "project_id": "p1",
+          "title": "Daily",
+          "priority": 2,
+          "is_completed": false,
+          "created_at": 1791972000000,
+          "updated_at": 1791972000000,
+          "notes": "x",
+          "due_at": 1792015140000,
+          "start_at": 1791961200000,
+          "recurrence": "FREQ=DAILY",
+          "assignee_id": "u2",
+          "estimate_min": 15,
+          "label_ids": [
+            "l1"
+          ]
+        },
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "status",
+            "to": "completed",
+            "created_at": 1791972000000
+          }
+        ],
+        "reminders": [
+          {
+            "task_id": "<spawned>",
+            "at": 1792008000000,
+            "created_at": 1791972000000
+          },
+          {
+            "task_id": "<spawned>",
+            "offset_min_before_due": 30,
+            "created_at": 1791972000000
+          }
+        ]
+      }
+    },
+    {
+      "name": "complete a monthly task across DST",
+      "tz": "Europe/Copenhagen",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Monthly",
+        "is_completed": false,
+        "due_at": 1792047600000,
+        "recurrence": "FREQ=MONTHLY;BYMONTHDAY=15"
+      },
+      "action": "complete",
+      "result": true,
+      "expected": {
+        "written": {
+          "is_completed": true,
+          "completed_at": 1791972000000
+        },
+        "spawned": {
+          "title": "Monthly",
+          "priority": 4,
+          "is_completed": false,
+          "created_at": 1791972000000,
+          "updated_at": 1791972000000,
+          "notes": "",
+          "due_at": 1794729600000,
+          "recurrence": "FREQ=MONTHLY;BYMONTHDAY=15"
+        },
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "status",
+            "to": "completed",
+            "created_at": 1791972000000
+          }
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "name": "complete after completion re-anchors",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Every 3 days",
+        "is_completed": false,
+        "due_at": 1790845200000,
+        "recurrence": "FREQ=DAILY;INTERVAL=3;MODE=COMPLETION"
+      },
+      "action": "complete",
+      "result": true,
+      "expected": {
+        "written": {
+          "is_completed": true,
+          "completed_at": 1791972000000
+        },
+        "spawned": {
+          "title": "Every 3 days",
+          "priority": 4,
+          "is_completed": false,
+          "created_at": 1791972000000,
+          "updated_at": 1791972000000,
+          "notes": "",
+          "due_at": 1792227600000,
+          "recurrence": "FREQ=DAILY;INTERVAL=3;MODE=COMPLETION"
+        },
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "status",
+            "to": "completed",
+            "created_at": 1791972000000
+          }
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "name": "complete a recurring task without a due date spawns nothing",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "No due",
+        "is_completed": false,
+        "recurrence": "FREQ=DAILY"
+      },
+      "action": "complete",
+      "result": false,
+      "expected": {
+        "written": {
+          "is_completed": true,
+          "completed_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "status",
+            "to": "completed",
+            "created_at": 1791972000000
+          }
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "name": "complete a task with an invalid rule spawns nothing",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Bad rule",
+        "is_completed": false,
+        "due_at": 1791972000000,
+        "recurrence": "FREQ=SOMETIMES"
+      },
+      "action": "complete",
+      "result": false,
+      "expected": {
+        "written": {
+          "is_completed": true,
+          "completed_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "status",
+            "to": "completed",
+            "created_at": 1791972000000
+          }
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "name": "reopen",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Done",
+        "is_completed": true,
+        "completed_at": 5,
+        "due_at": 1791972000000,
+        "recurrence": "FREQ=DAILY"
+      },
+      "action": "reopen",
+      "result": false,
+      "expected": {
+        "written": {
+          "is_completed": false,
+          "completed_at": null
+        },
+        "spawned": null,
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "status",
+            "to": "reopened",
+            "created_at": 1791972000000
+          }
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "name": "delete moves to the trash",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Bye"
+      },
+      "action": "delete",
+      "result": true,
+      "expected": {
+        "written": {
+          "deleted_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [],
+        "reminders": []
+      }
+    },
+    {
+      "name": "update writes only what changed",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Same",
+        "notes": "a",
+        "priority": 3,
+        "due_at": 1791972000000,
+        "label_ids": [
+          "l1"
+        ]
+      },
+      "action": "update",
+      "patch": [
+        [
+          "notes",
+          "b"
+        ],
+        [
+          "title",
+          "Same"
+        ],
+        [
+          "priority",
+          3
+        ],
+        [
+          "label_ids",
+          [
+            "l1"
+          ]
+        ]
+      ],
+      "result": true,
+      "expected": {
+        "written": {
+          "notes": "b",
+          "label_ids": [
+            "l1"
+          ],
+          "updated_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [],
+        "reminders": []
+      }
+    },
+    {
+      "name": "update the due date writes activity",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Move",
+        "due_at": 1791972000000
+      },
+      "action": "update",
+      "patch": [
+        [
+          "due_at",
+          1792058400000
+        ]
+      ],
+      "result": true,
+      "expected": {
+        "written": {
+          "due_at": 1792058400000,
+          "updated_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "due",
+            "from": "1791972000000",
+            "to": "1792058400000",
+            "created_at": 1791972000000
+          }
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "name": "clear the due date",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Clear",
+        "due_at": 1791972000000
+      },
+      "action": "update",
+      "patch": [
+        [
+          "due_at",
+          null
+        ]
+      ],
+      "result": true,
+      "expected": {
+        "written": {
+          "due_at": null,
+          "updated_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "due",
+            "from": "1791972000000",
+            "created_at": 1791972000000
+          }
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "name": "set the assignee",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Assign",
+        "assignee_id": "u2"
+      },
+      "action": "update",
+      "patch": [
+        [
+          "assignee_id",
+          "u3"
+        ]
+      ],
+      "result": true,
+      "expected": {
+        "written": {
+          "assignee_id": "u3",
+          "updated_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "assignee",
+            "from": "u2",
+            "to": "u3",
+            "created_at": 1791972000000
+          }
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "name": "a new monthly rule takes the due day",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Rule",
+        "due_at": 1793437200000
+      },
+      "action": "update",
+      "patch": [
+        [
+          "recurrence",
+          "FREQ=MONTHLY"
+        ]
+      ],
+      "result": true,
+      "expected": {
+        "written": {
+          "recurrence": "FREQ=MONTHLY;BYMONTHDAY=31",
+          "updated_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [],
+        "reminders": []
+      }
+    },
+    {
+      "name": "a new rule with a new due date",
+      "tz": "America/New_York",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Rule",
+        "due_at": 1791972000000
+      },
+      "action": "update",
+      "patch": [
+        [
+          "due_at",
+          1796050800000
+        ],
+        [
+          "recurrence",
+          "FREQ=MONTHLY"
+        ]
+      ],
+      "result": true,
+      "expected": {
+        "written": {
+          "due_at": 1796050800000,
+          "recurrence": "FREQ=MONTHLY;BYMONTHDAY=30",
+          "updated_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "due",
+            "from": "1791972000000",
+            "to": "1796050800000",
+            "created_at": 1791972000000
+          }
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "name": "nothing changed",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "Same",
+        "priority": 2
+      },
+      "action": "update",
+      "patch": [
+        [
+          "title",
+          "Same"
+        ],
+        [
+          "priority",
+          2
+        ]
+      ],
+      "result": false,
+      "expected": {
+        "written": null,
+        "spawned": null,
+        "activities": [],
+        "reminders": []
+      }
+    },
+    {
+      "name": "a locked task is read-only",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": {
+          "__enc": 2,
+          "kid": "abc",
+          "iv": "AAAA",
+          "ct": "AAAA"
+        },
+        "is_completed": false
+      },
+      "action": "complete",
+      "result": false,
+      "expected": {
+        "written": null,
+        "spawned": null,
+        "activities": [],
+        "reminders": []
+      }
+    }
+  ]
+}

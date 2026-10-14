@@ -127,11 +127,74 @@ impl HlcClock {
         };
         self.emit(wall, counter)
     }
+
+    /// Set the last stamp, backwards too (`rewind` in the TypeScript clock). Only for a clock
+    /// found running fast: the caller passes a stamp no lower than any it still has to beat.
+    pub fn rewind(&mut self, to: Hlc) {
+        self.last = Hlc {
+            wall_ms: to.wall_ms,
+            counter: to.counter,
+            node: self.node,
+        };
+    }
+}
+
+impl Hlc {
+    /// The smallest stamp above this one (`successorHlc` in the TypeScript clock): the node read
+    /// as a 128-bit big-endian integer plus one, or the next counter from the smallest node. A
+    /// repair written at it beats exactly the value it repairs and is the same on every device.
+    pub fn successor(&self) -> Hlc {
+        match self.node.as_u128().checked_add(1) {
+            Some(n) => Hlc {
+                node: Uuid::from_u128(n),
+                ..*self
+            },
+            None => Hlc {
+                wall_ms: self.wall_ms,
+                counter: self.counter + 1,
+                node: Uuid::nil(),
+            },
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_successor_is_the_next_stamp() {
+        let ts = Hlc {
+            wall_ms: 5,
+            counter: 2,
+            node: Uuid::from_u128(0x0f),
+        };
+        let next = ts.successor();
+        assert!(next > ts);
+        assert_eq!((next.wall_ms, next.counter), (5, 2));
+        assert_eq!(next.node, Uuid::from_u128(0x10));
+        let max = Hlc {
+            node: Uuid::max(),
+            ..ts
+        };
+        assert_eq!(
+            max.successor(),
+            Hlc {
+                wall_ms: 5,
+                counter: 3,
+                node: Uuid::nil()
+            }
+        );
+    }
+
+    #[test]
+    fn rewind_moves_the_clock_back() {
+        let mut clock = HlcClock::new(Uuid::from_u128(1));
+        clock.now(9000);
+        clock.rewind(Hlc::zero(Uuid::from_u128(7)));
+        assert_eq!(clock.last(), Hlc::zero(Uuid::from_u128(1)));
+        assert_eq!(clock.now(1000).wall_ms, 1000);
+    }
 
     fn node(n: u128) -> Uuid {
         Uuid::from_u128(n)

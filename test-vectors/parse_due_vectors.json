@@ -1,0 +1,725 @@
+{
+  "_doc": "How the CLI reads a date (packages/sdk/src/dates.ts parseDue): `value` read at `now` in `tz` gives `expected` (unix ms, or null for no date), or fails with `error`. Asserted by packages/sdk/src/dates.test.ts and crates/atlas-client.",
+  "cases": [
+    {
+      "value": null,
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "  ",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "none",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "NONE",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": 1767225600000,
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1767225600000
+    },
+    {
+      "value": "1767225600000",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1767225600000
+    },
+    {
+      "value": "today",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1792022340000
+    },
+    {
+      "value": "Tomorrow",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1792108740000
+    },
+    {
+      "value": " today ",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1792022340000
+    },
+    {
+      "value": "2026-11-02",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1793663940000
+    },
+    {
+      "value": "2026-02-29",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-02-29\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2028-02-29",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1835481540000
+    },
+    {
+      "value": "2026-13-01",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-13-01\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026-11-31",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-11-31\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026-11-02T09:00",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1793610000000
+    },
+    {
+      "value": "2026-11-02 09:00",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1793610000000
+    },
+    {
+      "value": "2026-11-02T09:00:30",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1793610030000
+    },
+    {
+      "value": "2026-11-02T24:00",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-11-02T24:00\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026-03-29T02:30",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1774751400000
+    },
+    {
+      "value": "2026-11-02T09:00Z",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1793610000000
+    },
+    {
+      "value": "2026-11-02T09:00:00Z",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1793610000000
+    },
+    {
+      "value": "2026-11-02T09:00:00.250Z",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1793610000250
+    },
+    {
+      "value": "2026-11-02T09:00:00+02:00",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 1793602800000
+    },
+    {
+      "value": "next week",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "error": "cannot read the date \"next week\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026/11/02",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026/11/02\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "9e15",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "error": "cannot read the date \"9e15\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": 9000000000000000,
+      "tz": "UTC",
+      "now": 1792017000000,
+      "error": "not a timestamp: 9000000000000000"
+    },
+    {
+      "value": -1,
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": -1
+    },
+    {
+      "value": "0",
+      "tz": "UTC",
+      "now": 1792017000000,
+      "expected": 0
+    },
+    {
+      "value": null,
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "  ",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "none",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "NONE",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": 1767225600000,
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1767225600000
+    },
+    {
+      "value": "1767225600000",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1767225600000
+    },
+    {
+      "value": "today",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1792101540000
+    },
+    {
+      "value": "Tomorrow",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1792187940000
+    },
+    {
+      "value": " today ",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1792101540000
+    },
+    {
+      "value": "2026-11-02",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1793660340000
+    },
+    {
+      "value": "2026-02-29",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-02-29\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2028-02-29",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1835477940000
+    },
+    {
+      "value": "2026-13-01",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-13-01\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026-11-31",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-11-31\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026-11-02T09:00",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1793606400000
+    },
+    {
+      "value": "2026-11-02 09:00",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1793606400000
+    },
+    {
+      "value": "2026-11-02T09:00:30",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1793606430000
+    },
+    {
+      "value": "2026-11-02T24:00",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-11-02T24:00\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026-03-29T02:30",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1774747800000
+    },
+    {
+      "value": "2026-11-02T09:00Z",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1793610000000
+    },
+    {
+      "value": "2026-11-02T09:00:00Z",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1793610000000
+    },
+    {
+      "value": "2026-11-02T09:00:00.250Z",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1793610000250
+    },
+    {
+      "value": "2026-11-02T09:00:00+02:00",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 1793602800000
+    },
+    {
+      "value": "next week",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "error": "cannot read the date \"next week\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026/11/02",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026/11/02\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "9e15",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "error": "cannot read the date \"9e15\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": 9000000000000000,
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "error": "not a timestamp: 9000000000000000"
+    },
+    {
+      "value": -1,
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": -1
+    },
+    {
+      "value": "0",
+      "tz": "Europe/Copenhagen",
+      "now": 1792017000000,
+      "expected": 0
+    },
+    {
+      "value": null,
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "  ",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "none",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "NONE",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": 1767225600000,
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1767225600000
+    },
+    {
+      "value": "1767225600000",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1767225600000
+    },
+    {
+      "value": "today",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1792036740000
+    },
+    {
+      "value": "Tomorrow",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1792123140000
+    },
+    {
+      "value": " today ",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1792036740000
+    },
+    {
+      "value": "2026-11-02",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1793681940000
+    },
+    {
+      "value": "2026-02-29",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-02-29\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2028-02-29",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1835499540000
+    },
+    {
+      "value": "2026-13-01",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-13-01\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026-11-31",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-11-31\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026-11-02T09:00",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1793628000000
+    },
+    {
+      "value": "2026-11-02 09:00",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1793628000000
+    },
+    {
+      "value": "2026-11-02T09:00:30",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1793628030000
+    },
+    {
+      "value": "2026-11-02T24:00",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-11-02T24:00\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026-03-29T02:30",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1774765800000
+    },
+    {
+      "value": "2026-11-02T09:00Z",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1793610000000
+    },
+    {
+      "value": "2026-11-02T09:00:00Z",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1793610000000
+    },
+    {
+      "value": "2026-11-02T09:00:00.250Z",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1793610000250
+    },
+    {
+      "value": "2026-11-02T09:00:00+02:00",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 1793602800000
+    },
+    {
+      "value": "next week",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "error": "cannot read the date \"next week\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026/11/02",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026/11/02\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "9e15",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "error": "cannot read the date \"9e15\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": 9000000000000000,
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "error": "not a timestamp: 9000000000000000"
+    },
+    {
+      "value": -1,
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": -1
+    },
+    {
+      "value": "0",
+      "tz": "America/New_York",
+      "now": 1792017000000,
+      "expected": 0
+    },
+    {
+      "value": null,
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "  ",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "none",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": "NONE",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": null
+    },
+    {
+      "value": 1767225600000,
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1767225600000
+    },
+    {
+      "value": "1767225600000",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1767225600000
+    },
+    {
+      "value": "today",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1792061940000
+    },
+    {
+      "value": "Tomorrow",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1792148340000
+    },
+    {
+      "value": " today ",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1792061940000
+    },
+    {
+      "value": "2026-11-02",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1793617140000
+    },
+    {
+      "value": "2026-02-29",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-02-29\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2028-02-29",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1835434740000
+    },
+    {
+      "value": "2026-13-01",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-13-01\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026-11-31",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-11-31\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026-11-02T09:00",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1793563200000
+    },
+    {
+      "value": "2026-11-02 09:00",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1793563200000
+    },
+    {
+      "value": "2026-11-02T09:00:30",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1793563230000
+    },
+    {
+      "value": "2026-11-02T24:00",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026-11-02T24:00\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026-03-29T02:30",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1774704600000
+    },
+    {
+      "value": "2026-11-02T09:00Z",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1793610000000
+    },
+    {
+      "value": "2026-11-02T09:00:00Z",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1793610000000
+    },
+    {
+      "value": "2026-11-02T09:00:00.250Z",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1793610000250
+    },
+    {
+      "value": "2026-11-02T09:00:00+02:00",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 1793602800000
+    },
+    {
+      "value": "next week",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "error": "cannot read the date \"next week\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "2026/11/02",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "error": "cannot read the date \"2026/11/02\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": "9e15",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "error": "cannot read the date \"9e15\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)"
+    },
+    {
+      "value": 9000000000000000,
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "error": "not a timestamp: 9000000000000000"
+    },
+    {
+      "value": -1,
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": -1
+    },
+    {
+      "value": "0",
+      "tz": "Pacific/Auckland",
+      "now": 1792017000000,
+      "expected": 0
+    }
+  ]
+}

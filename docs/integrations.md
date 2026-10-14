@@ -31,28 +31,45 @@ or scheduling its deletion, revokes every token. Changing your password does not
 
 ## The `atlas` CLI
 
-The CLI is one JavaScript file that needs Node.js 22 or newer and nothing else. Each release
-attaches it as `atlas-cli-X.Y.Z.mjs`. When the release pipeline has an npm token, it is also on
-npm as `@atlastodo/cli`.
+The CLI is one static binary with nothing to install beside it: no Node.js, no system TLS library
+and no time zone database (it carries its own). Each release attaches one per platform, named
+`atlas-X.Y.Z-<target>`:
+
+| Platform                                | Target                                          |
+| --------------------------------------- | ----------------------------------------------- |
+| Linux x86_64 (any distribution, Alpine) | `x86_64-unknown-linux-musl`                     |
+| Linux arm64 (Raspberry Pi OS 64-bit, …) | `aarch64-unknown-linux-musl`                    |
+| macOS, Apple silicon or Intel           | `aarch64-apple-darwin`, `x86_64-apple-darwin`   |
+| Windows x86_64                          | `x86_64-pc-windows-msvc` (the file ends `.exe`) |
 
 ```sh
-# from npm
-npx @atlastodo/cli --help
-# or the release file
-curl -fLo atlas https://github.com/atlastodo/atlas-todo/releases/latest/download/atlas-cli-X.Y.Z.mjs
-chmod +x atlas && ./atlas --help
+VERSION=X.Y.Z
+TARGET=x86_64-unknown-linux-musl
+BASE=https://github.com/atlastodo/atlas-todo/releases/download/v$VERSION
+curl -fLO "$BASE/atlas-$VERSION-$TARGET"
+curl -fLO "$BASE/SHA256SUMS.txt"
+sha256sum --check --ignore-missing SHA256SUMS.txt
+install -m 755 "atlas-$VERSION-$TARGET" /usr/local/bin/atlas
+atlas --help
 ```
+
+Each file also carries a build provenance attestation:
+`gh attestation verify atlas-$VERSION-$TARGET --repo atlastodo/atlas-todo`. Earlier releases
+shipped the CLI as a JavaScript file (`atlas-cli-X.Y.Z.mjs`, and `@atlastodo/cli` on npm); the
+binary takes the same commands and environment and prints the same output.
 
 It is configured through the environment. The token is never passed as a flag, because flags show
 up in process listings and shell history.
 
-| Variable      | What it is                                                 |
-| ------------- | ---------------------------------------------------------- |
-| `ATLAS_URL`   | your server, e.g. `https://app.atlastodo.dev` (or `--url`) |
-| `ATLAS_TOKEN` | the API token                                              |
-| `ATLAS_TZ`    | IANA time zone for dates, e.g. `Europe/Copenhagen`         |
+| Variable          | What it is                                                 |
+| ----------------- | ---------------------------------------------------------- |
+| `ATLAS_URL`       | your server, e.g. `https://app.atlastodo.dev` (or `--url`) |
+| `ATLAS_TOKEN`     | the API token                                              |
+| `ATLAS_TZ`        | IANA time zone for dates, e.g. `Europe/Copenhagen`         |
+| `ATLAS_STATE_DIR` | optional: a directory to keep the account in between runs  |
 
-Every command prints JSON. A failure prints `{"error": …, "code": …}` on stderr and exits with
+Every command prints JSON. Each command also takes its app first, as in `atlas todo tasks list`;
+the shorter forms stay. A failure prints `{"error": …, "code": …}` on stderr and exits with
 code 1, or 2 for a usage error.
 
 ```sh
@@ -80,7 +97,10 @@ How the arguments are read:
 - **Projects and labels** can be given by name (case-insensitive) or by id.
 
 Each run signs in, downloads and decrypts the account, then exits. That takes about a second for
-a typical account, and longer for a very large one. Token sign-ins share the per-IP `/auth/*`
+a typical account, and longer for a very large one. With `ATLAS_STATE_DIR` set, a run keeps the
+account there and the next one downloads only what changed. The file is encrypted under a key
+derived from the token, so only the token opens it, but it holds your tasks: keep the directory
+as private as the token. Token sign-ins share the per-IP `/auth/*`
 rate limit (`AUTH_RATE_LIMIT_MAX`, 30 a minute by default), so space out bursts of CLI calls from
 one machine, or raise the limit on your own server.
 
@@ -90,7 +110,8 @@ n8n runs the CLI with its **Execute Command** node. Recent n8n versions disable 
 default, so enable it first by removing it from `NODES_EXCLUDE`, e.g. `NODES_EXCLUDE="[]"`. Only
 do that on an instance whose workflows you control, because the node runs shell commands.
 
-Put the CLI and its settings into the n8n container:
+The n8n image is Alpine-based, and the Linux musl binary runs there as is (an arm64 host takes the
+`aarch64` file). Put it and its settings into the n8n container:
 
 ```yaml
 # docker-compose.yml (excerpt)
@@ -102,8 +123,9 @@ services:
       ATLAS_URL: https://todo.example.com
       ATLAS_TOKEN: ${ATLAS_TOKEN} # from an .env file next to the compose file, not committed
       ATLAS_TZ: Europe/Copenhagen
+      ATLAS_STATE_DIR: /home/node/.n8n/atlas # optional: faster runs
     volumes:
-      - ./atlas-cli.mjs:/usr/local/bin/atlas:ro
+      - ./atlas-X.Y.Z-x86_64-unknown-linux-musl:/usr/local/bin/atlas:ro
 ```
 
 ### Recipes
@@ -121,11 +143,13 @@ services:
   `completed` or `created` → whatever should happen next. The first run, without a cursor, only
   returns the starting cursor.
 
-## Scripts in TypeScript
+## Scripts in TypeScript or Rust
 
-`packages/sdk` (`@atlas/sdk`, used by the CLI) is the same client as a library: `AtlasClient.connect`,
-then `tasks()`, `createTask()`, `completeTask()`, `changes()` and so on. It is not published on
-its own yet. Use it from this repository, or run the CLI.
+`packages/sdk` (`@atlas/sdk`) is the same client as a TypeScript library: `AtlasClient.connect`,
+then `tasks()`, `createTask()`, `completeTask()`, `changes()` and so on. The CLI is built on
+`crates/atlas-client`, the same client in Rust (`AtlasClient::connect`), which reimplements the
+app's encryption, sync and task rules; the fixtures in `test-vectors/` hold the two at parity.
+Neither is published on its own yet. Use them from this repository, or run the CLI.
 
 ## How it works
 

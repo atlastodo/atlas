@@ -1,0 +1,1656 @@
+{
+  "_doc": "Quick-add parsing (packages/shared/src/quickAddParse.ts): each case parses `text` at `now` (unix ms) in `tz`, with the UI `language` (English when absent). `projects` (name to id, matched case-insensitively) and `labels` (known label names) are the lookups; without them every #name and @name is taken and no project id resolved. `expected` is the new task's fields (`null` when not set), the label names and the matched date span (UTF-16 offsets into `text`). Asserted by packages/shared/src/rulesVectors.test.ts and crates/atlas-client.",
+  "cases": [
+    {
+      "name": "Buy milk tomorrow",
+      "text": "Buy milk tomorrow",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Buy milk",
+        "priority": null,
+        "due_at": 1672790340000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 9,
+          "end": 17,
+          "text": "tomorrow"
+        }
+      }
+    },
+    {
+      "name": "Buy milk tomorrow 5pm",
+      "text": "Buy milk tomorrow 5pm",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Buy milk",
+        "priority": null,
+        "due_at": 1672765200000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 9,
+          "end": 21,
+          "text": "tomorrow 5pm"
+        }
+      }
+    },
+    {
+      "name": "Standup 09:30 today",
+      "text": "Standup 09:30 today",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Standup",
+        "priority": null,
+        "due_at": 1672651800000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 8,
+          "end": 19,
+          "text": "09:30 today"
+        }
+      }
+    },
+    {
+      "name": "Ping in 3 days",
+      "text": "Ping in 3 days",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Ping",
+        "priority": null,
+        "due_at": 1672963140000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 14,
+          "text": "in 3 days"
+        }
+      }
+    },
+    {
+      "name": "Ping in a week",
+      "text": "Ping in a week",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Ping",
+        "priority": null,
+        "due_at": 1673308740000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 14,
+          "text": "in a week"
+        }
+      }
+    },
+    {
+      "name": "Ping in 2 months",
+      "text": "Ping in 2 months",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Ping",
+        "priority": null,
+        "due_at": 1677801540000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 16,
+          "text": "in 2 months"
+        }
+      }
+    },
+    {
+      "name": "Review next monday",
+      "text": "Review next monday",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Review",
+        "priority": null,
+        "due_at": 1673308740000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 7,
+          "end": 18,
+          "text": "next monday"
+        }
+      }
+    },
+    {
+      "name": "Review next week",
+      "text": "Review next week",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Review",
+        "priority": null,
+        "due_at": 1673308740000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 7,
+          "end": 16,
+          "text": "next week"
+        }
+      }
+    },
+    {
+      "name": "Submit friday",
+      "text": "Submit friday",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Submit",
+        "priority": null,
+        "due_at": 1673049540000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 7,
+          "end": 13,
+          "text": "friday"
+        }
+      }
+    },
+    {
+      "name": "Submit this friday",
+      "text": "Submit this friday",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Submit",
+        "priority": null,
+        "due_at": 1673049540000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 7,
+          "end": 18,
+          "text": "this friday"
+        }
+      }
+    },
+    {
+      "name": "Trip jun 3",
+      "text": "Trip jun 3",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Trip",
+        "priority": null,
+        "due_at": 1685836740000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 10,
+          "text": "jun 3"
+        }
+      }
+    },
+    {
+      "name": "Trip june 3rd",
+      "text": "Trip june 3rd",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Trip",
+        "priority": null,
+        "due_at": 1685836740000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 13,
+          "text": "june 3rd"
+        }
+      }
+    },
+    {
+      "name": "Trip 3rd of june",
+      "text": "Trip 3rd of june",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Trip",
+        "priority": null,
+        "due_at": 1685836740000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 16,
+          "text": "3rd of june"
+        }
+      }
+    },
+    {
+      "name": "Trip 3 jun",
+      "text": "Trip 3 jun",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Trip",
+        "priority": null,
+        "due_at": 1685836740000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 10,
+          "text": "3 jun"
+        }
+      }
+    },
+    {
+      "name": "Party jan 1",
+      "text": "Party jan 1",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Party",
+        "priority": null,
+        "due_at": 1704153540000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 6,
+          "end": 11,
+          "text": "jan 1"
+        }
+      }
+    },
+    {
+      "name": "Feb 30 is not a date",
+      "text": "Feb 30 is not a date",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Feb 30 is not a date",
+        "priority": null,
+        "due_at": null,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Call 5pm",
+      "text": "Call 5pm",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Call",
+        "priority": null,
+        "due_at": 1672678800000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 8,
+          "text": "5pm"
+        }
+      }
+    },
+    {
+      "name": "Call 12am",
+      "text": "Call 12am",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Call",
+        "priority": null,
+        "due_at": 1672617600000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 9,
+          "text": "12am"
+        }
+      }
+    },
+    {
+      "name": "Call 12pm",
+      "text": "Call 12pm",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Call",
+        "priority": null,
+        "due_at": 1672660800000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 9,
+          "text": "12pm"
+        }
+      }
+    },
+    {
+      "name": "Call at 13:00",
+      "text": "Call at 13:00",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Call",
+        "priority": null,
+        "due_at": 1672664400000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 13,
+          "text": "at 13:00"
+        }
+      }
+    },
+    {
+      "name": "Meeting 13:00 mon",
+      "text": "Meeting 13:00 mon",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Meeting",
+        "priority": null,
+        "due_at": 1672664400000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 8,
+          "end": 17,
+          "text": "13:00 mon"
+        }
+      }
+    },
+    {
+      "name": "Meeting mon 13:00",
+      "text": "Meeting mon 13:00",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Meeting",
+        "priority": null,
+        "due_at": 1672664400000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 8,
+          "end": 17,
+          "text": "mon 13:00"
+        }
+      }
+    },
+    {
+      "name": "Meeting at 13:00 mon",
+      "text": "Meeting at 13:00 mon",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Meeting",
+        "priority": null,
+        "due_at": 1672664400000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 8,
+          "end": 20,
+          "text": "at 13:00 mon"
+        }
+      }
+    },
+    {
+      "name": "Meeting mon at 13:00",
+      "text": "Meeting mon at 13:00",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Meeting",
+        "priority": null,
+        "due_at": 1672664400000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 8,
+          "end": 20,
+          "text": "mon at 13:00"
+        }
+      }
+    },
+    {
+      "name": "Lunch 13.00 mon",
+      "text": "Lunch 13.00 mon",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Lunch",
+        "priority": null,
+        "due_at": 1672664400000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 6,
+          "end": 15,
+          "text": "13.00 mon"
+        }
+      }
+    },
+    {
+      "name": "Lunch at noon tomorrow",
+      "text": "Lunch at noon tomorrow",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Lunch",
+        "priority": null,
+        "due_at": 1672747200000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 6,
+          "end": 22,
+          "text": "at noon tomorrow"
+        }
+      }
+    },
+    {
+      "name": "Backup at midnight",
+      "text": "Backup at midnight",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Backup",
+        "priority": null,
+        "due_at": 1672617600000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 7,
+          "end": 18,
+          "text": "at midnight"
+        }
+      }
+    },
+    {
+      "name": "Sync 13:00",
+      "text": "Sync 13:00",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Sync",
+        "priority": null,
+        "due_at": 1672664400000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 10,
+          "text": "13:00"
+        }
+      }
+    },
+    {
+      "name": "Pay rent every month",
+      "text": "Pay rent every month",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Pay rent",
+        "priority": null,
+        "due_at": 1672703940000,
+        "recurrence": "FREQ=MONTHLY;BYMONTHDAY=2",
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Pay rent every month on the 1st",
+      "text": "Pay rent every month on the 1st",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Pay rent on the 1st",
+        "priority": null,
+        "due_at": 1672703940000,
+        "recurrence": "FREQ=MONTHLY;BYMONTHDAY=2",
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Water plants every 2 days",
+      "text": "Water plants every 2 days",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Water plants",
+        "priority": null,
+        "due_at": 1672703940000,
+        "recurrence": "FREQ=DAILY;INTERVAL=2",
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Water plants every! 3 days",
+      "text": "Water plants every! 3 days",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Water plants",
+        "priority": null,
+        "due_at": 1672703940000,
+        "recurrence": "FREQ=DAILY;INTERVAL=3;MODE=COMPLETION",
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Gym every monday",
+      "text": "Gym every monday",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Gym",
+        "priority": null,
+        "due_at": 1672703940000,
+        "recurrence": "FREQ=WEEKLY;BYDAY=MO",
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Gym every mon 7am",
+      "text": "Gym every mon 7am",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Gym",
+        "priority": null,
+        "due_at": 1672642800000,
+        "recurrence": "FREQ=WEEKLY;BYDAY=MO",
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 14,
+          "end": 17,
+          "text": "7am"
+        }
+      }
+    },
+    {
+      "name": "Report every week from completion",
+      "text": "Report every week from completion",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Report",
+        "priority": null,
+        "due_at": 1672703940000,
+        "recurrence": "FREQ=WEEKLY;MODE=COMPLETION",
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Daily standup daily",
+      "text": "Daily standup daily",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "standup",
+        "priority": null,
+        "due_at": 1672703940000,
+        "recurrence": "FREQ=DAILY",
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Taxes yearly",
+      "text": "Taxes yearly",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Taxes",
+        "priority": null,
+        "due_at": 1672703940000,
+        "recurrence": "FREQ=YEARLY",
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Renew every year jan 31",
+      "text": "Renew every year jan 31",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Renew",
+        "priority": null,
+        "due_at": 1675209540000,
+        "recurrence": "FREQ=YEARLY",
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 17,
+          "end": 23,
+          "text": "jan 31"
+        }
+      }
+    },
+    {
+      "name": "Invoice every month jan 31",
+      "text": "Invoice every month jan 31",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Invoice",
+        "priority": null,
+        "due_at": 1675209540000,
+        "recurrence": "FREQ=MONTHLY;BYMONTHDAY=31",
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 20,
+          "end": 26,
+          "text": "jan 31"
+        }
+      }
+    },
+    {
+      "name": "p1 Urgent thing p3",
+      "text": "p1 Urgent thing p3",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Urgent thing",
+        "priority": 3,
+        "due_at": null,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Buy milk #Groceries @errand p2",
+      "text": "Buy milk #Groceries @errand p2",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Buy milk",
+        "priority": 2,
+        "due_at": null,
+        "recurrence": null,
+        "project_id": "p-groceries",
+        "labels": [
+          "errand"
+        ],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Buy milk #Unknown @nolabel",
+      "text": "Buy milk #Unknown @nolabel",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Buy milk #Unknown @nolabel",
+        "priority": null,
+        "due_at": null,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Fix #Work bug @Errand tomorrow at 9:30am",
+      "text": "Fix #Work bug @Errand tomorrow at 9:30am",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Fix bug",
+        "priority": null,
+        "due_at": 1672738200000,
+        "recurrence": null,
+        "project_id": "p-work",
+        "labels": [
+          "Errand"
+        ],
+        "date_match": {
+          "start": 22,
+          "end": 40,
+          "text": "tomorrow at 9:30am"
+        }
+      }
+    },
+    {
+      "name": "Just a title",
+      "text": "Just a title",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Just a title",
+        "priority": null,
+        "due_at": null,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "  spaced   out   words  ",
+      "text": "  spaced   out   words  ",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "spaced out words",
+        "priority": null,
+        "due_at": null,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "",
+      "text": "",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "",
+        "priority": null,
+        "due_at": null,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "tomorrow",
+      "text": "tomorrow",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "",
+        "priority": null,
+        "due_at": 1672790340000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 0,
+          "end": 8,
+          "text": "tomorrow"
+        }
+      }
+    },
+    {
+      "name": "Ünïcödé ✓ title tomorrow",
+      "text": "Ünïcödé ✓ title tomorrow",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Ünïcödé ✓ title",
+        "priority": null,
+        "due_at": 1672790340000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 16,
+          "end": 24,
+          "text": "tomorrow"
+        }
+      }
+    },
+    {
+      "name": "Call mom fri, 5pm",
+      "text": "Call mom fri, 5pm",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Call mom",
+        "priority": null,
+        "due_at": 1673024400000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 9,
+          "end": 17,
+          "text": "fri, 5pm"
+        }
+      }
+    },
+    {
+      "name": "Deadline 31st of dec",
+      "text": "Deadline 31st of dec",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Deadline",
+        "priority": null,
+        "due_at": 1704067140000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 9,
+          "end": 20,
+          "text": "31st of dec"
+        }
+      }
+    },
+    {
+      "name": "Something on 25 dec at 18:00",
+      "text": "Something on 25 dec at 18:00",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "projects": {
+        "Groceries": "p-groceries",
+        "Work": "p-work"
+      },
+      "labels": [
+        "errand"
+      ],
+      "expected": {
+        "title": "Something",
+        "priority": null,
+        "due_at": 1703527200000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 10,
+          "end": 28,
+          "text": "on 25 dec at 18:00"
+        }
+      }
+    },
+    {
+      "name": "Plan today",
+      "text": "Plan today",
+      "now": 1784116800000,
+      "tz": "America/New_York",
+      "expected": {
+        "title": "Plan",
+        "priority": null,
+        "due_at": 1784174340000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 10,
+          "text": "today"
+        }
+      }
+    },
+    {
+      "name": "Plan today 5pm",
+      "text": "Plan today 5pm",
+      "now": 1784116800000,
+      "tz": "Europe/Copenhagen",
+      "expected": {
+        "title": "Plan",
+        "priority": null,
+        "due_at": 1784127600000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 14,
+          "text": "today 5pm"
+        }
+      }
+    },
+    {
+      "name": "Plan tomorrow 2:30am",
+      "text": "Plan tomorrow 2:30am",
+      "now": 1774699200000,
+      "tz": "Europe/Copenhagen",
+      "expected": {
+        "title": "Plan",
+        "priority": null,
+        "due_at": 1774747800000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 20,
+          "text": "tomorrow 2:30am"
+        }
+      }
+    },
+    {
+      "name": "Weekly every week",
+      "text": "Weekly every week",
+      "now": 1774699200000,
+      "tz": "Asia/Tokyo",
+      "expected": {
+        "title": "",
+        "priority": null,
+        "due_at": 1774709940000,
+        "recurrence": "FREQ=WEEKLY",
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Any #project resolves without a lookup @any",
+      "text": "Any #project resolves without a lookup @any",
+      "now": 1672653600000,
+      "tz": "UTC",
+      "expected": {
+        "title": "Any resolves without a lookup",
+        "priority": null,
+        "due_at": null,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [
+          "any"
+        ],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Køb mælk i morgen kl 17",
+      "text": "Køb mælk i morgen kl 17",
+      "now": 1672653600000,
+      "tz": "Europe/Copenhagen",
+      "language": "da",
+      "expected": {
+        "title": "Køb mælk",
+        "priority": null,
+        "due_at": 1672761600000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 9,
+          "end": 23,
+          "text": "i morgen kl 17"
+        }
+      }
+    },
+    {
+      "name": "Møde hver 2. uge",
+      "text": "Møde hver 2. uge",
+      "now": 1672653600000,
+      "tz": "Europe/Copenhagen",
+      "language": "da",
+      "expected": {
+        "title": "Møde",
+        "priority": null,
+        "due_at": 1672700340000,
+        "recurrence": "FREQ=WEEKLY;INTERVAL=2",
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Ring kl17 på fredag",
+      "text": "Ring kl17 på fredag",
+      "now": 1672653600000,
+      "tz": "Europe/Copenhagen",
+      "language": "da",
+      "expected": {
+        "title": "Ring",
+        "priority": null,
+        "due_at": 1673020800000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 19,
+          "text": "kl17 på fredag"
+        }
+      }
+    },
+    {
+      "name": "Arzt am Montag um 17 Uhr",
+      "text": "Arzt am Montag um 17 Uhr",
+      "now": 1672653600000,
+      "tz": "Europe/Berlin",
+      "language": "de",
+      "expected": {
+        "title": "Arzt",
+        "priority": null,
+        "due_at": 1672675200000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 24,
+          "text": "am montag um 17 uhr"
+        }
+      }
+    },
+    {
+      "name": "Einkaufen übermorgen",
+      "text": "Einkaufen übermorgen",
+      "now": 1672653600000,
+      "tz": "Europe/Berlin",
+      "language": "de",
+      "expected": {
+        "title": "Einkaufen",
+        "priority": null,
+        "due_at": 1672873140000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 10,
+          "end": 20,
+          "text": "übermorgen"
+        }
+      }
+    },
+    {
+      "name": "Bericht alle 2 Wochen",
+      "text": "Bericht alle 2 Wochen",
+      "now": 1672653600000,
+      "tz": "Europe/Vienna",
+      "language": "de-AT",
+      "expected": {
+        "title": "Bericht",
+        "priority": null,
+        "due_at": 1672700340000,
+        "recurrence": "FREQ=WEEKLY;INTERVAL=2",
+        "project_id": null,
+        "labels": [],
+        "date_match": null
+      }
+    },
+    {
+      "name": "Rendez-vous lundi prochain à 17h30",
+      "text": "Rendez-vous lundi prochain à 17h30",
+      "now": 1672653600000,
+      "tz": "Europe/Paris",
+      "language": "fr",
+      "expected": {
+        "title": "Rendez-vous",
+        "priority": null,
+        "due_at": 1673281800000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 12,
+          "end": 34,
+          "text": "lundi prochain à 17h30"
+        }
+      }
+    },
+    {
+      "name": "Réunion le 1er mars",
+      "text": "Réunion le 1er mars",
+      "now": 1672653600000,
+      "tz": "Europe/Paris",
+      "language": "fr",
+      "expected": {
+        "title": "Réunion",
+        "priority": null,
+        "due_at": 1677711540000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 8,
+          "end": 19,
+          "text": "le 1er mars"
+        }
+      }
+    },
+    {
+      "name": "Cita pasado mañana a las 9",
+      "text": "Cita pasado mañana a las 9",
+      "now": 1672653600000,
+      "tz": "Europe/Madrid",
+      "language": "es",
+      "expected": {
+        "title": "Cita",
+        "priority": null,
+        "due_at": 1672819200000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 5,
+          "end": 26,
+          "text": "pasado mañana a las 9"
+        }
+      }
+    },
+    {
+      "name": "Pagar el 3 de marzo",
+      "text": "Pagar el 3 de marzo",
+      "now": 1672653600000,
+      "tz": "Europe/Madrid",
+      "language": "es",
+      "expected": {
+        "title": "Pagar",
+        "priority": null,
+        "due_at": 1677884340000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 6,
+          "end": 19,
+          "text": "el 3 de marzo"
+        }
+      }
+    },
+    {
+      "name": "Riunione lunedi alle 17:30",
+      "text": "Riunione lunedi alle 17:30",
+      "now": 1672653600000,
+      "tz": "Europe/Rome",
+      "language": "it",
+      "expected": {
+        "title": "Riunione",
+        "priority": null,
+        "due_at": 1672677000000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 9,
+          "end": 26,
+          "text": "lunedi alle 17:30"
+        }
+      }
+    },
+    {
+      "name": "Vergadering morgen om 17u",
+      "text": "Vergadering morgen om 17u",
+      "now": 1672653600000,
+      "tz": "Europe/Amsterdam",
+      "language": "nl",
+      "expected": {
+        "title": "Vergadering",
+        "priority": null,
+        "due_at": 1672761600000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 12,
+          "end": 25,
+          "text": "morgen om 17u"
+        }
+      }
+    },
+    {
+      "name": "Spotkanie za tydzień o 17:30",
+      "text": "Spotkanie za tydzień o 17:30",
+      "now": 1672653600000,
+      "tz": "Europe/Warsaw",
+      "language": "pl",
+      "expected": {
+        "title": "Spotkanie",
+        "priority": null,
+        "due_at": 1673281800000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 10,
+          "end": 28,
+          "text": "za tydzień o 17:30"
+        }
+      }
+    },
+    {
+      "name": "Reunião amanhã às 9h",
+      "text": "Reunião amanhã às 9h",
+      "now": 1672653600000,
+      "tz": "America/Sao_Paulo",
+      "language": "pt-BR",
+      "expected": {
+        "title": "Reunião",
+        "priority": null,
+        "due_at": 1672747200000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 8,
+          "end": 20,
+          "text": "amanhã às 9h"
+        }
+      }
+    },
+    {
+      "name": "English still works tomorrow 5pm",
+      "text": "English still works tomorrow 5pm",
+      "now": 1672653600000,
+      "tz": "Europe/Berlin",
+      "language": "de",
+      "expected": {
+        "title": "English still works",
+        "priority": null,
+        "due_at": 1672761600000,
+        "recurrence": null,
+        "project_id": null,
+        "labels": [],
+        "date_match": {
+          "start": 20,
+          "end": 32,
+          "text": "tomorrow 5pm"
+        }
+      }
+    }
+  ]
+}

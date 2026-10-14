@@ -184,9 +184,16 @@ The workflow then runs these jobs:
   files carry the upload key's SHA-256 fingerprint. If a Play service account is set, it uploads
   the AAB with `scripts/upload-play-store.mjs`.
 - Desktop tarball: `scripts/package-desktop.sh X.Y.Z`.
+- CLI: the `atlas` binary (`crates/atlas-cli`), one per target, as `atlas-X.Y.Z-<target>`. Linux
+  x86_64 and aarch64 build against musl with `cargo zigbuild` (zig from PyPI's `ziglang`), so the
+  binaries are static and run on Alpine; each is checked to be statically linked, and the x86_64
+  one to print the tag's version. macOS (`aarch64-apple-darwin`, `x86_64-apple-darwin`) and Windows
+  (`x86_64-pc-windows-msvc`, static CRT) build on their own hosted runners once the repository is
+  public, where those minutes are free.
 - GitHub Release: creates the release, or updates it on a re-run, with `atlas-todo-X.Y.Z.apk`,
-  `atlas-todo-X.Y.Z.aab`, `atlas-desktop-X.Y.Z.tar.gz`, `atlas-desktop-latest.tar.gz`,
-  `THIRD_PARTY_NOTICES.txt` and `SHA256SUMS.txt`.
+  `atlas-todo-X.Y.Z.aab`, `atlas-desktop-X.Y.Z.tar.gz`, `atlas-desktop-latest.tar.gz`, the
+  `atlas-X.Y.Z-<target>` binaries, `THIRD_PARTY_NOTICES.txt` and `SHA256SUMS.txt`, with a build
+  provenance attestation for the APK, the AAB, the tarballs and the binaries.
 - Third-party notices: `scripts/third-party-licenses.mjs` lists the licences of every shipped
   JavaScript package and Rust crate. The Docker job writes it into the image
   (`/usr/share/doc/atlas-todo/`), the desktop tarball carries the JavaScript part, the release
@@ -211,16 +218,15 @@ Android jobs run in it. Repository secrets of the same name work too, but any wo
 those. The `DOCKERHUB_*` secrets stay repository secrets, since the `dev` image pushes use them.
 A ruleset keeps `v*` tags from being moved or deleted.
 
-| Secret                             | Required | What it is                                                               |
-| ---------------------------------- | -------- | ------------------------------------------------------------------------ |
-| `ANDROID_KEYSTORE_BASE64`          | yes      | the upload keystore (JKS or PKCS12), base64: `base64 -w0 upload.jks`     |
-| `ANDROID_KEYSTORE_PASSWORD`        | yes      | the keystore password                                                    |
-| `ANDROID_KEY_ALIAS`                | yes      | the key alias                                                            |
-| `ANDROID_KEY_PASSWORD`             | yes      | the key password                                                         |
-| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | no       | a Play service-account JSON key; when unset, the Play upload is skipped  |
-| `DOCKERHUB_USERNAME`               | no       | the Docker Hub user for the mirror (see `DOCKERHUB_IMAGE`)               |
-| `DOCKERHUB_TOKEN`                  | no       | a Docker Hub access token with Read & Write scope                        |
-| `NPM_TOKEN`                        | no       | an npm automation token for `@atlastodo/cli`; when unset, npm is skipped |
+| Secret                             | Required | What it is                                                              |
+| ---------------------------------- | -------- | ----------------------------------------------------------------------- |
+| `ANDROID_KEYSTORE_BASE64`          | yes      | the upload keystore (JKS or PKCS12), base64: `base64 -w0 upload.jks`    |
+| `ANDROID_KEYSTORE_PASSWORD`        | yes      | the keystore password                                                   |
+| `ANDROID_KEY_ALIAS`                | yes      | the key alias                                                           |
+| `ANDROID_KEY_PASSWORD`             | yes      | the key password                                                        |
+| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | no       | a Play service-account JSON key; when unset, the Play upload is skipped |
+| `DOCKERHUB_USERNAME`               | no       | the Docker Hub user for the mirror (see `DOCKERHUB_IMAGE`)              |
+| `DOCKERHUB_TOKEN`                  | no       | a Docker Hub access token with Read & Write scope                       |
 
 `GITHUB_TOKEN` is provided automatically and is used for GHCR and the release.
 

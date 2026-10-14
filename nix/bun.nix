@@ -22,7 +22,6 @@
   "@atlas/mobile" = copyPathToStore ../apps/mobile;
   "@atlas/sdk" = copyPathToStore ../packages/sdk;
   "@atlas/shared" = copyPathToStore ../packages/shared;
-  "@atlastodo/cli" = copyPathToStore ../packages/cli;
   "@babel/code-frame@7.29.7" = fetchurl {
     url = "https://registry.npmjs.org/@babel/code-frame/-/code-frame-7.29.7.tgz";
     hash = "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==";

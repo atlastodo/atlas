@@ -1,0 +1,39 @@
+[package]
+name = "atlas-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Headless Atlas client: end-to-end encryption, sync and the task rules, at parity with the TypeScript client core."
+
+[dependencies]
+atlas-core = { path = "../atlas-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+thiserror = { workspace = true }
+aes-gcm = "0.11"
+hkdf = "0.13"
+sha2 = "0.11"
+hmac = "0.13"
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
+argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
+x25519-dalek = { version = "3", features = ["static_secrets"] }
+ed25519-dalek = "3"
+base64 = "0.23"
+hex = "0.4"
+rand = "0.10"
+unicode-normalization = "0.1"
+# The bundled time zone database too: the Alpine-based images the CLI runs in often lack tzdata.
+jiff = { version = "0.2", default-features = false, features = [
+    "std",
+    "tz-system",
+    "tz-fat",
+    "tzdb-zoneinfo",
+    "tzdb-bundle-always",
+] }
+# Blocking HTTP over rustls with the ring provider (as the server's sqlx) and the webpki roots, so
+# the static binaries need no system TLS library or certificate store.
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }

@@ -96,8 +96,9 @@ jobs:
           # Prettier checks Markdown, YAML and JSON too, so anything outside the Rust tree lints.
           lints() { if grep -vE "$rust" <<<"$files" | grep -q .; then echo true; else has "$ci"; fi; }
           {
-            # The server compiles manifests/ in; kept out of $rust so Prettier still lints them.
-            echo "rust=$(has "$rust|^manifests/")"
+            # The server compiles manifests/ in, and the Rust client asserts test-vectors/; kept out of
+            # $rust so Prettier still lints them.
+            echo "rust=$(has "$rust|^manifests/|^test-vectors/")"
             echo "lint_ts=$(lints)"
             echo "test_ts=$(has "$shared|^apps/electron/")"
             echo "mobile=$(has "$shared|^apps/mobile/")"
@@ -257,9 +258,6 @@ jobs:
         run: bunx --bun vitest run
       - name: sdk
         working-directory: packages/sdk
-        run: bunx --bun vitest run
-      - name: cli
-        working-directory: packages/cli
         run: bunx --bun vitest run
       - name: electron
         working-directory: apps/electron

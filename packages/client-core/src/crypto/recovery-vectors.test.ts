@@ -74,3 +74,36 @@ describe("recovery auth key vector", () => {
     expect(() => deriveRecoveryAuthKeypair("abandon abandon abandon", salt)).toThrow();
   });
 });
+
+/** The same derivation as a shared fixture, which the Rust client asserts too. */
+describe("recovery key vectors (test-vectors/recovery_key_vectors.json)", () => {
+  const path = fileURLToPath(
+    new URL("../../../../test-vectors/recovery_key_vectors.json", import.meta.url),
+  );
+  const fixture = JSON.parse(readFileSync(path, "utf8")) as {
+    vectors: {
+      name: string;
+      phrase: string;
+      salt: string;
+      wrap_key: string;
+      auth_secret_key: string;
+      auth_public_key: string;
+    }[];
+    invalid: string[];
+  };
+
+  for (const v of fixture.vectors) {
+    it(`derives the recovery keys: ${v.name}`, () => {
+      expect(bytesToHex(deriveRecoveryKey(v.phrase, v.salt))).toBe(v.wrap_key);
+      const auth = deriveRecoveryAuthKeypair(v.phrase, v.salt);
+      expect(bytesToHex(auth.secretKey)).toBe(v.auth_secret_key);
+      expect(auth.publicKey).toBe(v.auth_public_key);
+    });
+  }
+
+  it("refuses the invalid phrases", () => {
+    for (const phrase of fixture.invalid) {
+      expect(() => deriveRecoveryKey(phrase, "00")).toThrow();
+    }
+  });
+});

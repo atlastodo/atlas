@@ -3,9 +3,9 @@
 //
 // The JavaScript side is every package reachable through `dependencies` (and installed peer and
 // optional dependencies) from the workspace packages that end up in a build: the app, the desktop
-// shell, the shared packages, and the SDK the `atlas` CLI bundles. Dev dependencies (build tools, tests) are not shipped and not
-// listed. The Rust side is the normal (non-dev, non-build) dependency closure of atlas-server for
-// Linux, from `cargo metadata`.
+// shell and the shared packages. Dev dependencies (build tools, tests) are not shipped or listed. The
+// Rust side is the normal (non-dev, non-build) dependency closure of atlas-server and atlas-cli
+// for Linux, from `cargo metadata`.
 //
 // Usage:
 //   node scripts/third-party-licenses.mjs --check          # fail on a JS licence outside ALLOW
@@ -19,16 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-// The CLI bundles the SDK and everything under it into one file, so the SDK is listed for its
-// `dependencies` (the CLI itself has none at run time).
-const WORKSPACES = [
-  "apps/mobile",
-  "apps/electron",
-  "packages/shared",
-  "packages/client-core",
-  "packages/sdk",
-  "packages/cli",
-];
+const WORKSPACES = ["apps/mobile", "apps/electron", "packages/shared", "packages/client-core"];
 
 // deny.toml's list, and the permissive licences the shipped JS tree adds (each checked by hand).
 const ALLOW = new Set([
@@ -138,9 +129,10 @@ function rustPackages() {
   );
   const byId = new Map(meta.packages.map((p) => [p.id, p]));
   const nodes = new Map(meta.resolve.nodes.map((n) => [n.id, n]));
-  const server = meta.packages.find((p) => p.name === "atlas-server");
+  // The two Rust programs a release ships: the server and the `atlas` CLI.
+  const roots = meta.packages.filter((p) => p.name === "atlas-server" || p.name === "atlas-cli");
   const seen = new Set();
-  const queue = [server.id];
+  const queue = roots.map((p) => p.id);
   while (queue.length) {
     const id = queue.shift();
     if (seen.has(id)) continue;
@@ -203,7 +195,7 @@ function writeNotices(file, withRust) {
     }
   };
   section("JavaScript packages (web, Android and desktop apps)", jsPackages());
-  if (withRust) section("Rust crates (the server)", rustPackages());
+  if (withRust) section("Rust crates (the server and the atlas CLI)", rustPackages());
   fs.writeFileSync(file, out.join("\n"));
   console.log(`Wrote ${file} (${(fs.statSync(file).size / 1024).toFixed(0)} KiB)`);
 }
