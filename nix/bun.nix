@@ -894,6 +894,10 @@
     url = "https://registry.npmjs.org/@react-native/babel-plugin-codegen/-/babel-plugin-codegen-0.87.1.tgz";
     hash = "sha512-DfnyLAHG7jH4pqeID7ib6AeD6gG8T+KvM3c/w/yEa5ONkfRcHvTC8JMIRdhUqs4ruA+8xbYcNVQzewYRCPm1Xw==";
   };
+  "@react-native/babel-plugin-codegen@0.88.0-rc.4" = fetchurl {
+    url = "https://registry.npmjs.org/@react-native/babel-plugin-codegen/-/babel-plugin-codegen-0.88.0-rc.4.tgz";
+    hash = "sha512-XrbXubYD+2XOLfCy7mwbaWT3tkpP+7VWcjRr4dz0LW3EfR6bbD6Y4bHnLQDVEmlOoefowRrcabTKYJYUBviQMg==";
+  };
   "@react-native/babel-preset@0.87.1" = fetchurl {
     url = "https://registry.npmjs.org/@react-native/babel-preset/-/babel-preset-0.87.1.tgz";
     hash = "sha512-EN1oo8IqsJgq++na/buq6hYsdZJY5A8+URohSA620eGz5a+322WOAcBuvcYZTeovYwR2NegvpPk5h+QVk8iUMw==";
@@ -905,6 +909,10 @@
   "@react-native/codegen@0.87.1" = fetchurl {
     url = "https://registry.npmjs.org/@react-native/codegen/-/codegen-0.87.1.tgz";
     hash = "sha512-qbaqEdlUfj2vRgvWTpMoNgHnEqAhAYJLUrpGkb0WC9n0kdtqUvgigpz4bDktZwolM9BemXwgGFgyiAnbs3t0xw==";
+  };
+  "@react-native/codegen@0.88.0-rc.4" = fetchurl {
+    url = "https://registry.npmjs.org/@react-native/codegen/-/codegen-0.88.0-rc.4.tgz";
+    hash = "sha512-kNRAX3FF0YHE6j3ied6t50M6mO/LuBVzRH72bPItaSWt6f8S69AG1rJTEVwz01G6yMnsc1KZK2x1eO9HVSOb3g==";
   };
   "@react-native/community-cli-plugin@0.86.3" = fetchurl {
     url = "https://registry.npmjs.org/@react-native/community-cli-plugin/-/community-cli-plugin-0.86.3.tgz";
@@ -1474,6 +1482,10 @@
     url = "https://registry.npmjs.org/babel-plugin-react-native-web/-/babel-plugin-react-native-web-0.21.3.tgz";
     hash = "sha512-e4fG8NbyRvk5GwU/7G2U9WxzPYtpC4IQN28AyRDzKE0kvywgohq8vT2x0/xBfg8a0RfSkXLlHAtUAGlSy3VhAw==";
   };
+  "babel-plugin-react-native-web@0.21.4" = fetchurl {
+    url = "https://registry.npmjs.org/babel-plugin-react-native-web/-/babel-plugin-react-native-web-0.21.4.tgz";
+    hash = "sha512-FSclsDTGi5EcvpbW3TM7s8GLWwQqo5wI9zQqJr2m0IoJRenSkp1+bVvdeZXTNznI5Ms9Bry7DLBR+C5Shb9gtw==";
+  };
   "babel-plugin-syntax-hermes-parser@0.36.0" = fetchurl {
     url = "https://registry.npmjs.org/babel-plugin-syntax-hermes-parser/-/babel-plugin-syntax-hermes-parser-0.36.0.tgz";
     hash = "sha512-LhD0xdoedDw7ansQgXbB2DADLZIK/LRXuWNBPuVzMc5S2WK5GyT89tCM+cQzxFGO0mGyLK6D5TrVOJJzAoDy8Q==";
@@ -1493,6 +1505,10 @@
   "babel-preset-expo@57.0.14" = fetchurl {
     url = "https://registry.npmjs.org/babel-preset-expo/-/babel-preset-expo-57.0.14.tgz";
     hash = "sha512-ALhPgXS0pvMcuORYh3THz4qYhQlOsRIw6FB+AbawM81tvP9V9pZpiK+Au9wihyYIb/Hdv2Z7Zwud4tFXF1ysJQ==";
+  };
+  "babel-preset-expo@58.0.12" = fetchurl {
+    url = "https://registry.npmjs.org/babel-preset-expo/-/babel-preset-expo-58.0.12.tgz";
+    hash = "sha512-1Fym+tOqq1TgCQo8GNSQigKLnSiUQjpPB/9lSYUfjjvAvRbvqcLPOv4+sJRBT+avKB//k1YMa4scIi4kF5MUJA==";
   };
   "babel-preset-jest@29.6.3" = fetchurl {
     url = "https://registry.npmjs.org/babel-preset-jest/-/babel-preset-jest-29.6.3.tgz";
@@ -2350,9 +2366,17 @@
     url = "https://registry.npmjs.org/flow-enums-runtime/-/flow-enums-runtime-0.0.6.tgz";
     hash = "sha512-3PYnM29RFXwvAN6Pc/scUfkI7RwhQ/xqyLUyPNlXUp9S40zI8nup9tUSrTLSVnWGBN38FNiGWbwZOB6uR4OGdw==";
   };
+  "flow-estree@0.327.0" = fetchurl {
+    url = "https://registry.npmjs.org/flow-estree/-/flow-estree-0.327.0.tgz";
+    hash = "sha512-f9vK751YUzD0qaHSpKc5/qQM6gqOlgGS+4ZRqTNcZOpVqn3mC55yEQ6dUG2K1eaVm5FbKkz9CFWe6XNvrkQFQg==";
+  };
   "flow-estree@0.331.0" = fetchurl {
     url = "https://registry.npmjs.org/flow-estree/-/flow-estree-0.331.0.tgz";
     hash = "sha512-FVLYkSL/ITb/QXBEQvNWPjPooRGswuUtGOwrH+puSlMDneNkxy640+FZsk/TfKL+b7Wbw/Fg9FTUv2bMQDpj2w==";
+  };
+  "flow-parser@0.327.0" = fetchurl {
+    url = "https://registry.npmjs.org/flow-parser/-/flow-parser-0.327.0.tgz";
+    hash = "sha512-/MYZ5hXWf5ozpbdfUDmazMgQXviLxWEiRLH3MppEGDdW0itRVqmB5UaU7QX+SBCDNiq+gEesSVn8nlxmPDyDkw==";
   };
   "flow-parser@0.331.0" = fetchurl {
     url = "https://registry.npmjs.org/flow-parser/-/flow-parser-0.331.0.tgz";
