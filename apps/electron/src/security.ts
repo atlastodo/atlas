@@ -35,7 +35,7 @@ export const CSP = [
 export function resolveAppPath(
   distDir: string,
   requestUrl: string,
-  pathImpl: path.PlatformPath = path,
+  pathImpl: typeof path = path,
 ): string | null {
   let url: URL;
   try {
