@@ -1,6 +1,10 @@
 import { useEffect } from "react";
 import { Platform, useWindowDimensions } from "react-native";
-import { Gesture } from "react-native-gesture-handler";
+import {
+  useNativeGesture,
+  usePanGesture,
+  useSimultaneousGestures,
+} from "react-native-gesture-handler";
 import {
   useAnimatedProps,
   useAnimatedScrollHandler,
@@ -101,16 +105,17 @@ export function useSheetDismiss(onClose: () => void, visible = true) {
     }
   };
 
-  const headerPanGesture = Gesture.Pan()
-    .enabled(!isWeb)
-    .activeOffsetY(5)
-    .failOffsetY(-5)
-    .onUpdate((event) => {
+  const headerPanGesture = usePanGesture({
+    enabled: !isWeb,
+    activeOffsetY: 5,
+    failOffsetY: -5,
+    onUpdate: (event) => {
       translateY.value = Math.max(0, event.translationY);
-    })
-    .onEnd((event) => {
+    },
+    onDeactivate: (event) => {
       settleDrag(event.translationY, event.velocityY, true);
-    });
+    },
+  });
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -118,16 +123,16 @@ export function useSheetDismiss(onClose: () => void, visible = true) {
     },
   });
 
-  const nativeScrollGesture = Gesture.Native();
+  const nativeScrollGesture = useNativeGesture();
 
   // Pulls the sheet down only from the top of the content. Once it has, the pull keeps the sheet
   // even if the finger reverses: pulling back up raises the sheet instead of scrolling the list.
-  const contentPanGesture = Gesture.Pan()
-    .enabled(!isWeb)
-    .activeOffsetY(5)
-    .failOffsetY(-5)
-    .simultaneousWithExternalGesture(nativeScrollGesture)
-    .onUpdate((event) => {
+  const contentPanGesture = usePanGesture({
+    enabled: !isWeb,
+    activeOffsetY: 5,
+    failOffsetY: -5,
+    simultaneousWith: nativeScrollGesture,
+    onUpdate: (event) => {
       if (!dragging.value && scrollOffset.value <= 0 && event.translationY > 0) {
         dragging.value = true;
         dragStart.value = event.translationY;
@@ -135,22 +140,23 @@ export function useSheetDismiss(onClose: () => void, visible = true) {
       if (dragging.value) {
         translateY.value = Math.max(0, event.translationY - dragStart.value);
       }
-    })
-    .onEnd((event) => {
-      if (dragging.value) {
+    },
+    onDeactivate: (event) => {
+      if (dragging.value && !event.canceled) {
         settleDrag(event.translationY - dragStart.value, event.velocityY, true);
       }
-    })
-    .onFinalize((_event, success) => {
-      // A cancelled pull (interrupted by the system) never reaches onEnd: put the sheet back.
-      if (dragging.value && !success) translateY.value = withTiming(0, { duration: 150 });
+    },
+    onFinalize: (event) => {
+      // A cancelled pull (interrupted by the system) does not settle: put the sheet back.
+      if (dragging.value && event.canceled) translateY.value = withTiming(0, { duration: 150 });
       dragging.value = false;
-    });
+    },
+  });
 
   /** For the sheet's scroll view: frozen while a pull drives the sheet. */
   const scrollAnimatedProps = useAnimatedProps(() => ({ scrollEnabled: !dragging.value }));
 
-  const composedGesture = Gesture.Simultaneous(contentPanGesture, nativeScrollGesture);
+  const composedGesture = useSimultaneousGestures(contentPanGesture, nativeScrollGesture);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],

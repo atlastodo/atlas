@@ -151,7 +151,7 @@ export function CommandPalette({
                   <Text className="px-3 pb-1 pt-3 text-xs font-medium uppercase tracking-wide text-neutral-500">
                     {t("palette.taskResults")}
                   </Text>
-                ) : null
+                ) : undefined
               }
               ListEmptyComponent={
                 <Text className="px-3 py-6 text-center text-sm text-neutral-500">

@@ -8,6 +8,7 @@ import {
   TextInput,
   View,
   useWindowDimensions,
+  type ViewInstance,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import ReorderableList, { type ReorderableListReorderEvent } from "react-native-reorderable-list";
@@ -771,9 +772,9 @@ function BoardColumn({
   onCardActions?: (task: Task, pos: MenuPos) => void;
 }) {
   const { t } = useTranslation();
-  const columnRef = useRef<View>(null);
-  const headerRef = useRef<View>(null);
-  const topDropRef = useRef<View>(null);
+  const columnRef = useRef<ViewInstance>(null);
+  const headerRef = useRef<ViewInstance>(null);
+  const topDropRef = useRef<ViewInstance>(null);
 
   const [renameDraft, setRenameDraft] = useState(column.name);
   useEffect(() => {
@@ -801,8 +802,8 @@ function BoardColumn({
   const topOver = useDropTarget(topDropRef, (draggedId) => {
     onDropCard(draggedId, 0);
   });
-  const bottomDropRef = useRef<View>(null);
-  const footerDropRef = useRef<View>(null);
+  const bottomDropRef = useRef<ViewInstance>(null);
+  const footerDropRef = useRef<ViewInstance>(null);
   const bottomOver = useDropTarget(bottomDropRef, (draggedId) => {
     onDropCard(draggedId, Number.MAX_SAFE_INTEGER);
   });
@@ -1219,8 +1220,8 @@ function DraggableCard({
   onContextMenu?: (task: Task, pos: MenuPos) => void;
   drag?: () => void;
 }) {
-  const ref = useRef<View>(null);
-  const bottomEdgeRef = useRef<View>(null);
+  const ref = useRef<ViewInstance>(null);
+  const bottomEdgeRef = useRef<ViewInstance>(null);
   const selectMode = useSelection().mode;
   const dragging = useDragSource(ref, () => task.id, {
     enabled: !task.locked && !selectMode,

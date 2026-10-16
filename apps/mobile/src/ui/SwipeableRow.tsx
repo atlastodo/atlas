@@ -1,6 +1,6 @@
-import { useMemo, useRef, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { Platform, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -56,57 +56,54 @@ export function SwipeableRow({
   const canSwipeRight = Boolean(handleRight);
   const canSwipeLeft = Boolean(handleLeft);
 
-  const pan = useMemo(() => {
-    return (
-      Gesture.Pan()
-        // Callbacks run on the JS thread to avoid native UI worklet crashes.
-        .runOnJS(true)
-        .enabled(enabled && (canSwipeRight || canSwipeLeft))
-        .activeOffsetX([-12, 12])
-        .failOffsetY([-12, 12])
-        .hitSlop({ left: -DRAWER_EDGE_GUARD })
-        .onUpdate((e) => {
-          let dx = e.translationX;
-          if (!canSwipeRight && dx > 0) dx = 0;
-          if (!canSwipeLeft && dx < 0) dx = 0;
-          offset.value = clampOffset(dx, MAX_REVEAL);
+  const pan = usePanGesture({
+    // Callbacks run on the JS thread to avoid native UI worklet crashes.
+    runOnJS: true,
+    enabled: enabled && (canSwipeRight || canSwipeLeft),
+    activeOffsetX: [-12, 12],
+    failOffsetY: [-12, 12],
+    hitSlop: { left: -DRAWER_EDGE_GUARD },
+    onUpdate: (e) => {
+      let dx = e.translationX;
+      if (!canSwipeRight && dx > 0) dx = 0;
+      if (!canSwipeLeft && dx < 0) dx = 0;
+      offset.value = clampOffset(dx, MAX_REVEAL);
 
-          if (Math.abs(dx) > 6) {
-            isSwipingRef.current = true;
-          }
+      if (Math.abs(dx) > 6) {
+        isSwipingRef.current = true;
+      }
 
-          const past = Math.abs(dx) >= DEFAULT_SWIPE.threshold;
-          if (past !== crossed.value) {
-            crossed.value = past;
-            if (past) haptics.selection();
-          }
-        })
-        .onEnd((e) => {
-          let dx = e.translationX;
-          if (!canSwipeRight && dx > 0) dx = 0;
-          if (!canSwipeLeft && dx < 0) dx = 0;
+      const past = Math.abs(dx) >= DEFAULT_SWIPE.threshold;
+      if (past !== crossed.value) {
+        crossed.value = past;
+        if (past) haptics.selection();
+      }
+    },
+    onDeactivate: (e) => {
+      let dx = e.translationX;
+      if (!canSwipeRight && dx > 0) dx = 0;
+      if (!canSwipeLeft && dx < 0) dx = 0;
 
-          // "none" covers a too-short or mostly vertical drag, which must not commit an action.
-          const action = classifySwipe({ x: 0, y: 0 }, { x: dx, y: e.translationY });
+      // "none" covers a too-short or mostly vertical drag, which must not commit an action.
+      const action = classifySwipe({ x: 0, y: 0 }, { x: dx, y: e.translationY });
 
-          if (action === "right" && canSwipeRight) {
-            haptics.selection();
-            handlers.current.handleRight?.();
-          } else if (action === "left" && canSwipeLeft) {
-            haptics.impact("medium");
-            handlers.current.handleLeft?.();
-          }
-          offset.value = withSpring(0, { damping: 20, stiffness: 220 });
-        })
-        .onFinalize(() => {
-          crossed.value = false;
-          if (offset.value !== 0) offset.value = withTiming(0, { duration: 120 });
-          setTimeout(() => {
-            isSwipingRef.current = false;
-          }, 150);
-        })
-    );
-  }, [enabled, canSwipeRight, canSwipeLeft, offset, crossed]);
+      if (action === "right" && canSwipeRight) {
+        haptics.selection();
+        handlers.current.handleRight?.();
+      } else if (action === "left" && canSwipeLeft) {
+        haptics.impact("medium");
+        handlers.current.handleLeft?.();
+      }
+      offset.value = withSpring(0, { damping: 20, stiffness: 220 });
+    },
+    onFinalize: () => {
+      crossed.value = false;
+      if (offset.value !== 0) offset.value = withTiming(0, { duration: 120 });
+      setTimeout(() => {
+        isSwipingRef.current = false;
+      }, 150);
+    },
+  });
 
   const rowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: offset.value }] }));
   const completeStyle = useAnimatedStyle(() => ({

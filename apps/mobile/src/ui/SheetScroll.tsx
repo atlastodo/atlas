@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { FlatList, ScrollView, type FlatListProps, type ScrollViewProps } from "react-native";
-import { GestureDetector, type Gesture } from "react-native-gesture-handler";
+import { GestureDetector, type NativeGesture } from "react-native-gesture-handler";
 import Animated, {
   type useAnimatedProps,
   type useAnimatedScrollHandler,
@@ -15,7 +15,7 @@ import { cssInterop } from "nativewind";
 
 export interface SheetScrollValue {
   scrollHandler: ReturnType<typeof useAnimatedScrollHandler>;
-  nativeScrollGesture: ReturnType<typeof Gesture.Native>;
+  nativeScrollGesture: NativeGesture;
   scrollAnimatedProps: ReturnType<typeof useAnimatedProps>;
 }
 

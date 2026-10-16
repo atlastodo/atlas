@@ -1,5 +1,5 @@
 import { useRef, type ReactNode } from "react";
-import { View } from "react-native";
+import { View, type ViewInstance } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { Task } from "@atlas/client-core";
 import { useDragSource, useDropTarget } from "../hooks/useCardDnd";
@@ -23,8 +23,8 @@ export function DraggableTaskRow({
   children: ReactNode;
 }) {
   const { t } = useTranslation();
-  const rowRef = useRef<View>(null);
-  const handleRef = useRef<View>(null);
+  const rowRef = useRef<ViewInstance>(null);
+  const handleRef = useRef<ViewInstance>(null);
   const over = useDropTarget(rowRef, (draggedId) => {
     if (draggedId !== task.id) onReparentDrop(draggedId, task);
   });

@@ -8,6 +8,7 @@ import {
   TextInput,
   useWindowDimensions,
   View,
+  type ViewInstance,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { ThemeScope } from "../theme/ThemeProvider";
@@ -55,8 +56,8 @@ export function ListPicker<T extends string>({
   const isWeb = Platform.OS === "web";
   const { width: winWidth, height: winHeight } = useWindowDimensions();
 
-  const triggerRef = useRef<View>(null);
-  const menuRef = useRef<View>(null);
+  const triggerRef = useRef<ViewInstance>(null);
+  const menuRef = useRef<ViewInstance>(null);
   const [anchor, setAnchor] = useState<{
     x: number;
     y: number;

@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Keyboard, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import {
+  Keyboard,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+  type TextInputInstance,
+  type ViewInstance,
+} from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import Animated from "react-native-reanimated";
 import { useTranslation } from "react-i18next";
@@ -228,8 +238,8 @@ export function TaskDetailScreen({
   const [subtaskModalOpen, setSubtaskModalOpen] = useState(false);
   const isModalOpen = propIsSubtaskModalOpen ?? subtaskModalOpen;
 
-  const titleRef = useRef<TextInput>(null);
-  const notesRef = useRef<TextInput>(null);
+  const titleRef = useRef<TextInputInstance>(null);
+  const notesRef = useRef<TextInputInstance>(null);
   const [inputsBlocked, setInputsBlocked] = useState(false);
   const subtaskModalJustClosedRef = useRef(false);
   const subtaskCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -380,7 +390,7 @@ export function TaskDetailScreen({
     : t("moveTo.inbox");
   const sectionName = task.section_id ? allSections.byId(task.section_id)?.name : undefined;
 
-  const rootRef = useRef<View>(null);
+  const rootRef = useRef<ViewInstance>(null);
   useDismissKeyboardOnOpen(rootRef);
 
   // Flush the current buffer through the ref: navigating back unmounts without a blur.

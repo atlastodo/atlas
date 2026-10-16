@@ -68,6 +68,28 @@ jest.mock("expo-audio", () => ({
   }),
 }));
 
+/**
+ * expo-notifications subscribes its handler module at import, and jest-expo's double of that
+ * module answers `addListener` with nothing, so the `remove()` in `setNotificationHandler` throws.
+ * This double hands back a removable subscription.
+ */
+jest.mock("expo-notifications/build/NotificationsHandlerModule", () => ({
+  __esModule: true,
+  default: {
+    addListener: () => ({ remove: () => {} }),
+    handleNotificationAsync: jest.fn(async () => {}),
+  },
+}));
+
+/**
+ * gesture-handler 3's GestureDetector throws unless a GestureHandlerRootView is above it, which the
+ * app's root layout provides and a component test does not. Default the context to "inside a root".
+ */
+jest.mock("react-native-gesture-handler/lib/module/GestureHandlerRootViewContext", () => ({
+  __esModule: true,
+  default: jest.requireActual<typeof import("react")>("react").createContext(true),
+}));
+
 /** The library's own double: zero insets, so components reading insets render without a provider. */
 jest.mock(
   "react-native-safe-area-context",

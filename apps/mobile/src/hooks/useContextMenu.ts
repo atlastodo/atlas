@@ -1,5 +1,5 @@
 import { useRef, type RefObject } from "react";
-import type { View } from "react-native";
+import type { ViewInstance } from "react-native";
 
 /** Viewport coordinates of a right-click. */
 export interface MenuPos {
@@ -12,6 +12,6 @@ export interface MenuPos {
  * uses long-press/swipe). It attaches nothing and returns an unused ref. Metro resolves
  * `useContextMenu.web.ts` for the browser.
  */
-export function useContextMenu(_onOpen: (pos: MenuPos) => void): RefObject<View | null> {
-  return useRef<View | null>(null);
+export function useContextMenu(_onOpen: (pos: MenuPos) => void): RefObject<ViewInstance | null> {
+  return useRef<ViewInstance | null>(null);
 }

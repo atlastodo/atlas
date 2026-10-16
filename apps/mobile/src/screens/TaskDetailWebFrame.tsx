@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
-import type { Gesture } from "react-native-gesture-handler";
+import type { ComposedGesture } from "react-native-gesture-handler";
 import { GestureDetector } from "react-native-gesture-handler";
 import Animated from "react-native-reanimated";
 import type { useAnimatedProps, useAnimatedScrollHandler } from "react-native-reanimated";
@@ -14,7 +14,7 @@ import { useSheetDismiss } from "../ui/useSheetDismiss";
 
 export interface SheetScrollContextValue {
   scrollHandler: ReturnType<typeof useAnimatedScrollHandler>;
-  composedGesture?: ReturnType<typeof Gesture.Simultaneous>;
+  composedGesture?: ComposedGesture;
   /** Freezes the scroll view while a pull drives the sheet. */
   scrollAnimatedProps?: ReturnType<typeof useAnimatedProps>;
 }
