@@ -8,6 +8,7 @@ const path = require("path");
 /** @type {import('jest').Config} */
 module.exports = {
   preset: "jest-expo",
+  resolver: "<rootDir>/jest-resolver.js",
   // Several suites run the real password KDF, which outlasts jest's 5 s default on a shared runner.
   testTimeout: 30_000,
   // gesture-handler's double must load before the module graph (setupFiles); reanimated's needs a
