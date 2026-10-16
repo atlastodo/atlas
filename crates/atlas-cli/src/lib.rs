@@ -9,7 +9,6 @@ use atlas_client::client::{AtlasClient, CreateTask, TaskQuery, TaskStatus};
 use atlas_client::rules::dates::parse_due;
 use atlas_client::rules::zoned::resolve_time_zone;
 use atlas_client::session::ConnectOptions;
-use atlas_client::store::now_ms;
 use atlas_client::Error;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -296,10 +295,6 @@ fn to_json<T: Serialize>(v: T) -> String {
     serde_json::to_string_pretty(&v).expect("JSON")
 }
 
-fn now() -> i64 {
-    now_ms() as i64
-}
-
 fn dispatch(
     atlas: &mut AtlasClient,
     command: &str,
@@ -311,13 +306,13 @@ fn dispatch(
     Ok(match command {
         "projects list" => to_json(atlas.projects()),
         "labels list" => to_json(atlas.labels()),
-        "tasks list" => to_json(atlas.tasks(&list_query(values, tz)?)?),
+        "tasks list" => to_json(atlas.tasks(&list_query(values, tz, atlas.now())?)?),
         "tasks get" => match atlas.task(id) {
             Some(t) => to_json(t),
             None => return Err(Error::atlas("unknown_task", format!("no task \"{id}\"")).into()),
         },
         "tasks add" => {
-            let f = task_fields(values, tz)?;
+            let f = task_fields(values, tz, atlas.now())?;
             let Some(title) = f.title.filter(|t| !t.is_empty()) else {
                 return Err(Fail::Usage(
                     "tasks add needs --title (or a title in --json)".into(),
@@ -336,7 +331,7 @@ fn dispatch(
         }
         "tasks quick" => to_json(atlas.quick_add(id)?),
         "tasks update" => {
-            let f = task_fields(values, tz)?;
+            let f = task_fields(values, tz, atlas.now())?;
             // The order the TypeScript CLI builds its patch in.
             let mut patch: Vec<(String, Value)> = Vec::new();
             if let Some(n) = f.notes {
@@ -384,14 +379,14 @@ fn dispatch(
     })
 }
 
-fn optional_due(value: Option<&str>, tz: Option<&str>) -> Result<Option<i64>, Fail> {
+fn optional_due(value: Option<&str>, tz: Option<&str>, now: i64) -> Result<Option<i64>, Fail> {
     match value {
         None => Ok(None),
-        Some(v) => Ok(parse_due(&Value::from(v), &resolve_time_zone(tz), now())?),
+        Some(v) => Ok(parse_due(&Value::from(v), &resolve_time_zone(tz), now)?),
     }
 }
 
-fn list_query(values: &Values, tz: Option<&str>) -> Result<TaskQuery, Fail> {
+fn list_query(values: &Values, tz: Option<&str>, now: i64) -> Result<TaskQuery, Fail> {
     let status = match values.get("status") {
         None | Some("") => None,
         Some("open") => Some(TaskStatus::Open),
@@ -409,8 +404,8 @@ fn list_query(values: &Values, tz: Option<&str>) -> Result<TaskQuery, Fail> {
         label: labels.into_iter().next(),
         search: values.get("search").map(str::to_owned),
         filter: values.get("filter").map(str::to_owned),
-        due_before: optional_due(values.get("due-before"), tz)?,
-        due_after: optional_due(values.get("due-after"), tz)?,
+        due_before: optional_due(values.get("due-before"), tz, now)?,
+        due_after: optional_due(values.get("due-after"), tz, now)?,
     })
 }
 
@@ -526,7 +521,7 @@ fn truthy(v: &Value) -> bool {
     }
 }
 
-fn task_fields(values: &Values, tz: Option<&str>) -> Result<TaskFields, Fail> {
+fn task_fields(values: &Values, tz: Option<&str>, now: i64) -> Result<TaskFields, Fail> {
     let mut json = Map::new();
     if let Some(text) = values.get("json") {
         let parsed: Value = serde_json::from_str(text)
@@ -559,7 +554,7 @@ fn task_fields(values: &Values, tz: Option<&str>) -> Result<TaskFields, Fail> {
             }
             other => other,
         };
-        f.due_at = Some(parse_due(&due, &resolve_time_zone(tz), now())?);
+        f.due_at = Some(parse_due(&due, &resolve_time_zone(tz), now)?);
     }
     f.priority = pick("priority", "priority").map(|v| js_number(&v));
     if let Some(project) = or_else(pick("project", "project"), "project_id") {
