@@ -29,13 +29,18 @@ try {
   process.exit(2);
 }
 
+// Comments stripped until none remain: one pass can splice `<!-<!---->-` into a new `<!--`.
+let uncommented = manifest;
+for (let prev = ""; prev !== uncommented;) {
+  prev = uncommented;
+  uncommented = uncommented.replace(/<!--[\s\S]*?-->/g, "");
+}
+
 // <uses-permission> and <uses-permission-sdk-23>, minus commented-out ones.
 const declared = new Set(
-  [
-    ...manifest
-      .replace(/<!--[\s\S]*?-->/g, "")
-      .matchAll(/<uses-permission(?:-sdk-23)?\b[^>]*?android:name="([^"]+)"/g),
-  ].map((m) => m[1]),
+  [...uncommented.matchAll(/<uses-permission(?:-sdk-23)?\b[^>]*?android:name="([^"]+)"/g)].map(
+    (m) => m[1],
+  ),
 );
 
 // The first backticked cell of each row in the "Declared" table.

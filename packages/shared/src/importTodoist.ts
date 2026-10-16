@@ -67,10 +67,19 @@ export function todoistUuid(userId: string, kind: TodoistKind, key: string): str
 /** "Work [2203306141].csv" -> "Work": the backup appends the project id to each file name. */
 export function todoistProjectName(fileName: string): string {
   const base = fileName.split(/[\\/]/).pop() ?? fileName;
-  return base
-    .replace(/\.csv$/i, "")
-    .replace(/\s*\[[^\]]*\]\s*$/, "")
-    .trim();
+  return stripTrailingBracket(base.replace(/\.csv$/i, "")).trim();
+}
+
+/**
+ * "Work [2203306141]" -> "Work ": drops a final `[...]` group (the last `[` with no `]` after it
+ * but the closing one). A scan, since `/\s*\[[^\]]*\]\s*$/` backtracks quadratically through a
+ * long run of spaces or `[`s in a file name.
+ */
+function stripTrailingBracket(name: string): string {
+  const t = name.trimEnd();
+  if (!t.endsWith("]")) return name;
+  const open = t.indexOf("[", t.lastIndexOf("]", t.length - 2) + 1);
+  return open === -1 ? name : t.slice(0, open);
 }
 
 function isZip(bytes: Uint8Array): boolean {
@@ -217,11 +226,15 @@ function nearestYear(month: number, day: number, today: CivilDate): CivilDate | 
   return best;
 }
 
+// The phrase parsers below read a phrase `parseTodoistDate` has lowercased, trimmed and collapsed
+// to single spaces, so they match one literal space where a raw phrase would need `\s+`: an
+// unanchored `\s+` backtracks quadratically through a long run of whitespace.
+
 // "at 9am", "14:00", "@ 5:30 pm" at the end of the phrase. A bare number is a day, not a time.
 function splitTime(
   phrase: string,
 ): { rest: string; time: { hour: number; minute: number } | null } | null {
-  const m = /(^|\s+)(?:(at|@)\s*)?(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?$/.exec(phrase);
+  const m = /(^| )(?:(at|@) ?)?(\d{1,2})(?:[:.](\d{2}))? ?(am|pm)?$/.exec(phrase);
   if (!m || !(m[2] || m[4] || m[5])) return { rest: phrase, time: null };
   let hour = Number(m[3]);
   const minute = Number(m[4] ?? "0");
@@ -306,7 +319,7 @@ function parseEvery(body: string, interval: number, mode: Rule["mode"]): ParsedR
   if (body === "weekday" || body === "workday")
     return { rule: rule("weekly", interval, [0, 1, 2, 3, 4]) };
   if (body === "weekend") return { rule: rule("weekly", interval, [5, 6]) };
-  const days = body.split(/\s*(?:,|\band\b)\s*/).filter(Boolean);
+  const days = body.split(/ ?(?:,|\band\b) ?/).filter(Boolean);
   if (days.length > 0 && days.every((d) => own(WEEKDAYS, d))) {
     const byday = [...new Set(days.map((d) => WEEKDAYS[d]!))].sort((a, b) => a - b);
     return { rule: rule("weekly", interval, byday) };
@@ -361,7 +374,7 @@ export function parseTodoistDate(raw: string, now: number, timeZone?: string): D
 
   // "every day starting oct 20": the series' first day. An end ("until", "for 3 weeks") cannot be kept.
   let start = today;
-  const starting = /\s+(?:starting(?:\s+on)?|from)\s+(.+)$/.exec(phrase);
+  const starting = / (?:starting(?: on)?|from) (.+)$/.exec(phrase);
   if (starting) {
     const date = parseCivilDate(starting[1]!, today);
     if (!date) return { unsupported: "recurrence" };
@@ -379,7 +392,7 @@ export function parseTodoistDate(raw: string, now: number, timeZone?: string): D
       rule: { freq: word, interval: 1, byday: [], bymonthday: null, mode: "on_schedule" },
     };
   } else {
-    const every = /^every(!?)\s+(?:(other)\s+)?(.+)$/.exec(split.rest);
+    const every = /^every(!?) (?:(other) )?(.+)$/.exec(split.rest);
     parsed = every
       ? parseEvery(every[3]!, every[2] ? 2 : 1, every[1] ? "after_completion" : "on_schedule")
       : null;

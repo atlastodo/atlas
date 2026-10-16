@@ -279,3 +279,12 @@ describe("createBreadcrumbTrail", () => {
     expect(trail.list()).toEqual([]);
   });
 });
+
+describe("stackFrames on hostile input", () => {
+  it("rejects a line of repeated `@`s in linear time", () => {
+    const stack = `Error: x\n${"!@".repeat(50_000)}`;
+    const start = performance.now();
+    expect(stackFrames(stack)).toBeUndefined();
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+});
