@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import type { TextInput, TextInputKeyPressEvent } from "react-native";
+import type { TextInputKeyPressEvent, TextInputInstance } from "react-native";
 
 /**
  * Escape cancels what is being typed: it discards the draft and leaves the field. The companion to
@@ -18,7 +18,7 @@ export function isEscapeKey(e: TextInputKeyPressEvent): boolean {
 }
 
 export interface CancelOnEscape {
-  ref: React.RefObject<TextInput | null>;
+  ref: React.RefObject<TextInputInstance | null>;
   onKeyPress: (e: TextInputKeyPressEvent) => void;
   /**
    * For a field that also commits on blur: true exactly once, for the blur the cancel itself
@@ -29,7 +29,7 @@ export interface CancelOnEscape {
 }
 
 export function useCancelOnEscape(cancel: () => void): CancelOnEscape {
-  const ref = useRef<TextInput>(null);
+  const ref = useRef<TextInputInstance>(null);
   const cancelling = useRef(false);
   return {
     ref,

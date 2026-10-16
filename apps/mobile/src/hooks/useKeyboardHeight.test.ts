@@ -1,12 +1,8 @@
 import { renderHook, act } from "@testing-library/react-native";
-import {
-  Keyboard,
-  Platform,
-  type EmitterSubscription,
-  type KeyboardEvent,
-  type KeyboardEventListener,
-} from "react-native";
+import { Keyboard, Platform, type EmitterSubscription, type KeyboardEvent } from "react-native";
 import { useKeyboardHeight } from "./useKeyboardHeight";
+
+type KeyboardEventListener = (event: KeyboardEvent) => void;
 
 describe("useKeyboardHeight", () => {
   beforeEach(() => {

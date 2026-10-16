@@ -16,6 +16,7 @@ import {
   TextInput,
   View,
   type GestureResponderEvent,
+  type TextInputInstance,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { Label, Task } from "@atlas/client-core";
@@ -235,7 +236,7 @@ function TaskRowView({
   const [cursorSelection, setCursorSelection] = useState<
     { start: number; end: number } | undefined
   >(undefined);
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<TextInputInstance>(null);
   const submittedRef = useRef(false);
   const openingDetailsRef = useRef(false);
 

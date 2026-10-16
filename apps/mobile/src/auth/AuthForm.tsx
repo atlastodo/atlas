@@ -7,6 +7,7 @@ import {
   View,
   type KeyboardTypeOptions,
   type TextInputProps,
+  type TextInputInstance,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -236,9 +237,9 @@ export function AuthForm({
     handleRestore,
   } = form;
   // Return on one field moves to the next, as a credential form should.
-  const emailRef = useRef<TextInput>(null);
-  const phraseRef = useRef<TextInput>(null);
-  const passwordRef = useRef<TextInput>(null);
+  const emailRef = useRef<TextInputInstance>(null);
+  const phraseRef = useRef<TextInputInstance>(null);
+  const passwordRef = useRef<TextInputInstance>(null);
 
   return (
     <>
@@ -450,7 +451,7 @@ interface FieldProps {
   autoComplete?: TextInputProps["autoComplete"];
   returnKeyType?: TextInputProps["returnKeyType"];
   onSubmitEditing?: () => void;
-  inputRef?: Ref<TextInput>;
+  inputRef?: Ref<TextInputInstance>;
 }
 
 function Field({ label, value, onChange, inputRef, ...input }: FieldProps) {

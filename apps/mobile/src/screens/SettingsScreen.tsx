@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View, type ScrollViewInstance } from "react-native";
 import { useTranslation } from "react-i18next";
 import { isAdmin } from "@atlas/client-core";
 import { useAuth } from "../auth/AuthContext";
@@ -73,7 +73,7 @@ export function SettingsScreen({
   const isWide = useIsWide();
   const { session } = useAuth();
   const { localOnly } = useStore();
-  const pillScrollViewRef = useRef<ScrollView>(null);
+  const pillScrollViewRef = useRef<ScrollViewInstance>(null);
   const pillX = useRef<Partial<Record<SettingsSectionId, number>>>({});
 
   // The URL owns the selection (`?section=`), so deep links and back/forward land on the same section.

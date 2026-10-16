@@ -1,5 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
-import type { View } from "react-native";
+import type { ViewInstance } from "react-native";
 
 /** Viewport coordinates of a right-click. */
 export interface MenuPos {
@@ -13,8 +13,8 @@ export interface MenuPos {
  * the browser's menu. Native uses the no-op `useContextMenu.ts`. Returns the ref for the row's
  * outer `View`.
  */
-export function useContextMenu(onOpen: (pos: MenuPos) => void): RefObject<View | null> {
-  const ref = useRef<View | null>(null);
+export function useContextMenu(onOpen: (pos: MenuPos) => void): RefObject<ViewInstance | null> {
+  const ref = useRef<ViewInstance | null>(null);
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
 

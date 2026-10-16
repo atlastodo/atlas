@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { Modal, Platform, Pressable, Text, View } from "react-native";
+import { Modal, Platform, Pressable, Text, View, type ViewInstance } from "react-native";
 import { useTranslation } from "react-i18next";
 import { ThemeScope } from "../theme/ThemeProvider";
 import { haptics } from "../lib/haptics";
@@ -54,7 +54,7 @@ export function ConfirmDialog({
   // Web: focus moves into the dialog so the field underneath keeps no caret or Escape. Escape
   // cancels on a capture-phase listener so it wins over earlier handlers (e.g. TaskDetailWebFrame
   // closing the screen). Native asks via the Modal's back button.
-  const dialogRef = useRef<View>(null);
+  const dialogRef = useRef<ViewInstance>(null);
   useEffect(() => {
     if (!visible || Platform.OS !== "web") return;
     if (typeof window === "undefined" || typeof window.addEventListener !== "function") return;

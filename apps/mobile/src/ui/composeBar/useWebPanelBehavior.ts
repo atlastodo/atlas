@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Platform, type View } from "react-native";
+import { Platform, type ViewInstance } from "react-native";
 
 /**
  * Web only: focus moves into a newly opened panel (not the quick-add title field), and Escape
@@ -7,7 +7,7 @@ import { Platform, type View } from "react-native";
  * react-native-web stops their key events before the window.
  */
 export function useWebPanelBehavior(panel: string | null, cancel: () => void) {
-  const panelRef = useRef<View>(null);
+  const panelRef = useRef<ViewInstance>(null);
 
   useEffect(() => {
     if (Platform.OS !== "web" || panel === null) return;

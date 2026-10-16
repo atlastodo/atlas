@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Pressable, View, type GestureResponderEvent } from "react-native";
+import { Pressable, View, type GestureResponderEvent, type ViewInstance } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useIsWide } from "../hooks/useIsWide";
 import { useSelection } from "../data/SelectionProvider";
@@ -80,7 +80,7 @@ export function ProjectHeaderActions({
   const selection = useSelection();
   const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
   const [arranging, setArranging] = useState(false);
-  const triggerRef = useRef<View>(null);
+  const triggerRef = useRef<ViewInstance>(null);
   const layout = layoutProp ?? (isWide ? "inline" : "menu");
 
   // The menu hangs right-aligned under the ⋮, so it covers the list rather than the title and switch.

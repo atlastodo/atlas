@@ -7,6 +7,8 @@ import {
   View,
   type TextInputKeyPressEvent,
   type TextInputSelectionChangeEvent,
+  type TextInputInstance,
+  type ViewInstance,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { CreateTaskInput } from "@atlas/client-core";
@@ -229,8 +231,8 @@ export function QuickAdd(props: QuickAddProps) {
   const [ignoredProjects, setIgnoredProjects] = useState<string[]>([]);
   const [ignoredLabels, setIgnoredLabels] = useState<string[]>([]);
   const selection = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
-  const inputRef = useRef<TextInput>(null);
-  const containerRef = useRef<View>(null);
+  const inputRef = useRef<TextInputInstance>(null);
+  const containerRef = useRef<ViewInstance>(null);
   useQuickAddHotkeyTarget(() => {
     setEngaged(true);
     inputRef.current?.focus();

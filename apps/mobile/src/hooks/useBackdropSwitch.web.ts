@@ -1,5 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
-import type { View } from "react-native";
+import type { ViewInstance } from "react-native";
 
 /**
  * Makes a context menu's full-screen backdrop route a right-click to the row beneath it.
@@ -13,8 +13,8 @@ import type { View } from "react-native";
  *
  * Returns the ref to spread onto the backdrop `Pressable`.
  */
-export function useBackdropSwitch(onClose: () => void): RefObject<View | null> {
-  const ref = useRef<View | null>(null);
+export function useBackdropSwitch(onClose: () => void): RefObject<ViewInstance | null> {
+  const ref = useRef<ViewInstance | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 

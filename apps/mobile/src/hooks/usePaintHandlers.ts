@@ -1,6 +1,6 @@
 import { useMemo, useRef } from "react";
 import type { ViewProps } from "react-native";
-import { Gesture, type PanGesture } from "react-native-gesture-handler";
+import { Gesture, type LegacyPanGesture } from "react-native-gesture-handler";
 import { useSelectionRow } from "../data/SelectionProvider";
 
 /** The pointer props (+ hit-test marker) a row spreads to become paintable. Empty on native. */
@@ -18,7 +18,7 @@ export function usePaintHandlers(_id: string, _selectMode = false): PaintHandler
  * Mobile drag-selection over the checkbox column: in select mode, dragging vertically along it
  * activates a `Gesture.Pan()` that wins over ScrollView scrolling and selects or deselects rows live.
  */
-export function useCheckboxPaintGesture(id: string, selectMode = false): PanGesture {
+export function useCheckboxPaintGesture(id: string, selectMode = false): LegacyPanGesture {
   const sel = useSelectionRow();
   const selRef = useRef(sel);
   selRef.current = sel;

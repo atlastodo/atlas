@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  useWindowDimensions,
+  View,
+  type ScrollViewInstance,
+  type ViewInstance,
+} from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Easing,
@@ -477,7 +486,7 @@ function WeekTimelineView({
   onOpenTask?: (task: Task) => void;
 }) {
   const { t } = useTranslation();
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const nowParts = zonedParts(now, timeZone);
   const hourLabels = useMemo(
     () =>
@@ -757,7 +766,7 @@ function DayCellView({
   const shown = tasks.slice(0, compact ? MAX_DOTS : MAX_CHIPS);
   const overflow = tasks.length - shown.length;
   // A web drop target: a chip dropped here reschedules to this day.
-  const dayRef = useRef<View>(null);
+  const dayRef = useRef<ViewInstance>(null);
   useDropTarget(dayRef, onDropOnDay);
   return (
     <Pressable
@@ -855,7 +864,7 @@ function DayChip({
   onLongPress: () => void;
 }) {
   const { t } = useTranslation();
-  const ref = useRef<View>(null);
+  const ref = useRef<ViewInstance>(null);
   useDragSource(ref, () => task.id);
   return (
     <Pressable
