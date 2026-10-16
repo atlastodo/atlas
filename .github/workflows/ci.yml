@@ -220,7 +220,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
       # Prebuilt, checksum-verified binary; version matches devenv's.
-      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-nextest@0.9.143
           fallback: none
@@ -313,7 +313,7 @@ jobs:
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --no-self-update
           rustup default "$RUST_TOOLCHAIN"
-      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-deny@0.20.2
           fallback: none
