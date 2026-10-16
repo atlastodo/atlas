@@ -194,6 +194,11 @@ impl AtlasClient {
         self.now = now;
     }
 
+    /// The clock the rules read, in epoch milliseconds.
+    pub fn now(&self) -> i64 {
+        (self.now)()
+    }
+
     pub fn user_id(&self) -> &str {
         &self.session.user_id
     }
