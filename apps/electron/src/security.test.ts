@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  isInsecureServerUrl,
   APP_ORIGIN,
   CSP,
   deepLinkFromArgv,
@@ -203,6 +204,19 @@ describe("isAllowedExternalUrl", () => {
     "",
   ])("rejects %s", (url) => {
     expect(isAllowedExternalUrl(url)).toBe(false);
+  });
+});
+
+describe("isInsecureServerUrl", () => {
+  it("is true only for a plain-http server", () => {
+    expect(isInsecureServerUrl("http://192.168.1.10:8080")).toBe(true);
+    expect(isInsecureServerUrl("HTTP://atlas.lan")).toBe(true);
+    expect(isInsecureServerUrl("https://app.atlastodo.dev")).toBe(false);
+    expect(isInsecureServerUrl("")).toBe(false);
+    expect(isInsecureServerUrl("not a url")).toBe(false);
+    expect(isInsecureServerUrl("ws://atlas.lan")).toBe(false);
+    expect(isInsecureServerUrl(undefined)).toBe(false);
+    expect(isInsecureServerUrl(42)).toBe(false);
   });
 });
 

@@ -8,7 +8,9 @@ import type { UpdateState } from "./updater";
  * `isElectron` distinguishes the shell from a tab; `focusWindow` raises the window on a
  * Notification click (the OS does not for renderer-created ones); `safeStorage` encrypts one byte
  * string with the OS key store (null when unusable); `closeToTray` backs Settings' toggle;
- * `updates` provides release check, download and install status.
+ * `updates` provides release check, download and install status; `serverUrl.set` reports the
+ * server the renderer resolved, so the window allows plain-http content only for an http server
+ * (true when the window is being rebuilt for it).
  */
 contextBridge.exposeInMainWorld("atlasDesktop", {
   isElectron: true,
@@ -26,6 +28,9 @@ contextBridge.exposeInMainWorld("atlasDesktop", {
     get: (): Promise<CloseToTrayState | null> => ipcRenderer.invoke("atlas:close-to-tray:get"),
     set: (enabled: boolean): Promise<CloseToTrayState | null> =>
       ipcRenderer.invoke("atlas:close-to-tray:set", enabled),
+  },
+  serverUrl: {
+    set: (url: string): Promise<boolean | null> => ipcRenderer.invoke("atlas:server-url:set", url),
   },
   updates: {
     getState: (): Promise<UpdateState | null> => ipcRenderer.invoke("atlas:updates:get-state"),

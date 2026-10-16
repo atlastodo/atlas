@@ -135,6 +135,16 @@ export function isAppUrl(raw: string): boolean {
   }
 }
 
+/** Whether a server URL is plain http, which the window can only reach with insecure content allowed. */
+export function isInsecureServerUrl(raw: unknown): boolean {
+  if (typeof raw !== "string") return false;
+  try {
+    return new URL(raw).protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 /** Whether the window may navigate to (or trust IPC from) this URL: the bundled app, plus the dev server in dev mode. */
 export function isInternalUrl(raw: string, devServerUrl: string | null): boolean {
   if (isAppUrl(raw)) return true;

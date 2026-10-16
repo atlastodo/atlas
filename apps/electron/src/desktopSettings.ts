@@ -9,6 +9,11 @@ export interface DesktopSettings {
   closeToTray: boolean;
   /** Whether to check for updates automatically in the background (ignored when updates are disabled). */
   autoCheckUpdates: boolean;
+  /**
+   * Whether the window may load plain-http content: on only while the chosen server is an
+   * `http://` one, since `app://` is a secure origin and blocks it as mixed content.
+   */
+  allowInsecureServer: boolean;
 }
 
 /** What Settings' "Close to tray" row reads: whether there is a tray, and the choice. */
@@ -20,6 +25,7 @@ export interface CloseToTrayState {
 export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   closeToTray: true,
   autoCheckUpdates: true,
+  allowInsecureServer: false,
 };
 
 export function loadDesktopSettings(file: string): DesktopSettings {
@@ -29,6 +35,8 @@ export function loadDesktopSettings(file: string): DesktopSettings {
       // On unless explicitly turned off.
       closeToTray: raw?.closeToTray !== false,
       autoCheckUpdates: raw?.autoCheckUpdates !== false,
+      // Off unless a plain-http server turned it on.
+      allowInsecureServer: raw?.allowInsecureServer === true,
     };
   } catch {
     return { ...DEFAULT_DESKTOP_SETTINGS };

@@ -36,6 +36,7 @@ import {
   deepLinkFromArgv,
   devServerUrl as devServerUrlFor,
   isAllowedExternalUrl,
+  isInsecureServerUrl,
   isInternalUrl,
   parseReleaseMarker,
   resolveAppPath,
@@ -378,6 +379,26 @@ ipcMain.handle("atlas:close-to-tray:set", (event, enabled: unknown) => {
   return closeToTrayState();
 });
 
+// The renderer reports the server it resolved at boot and after each change. A switch between an
+// http and an https server flips `allowRunningInsecureContent`, which a window fixes at creation,
+// so the window is rebuilt; the new one reads the same stored URL and reports it again, matching.
+ipcMain.handle("atlas:server-url:set", (event, url: unknown) => {
+  if (!isTrustedSender(event)) return null;
+  const insecure = isInsecureServerUrl(url);
+  if (insecure === desktopSettings.allowInsecureServer) return false;
+  desktopSettings = { ...desktopSettings, allowInsecureServer: insecure };
+  try {
+    saveDesktopSettings(desktopSettingsPath(), desktopSettings);
+  } catch (err) {
+    console.error("[Atlas Todo Desktop] Failed to save desktop settings:", err);
+  }
+  const previous = BrowserWindow.fromWebContents(event.sender);
+  mainWindow = createMainWindow();
+  // destroy(), not close(): close-to-tray would only hide it.
+  previous?.destroy();
+  return true;
+});
+
 // Desktop auto-updates.
 ipcMain.handle("atlas:updates:get-state", (event) =>
   isTrustedSender(event) ? (updater?.getState() ?? null) : null,
@@ -433,9 +454,10 @@ function createMainWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
       webviewTag: false,
-      // app:// is a secure origin, so a plain-http LAN API would be blocked as mixed content;
-      // allowed, with the CSP bounding what the page loads.
-      allowRunningInsecureContent: true,
+      // app:// is a secure origin, so a plain-http LAN API would be blocked as mixed content.
+      // Allowed only while the chosen server is http (`atlas:server-url:set`), with the CSP
+      // bounding what the page loads.
+      allowRunningInsecureContent: desktopSettings.allowInsecureServer,
     },
     show: false, // Show once ready-to-show for a seamless first paint
   });

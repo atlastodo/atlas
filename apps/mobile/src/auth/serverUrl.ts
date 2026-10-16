@@ -90,5 +90,22 @@ export async function loadServerUrl(): Promise<string> {
   if (isOnlineWeb() && typeof window !== "undefined" && window.location?.origin) {
     return getDefaultServerUrl();
   }
-  return pick(await getServerUrlOverride(), getDefaultServerUrl());
+  const url = pick(await getServerUrlOverride(), getDefaultServerUrl());
+  await reportToDesktop(url);
+  return url;
+}
+
+/**
+ * The desktop shell allows plain-http content only while the server is an http one, and rebuilds
+ * its window when that changes; this window is then replaced and the call does not settle.
+ */
+async function reportToDesktop(url: string): Promise<void> {
+  const bridge = (
+    globalThis as { atlasDesktop?: { serverUrl?: { set?: (url: string) => Promise<unknown> } } }
+  ).atlasDesktop?.serverUrl;
+  try {
+    await bridge?.set?.(url);
+  } catch {
+    // An older shell without the handler: nothing to switch.
+  }
 }
