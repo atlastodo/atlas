@@ -27,9 +27,9 @@ export function usePaintHandlers(id: string, selectMode = false): PaintHandlers 
   };
 }
 
-import { Gesture, type LegacyPanGesture } from "react-native-gesture-handler";
+import { usePanGesture, type PanGesture } from "react-native-gesture-handler";
 
 /** Web uses full-row pointer handlers; the checkbox paint gesture is a no-op on web. */
-export function useCheckboxPaintGesture(_id: string, _selectMode = false): LegacyPanGesture {
-  return Gesture.Pan().enabled(false);
+export function useCheckboxPaintGesture(_id: string, _selectMode = false): PanGesture {
+  return usePanGesture({ enabled: false });
 }

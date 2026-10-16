@@ -9,7 +9,7 @@ import {
   type ScrollViewInstance,
   type ViewInstance,
 } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
 import Animated, {
   Easing,
   runOnJS,
@@ -158,67 +158,64 @@ export function CalendarScreen({ onOpenTask }: { onOpenTask?: (task: Task) => vo
     );
   }
 
-  const panGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .enabled(Platform.OS !== "web" && !movingId)
-        .activeOffsetX([-15, 15])
-        .failOffsetY([-20, 20])
-        .onUpdate((event) => {
-          if (!isTransitioning.current) {
-            translateX.value = event.translationX;
-          }
-        })
-        .onEnd((event) => {
-          if (isTransitioning.current) return;
-          if (event.translationX < -50 || event.velocityX < -500) {
-            isTransitioning.current = true;
-            translateX.value = withTiming(
-              -windowWidth,
-              { duration: 150, easing: Easing.in(Easing.cubic) },
-              (finished) => {
-                if (finished) {
-                  runOnJS(triggerShift)(1);
-                  translateX.value = windowWidth;
-                  translateX.value = withTiming(
-                    0,
-                    { duration: 180, easing: Easing.out(Easing.cubic) },
-                    () => {
-                      isTransitioning.current = false;
-                    },
-                  );
-                } else {
+  const panGesture = usePanGesture({
+    enabled: Platform.OS !== "web" && !movingId,
+    activeOffsetX: [-15, 15],
+    failOffsetY: [-20, 20],
+    onUpdate: (event) => {
+      if (!isTransitioning.current) {
+        translateX.value = event.translationX;
+      }
+    },
+    onDeactivate: (event) => {
+      if (isTransitioning.current) return;
+      if (event.translationX < -50 || event.velocityX < -500) {
+        isTransitioning.current = true;
+        translateX.value = withTiming(
+          -windowWidth,
+          { duration: 150, easing: Easing.in(Easing.cubic) },
+          (finished) => {
+            if (finished) {
+              runOnJS(triggerShift)(1);
+              translateX.value = windowWidth;
+              translateX.value = withTiming(
+                0,
+                { duration: 180, easing: Easing.out(Easing.cubic) },
+                () => {
                   isTransitioning.current = false;
-                }
-              },
-            );
-          } else if (event.translationX > 50 || event.velocityX > 500) {
-            isTransitioning.current = true;
-            translateX.value = withTiming(
-              windowWidth,
-              { duration: 150, easing: Easing.in(Easing.cubic) },
-              (finished) => {
-                if (finished) {
-                  runOnJS(triggerShift)(-1);
-                  translateX.value = -windowWidth;
-                  translateX.value = withTiming(
-                    0,
-                    { duration: 180, easing: Easing.out(Easing.cubic) },
-                    () => {
-                      isTransitioning.current = false;
-                    },
-                  );
-                } else {
+                },
+              );
+            } else {
+              isTransitioning.current = false;
+            }
+          },
+        );
+      } else if (event.translationX > 50 || event.velocityX > 500) {
+        isTransitioning.current = true;
+        translateX.value = withTiming(
+          windowWidth,
+          { duration: 150, easing: Easing.in(Easing.cubic) },
+          (finished) => {
+            if (finished) {
+              runOnJS(triggerShift)(-1);
+              translateX.value = -windowWidth;
+              translateX.value = withTiming(
+                0,
+                { duration: 180, easing: Easing.out(Easing.cubic) },
+                () => {
                   isTransitioning.current = false;
-                }
-              },
-            );
-          } else {
-            translateX.value = withTiming(0, { duration: 150, easing: Easing.out(Easing.cubic) });
-          }
-        }),
-    [movingId, windowWidth, translateX],
-  );
+                },
+              );
+            } else {
+              isTransitioning.current = false;
+            }
+          },
+        );
+      } else {
+        translateX.value = withTiming(0, { duration: 150, easing: Easing.out(Easing.cubic) });
+      }
+    },
+  });
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
