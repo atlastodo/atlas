@@ -38,7 +38,7 @@ const ALLOW = new Set([
   "Python-2.0",
   "MIT-0",
   // Weak copyleft, compatible with AGPL (MPL 2.0 section 3.3): lightningcss, through Expo's CSS
-  // tooling.
+  // tooling; also in deny.toml, for webauthn-rs.
   "MPL-2.0",
   // Browser-support data, not code: caniuse-lite, through browserslist.
   "CC-BY-4.0",

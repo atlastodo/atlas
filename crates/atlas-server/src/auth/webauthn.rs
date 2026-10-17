@@ -1,75 +1,53 @@
-//! A WebAuthn relying party, reduced to what passkeys here need: building the ceremony options a
-//! client hands to `navigator.credentials` (or Android's Credential Manager), and verifying the
-//! registration and assertion responses it sends back.
+//! The WebAuthn relying party, over `webauthn-rs`: the ceremony options a client hands to
+//! `navigator.credentials` (or Android's Credential Manager), the server-side state each ceremony
+//! keeps until it is answered, and the verification of the answers.
 //!
-//! Scope, deliberately small:
-//! - Attestation is not verified: options ask for `"none"`, and whatever statement comes back is
-//!   ignored. Synced passkeys carry none anyway; what a passkey proves here is possession of its
-//!   private key, which every assertion re-checks.
-//! - User verification is required in every ceremony (the `UV` flag), since a passkey stands in
-//!   for the password and unlocks the account keys.
-//! - Signatures: ES256 (P-256), EdDSA (Ed25519) and RS256, over RustCrypto primitives.
-//! - Extensions are not interpreted. The PRF extension runs between client and authenticator; the
-//!   server only checks that the client reports it enabled and never receives its output.
+//! `webauthn-rs` verifies (challenge, origin, RP ID hash, user presence and verification,
+//! signature, counter); this module adapts it to what passkeys here need:
+//! - Registration asks for a discoverable credential (`residentKey: "required"`), which
+//!   `start_passkey_registration` leaves to the authenticator, so the options are adjusted before
+//!   they are sent; the stored state does not depend on it.
+//! - Every ceremony requests the PRF extension, which `webauthn-rs` does not model: it is added to
+//!   the options JSON. It runs between client and authenticator; the server never receives the
+//!   output ([`prf_report`] refuses a response that carries it).
+//! - A modal discoverable sign-in uses `start_discoverable_authentication` without the conditional
+//!   mediation it sets.
+//! - Ceremony state and credentials are stored as JSON (`danger-allow-state-serialisation`); the
+//!   state lives in `webauthn_challenges` until its single use.
 //!
-//! Data in and out is the WebAuthn Level 3 JSON form (`PublicKeyCredentialCreationOptionsJSON`,
-//! `RegistrationResponseJSON`, …): binary fields are base64url.
+//! Attestation is not requested (`"none"`). Data in and out is WebAuthn Level 3 JSON: binary
+//! fields are base64url.
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
 use base64::Engine;
-use ciborium::Value as Cbor;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
-
-/// COSE algorithm identifiers this relying party accepts, in order of preference.
-pub const ALG_EDDSA: i64 = -8;
-pub const ALG_ES256: i64 = -7;
-pub const ALG_RS256: i64 = -257;
-
-const FLAG_UP: u8 = 0x01;
-const FLAG_UV: u8 = 0x04;
-const FLAG_BE: u8 = 0x08;
-const FLAG_BS: u8 = 0x10;
-const FLAG_AT: u8 = 0x40;
+use uuid::Uuid;
+use webauthn_rs::prelude::{
+    CredentialID, DiscoverableAuthentication, DiscoverableKey, Passkey, PasskeyAuthentication,
+    PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential, Url, Webauthn,
+    WebauthnBuilder,
+};
 
 /// Upper bound on a credential id (the spec caps it at 1023 bytes).
 pub const MAX_CREDENTIAL_ID_LEN: usize = 1023;
 /// Upper bound on any one base64url field of a response; real ones are a few hundred bytes.
 const MAX_FIELD_LEN: usize = 16 * 1024;
+/// How long a client gets to finish a ceremony; the server-side challenge lives a little longer.
+pub const CEREMONY_TIMEOUT_MS: u64 = 5 * 60 * 1000;
 
-/// Why a response was refused. Never shown in detail to a client beyond the message.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum WebauthnError {
+/// Why a ceremony could not start or a response was refused.
+#[derive(Debug, thiserror::Error)]
+pub enum PasskeyError {
     #[error("malformed {0}")]
     Malformed(&'static str),
-    #[error("the response is for another ceremony")]
-    WrongType,
-    #[error("the challenge does not match")]
-    Challenge,
-    #[error("the origin {0:?} is not allowed")]
-    Origin(String),
-    #[error("the response is for another relying party")]
-    RpId,
-    #[error("the authenticator did not verify the user")]
-    UserNotVerified,
-    #[error("unsupported public key algorithm")]
-    UnsupportedAlgorithm,
-    #[error("the signature does not verify")]
-    Signature,
-    #[error("the signature counter went backwards")]
-    Counter,
+    #[error("the relying party is misconfigured")]
+    Configuration,
+    #[error("{0}")]
+    Webauthn(#[from] webauthn_rs::prelude::WebauthnError),
 }
 
-type Result<T> = std::result::Result<T, WebauthnError>;
-
-/// The relying party: its id (a domain), display name and the origins a response may come from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RelyingParty {
-    pub id: String,
-    pub name: String,
-    pub origins: Vec<String>,
-}
+type Result<T> = std::result::Result<T, PasskeyError>;
 
 /// Decode base64url, with or without padding.
 pub fn b64url_decode(s: &str) -> Option<Vec<u8>> {
@@ -83,259 +61,66 @@ pub fn b64url(bytes: &[u8]) -> String {
     B64URL.encode(bytes)
 }
 
-/// `clientDataJSON`, the fields checked.
-#[derive(Debug, Deserialize)]
-struct ClientData {
-    #[serde(rename = "type")]
-    kind: String,
-    challenge: String,
-    origin: String,
-    #[serde(rename = "crossOrigin", default)]
-    cross_origin: Option<bool>,
-}
-
-/// The challenge a response answers, read from its `clientDataJSON` (base64url) without checking
-/// anything else: the caller looks the ceremony up by it, then verifies against it.
+/// The challenge a response answers (unpadded base64url), read from its `clientDataJSON` without
+/// checking anything else: the caller looks the ceremony up by it, then verifies against it.
 pub fn response_challenge(client_data_json_b64: &str) -> Result<String> {
+    #[derive(Deserialize)]
+    struct ClientData {
+        challenge: String,
+    }
     let raw =
-        b64url_decode(client_data_json_b64).ok_or(WebauthnError::Malformed("clientDataJSON"))?;
+        b64url_decode(client_data_json_b64).ok_or(PasskeyError::Malformed("clientDataJSON"))?;
     let cd: ClientData =
-        serde_json::from_slice(&raw).map_err(|_| WebauthnError::Malformed("clientDataJSON"))?;
-    // Normalized: the stored challenge is unpadded base64url.
-    let bytes = b64url_decode(&cd.challenge).ok_or(WebauthnError::Malformed("challenge"))?;
+        serde_json::from_slice(&raw).map_err(|_| PasskeyError::Malformed("clientDataJSON"))?;
+    let bytes = b64url_decode(&cd.challenge).ok_or(PasskeyError::Malformed("challenge"))?;
     Ok(b64url(&bytes))
 }
 
-impl RelyingParty {
-    fn check_client_data(&self, raw: &[u8], kind: &str, challenge: &str) -> Result<()> {
-        let cd: ClientData =
-            serde_json::from_slice(raw).map_err(|_| WebauthnError::Malformed("clientDataJSON"))?;
-        if cd.kind != kind {
-            return Err(WebauthnError::WrongType);
-        }
-        let got = b64url_decode(&cd.challenge).ok_or(WebauthnError::Challenge)?;
-        let want = b64url_decode(challenge).ok_or(WebauthnError::Challenge)?;
-        if got != want {
-            return Err(WebauthnError::Challenge);
-        }
-        if cd.cross_origin == Some(true) {
-            return Err(WebauthnError::Origin(cd.origin));
-        }
-        let origin = cd.origin.trim_end_matches('/');
-        if !self.origins.iter().any(|o| o == origin) {
-            return Err(WebauthnError::Origin(cd.origin));
-        }
-        Ok(())
-    }
+/// A `RegistrationResponseJSON` as the client sent it; [`RelyingParty::verify_registration`]
+/// parses it fully.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(transparent)]
+pub struct RegistrationResponse(pub Value);
 
-    /// `PublicKeyCredentialCreationOptionsJSON` for a discoverable, user-verified passkey with
-    /// the PRF extension (`prf_input` is its `eval.first`).
-    pub fn creation_options(
-        &self,
-        challenge: &str,
-        user_handle: &[u8],
-        user_name: &str,
-        user_display_name: &str,
-        exclude: &[(String, Vec<String>)],
-        prf_input: &str,
-    ) -> Value {
-        json!({
-            "rp": { "id": self.id, "name": self.name },
-            "user": {
-                "id": b64url(user_handle),
-                "name": user_name,
-                "displayName": if user_display_name.is_empty() { user_name } else { user_display_name },
-            },
-            "challenge": challenge,
-            "pubKeyCredParams": [
-                { "type": "public-key", "alg": ALG_EDDSA },
-                { "type": "public-key", "alg": ALG_ES256 },
-                { "type": "public-key", "alg": ALG_RS256 },
-            ],
-            "timeout": CEREMONY_TIMEOUT_MS,
-            "excludeCredentials": descriptors(exclude),
-            "authenticatorSelection": {
-                "residentKey": "required",
-                "requireResidentKey": true,
-                "userVerification": "required",
-            },
-            "attestation": "none",
-            "extensions": {
-                "credProps": true,
-                "prf": { "eval": { "first": prf_input } },
-            },
-        })
-    }
+/// An `AuthenticationResponseJSON` as the client sent it; [`RelyingParty::verify_assertion`]
+/// parses it fully.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(transparent)]
+pub struct AssertionResponse(pub Value);
 
-    /// `PublicKeyCredentialRequestOptionsJSON`. With no `allow` list the request is discoverable
-    /// (the authenticator offers its passkeys for this RP) and PRF evaluates `prf_input` for any;
-    /// otherwise each allowed credential gets its own input.
-    pub fn request_options(
-        &self,
-        challenge: &str,
-        allow: &[(String, Vec<String>)],
-        prf_input: &str,
-        prf_by_credential: &[(String, String)],
-    ) -> Value {
-        let mut prf = json!({ "eval": { "first": prf_input } });
-        if !prf_by_credential.is_empty() {
-            let by: serde_json::Map<String, Value> = prf_by_credential
-                .iter()
-                .map(|(id, input)| (id.clone(), json!({ "first": input })))
-                .collect();
-            prf["evalByCredential"] = Value::Object(by);
-        }
-        json!({
-            "challenge": challenge,
-            "rpId": self.id,
-            "timeout": CEREMONY_TIMEOUT_MS,
-            "userVerification": "required",
-            "allowCredentials": descriptors(allow),
-            "extensions": { "prf": prf },
-        })
-    }
-
-    /// Verify a registration response against the ceremony's challenge.
-    pub fn verify_registration(
-        &self,
-        response: &RegistrationResponse,
-        challenge: &str,
-    ) -> Result<NewCredential> {
-        let client_data = b64url_decode(&response.response.client_data_json)
-            .ok_or(WebauthnError::Malformed("clientDataJSON"))?;
-        self.check_client_data(&client_data, "webauthn.create", challenge)?;
-        let att = b64url_decode(&response.response.attestation_object)
-            .ok_or(WebauthnError::Malformed("attestationObject"))?;
-        let att: Cbor = ciborium::from_reader(att.as_slice())
-            .map_err(|_| WebauthnError::Malformed("attestationObject"))?;
-        let auth_data = map_get_text(&att, "authData")
-            .and_then(|v| v.as_bytes().cloned())
-            .ok_or(WebauthnError::Malformed("attestationObject"))?;
-        let parsed = parse_auth_data(&auth_data)?;
-        self.check_auth_data(&parsed)?;
-        let attested = parsed
-            .attested
-            .ok_or(WebauthnError::Malformed("authenticatorData"))?;
-        // The id the client reports must be the one the authenticator attested.
-        let raw_id = b64url_decode(&response.raw_id).ok_or(WebauthnError::Malformed("rawId"))?;
-        if raw_id != attested.credential_id {
-            return Err(WebauthnError::Malformed("rawId"));
-        }
-        let algorithm = PublicKey::from_cose(&attested.public_key)?.algorithm();
-        Ok(NewCredential {
-            credential_id: b64url(&attested.credential_id),
-            public_key: attested.public_key,
-            algorithm,
-            sign_count: parsed.sign_count,
-            backup_eligible: parsed.flags & FLAG_BE != 0,
-            backed_up: parsed.flags & FLAG_BS != 0,
-        })
-    }
-
-    /// Verify an assertion against the ceremony's challenge and the stored credential. Returns
-    /// the authenticator's new signature counter.
-    pub fn verify_assertion(
-        &self,
-        response: &AssertionResponse,
-        challenge: &str,
-        public_key_cose: &[u8],
-        stored_sign_count: u32,
-    ) -> Result<AssertionOutcome> {
-        let client_data = b64url_decode(&response.response.client_data_json)
-            .ok_or(WebauthnError::Malformed("clientDataJSON"))?;
-        self.check_client_data(&client_data, "webauthn.get", challenge)?;
-        let auth_data = b64url_decode(&response.response.authenticator_data)
-            .ok_or(WebauthnError::Malformed("authenticatorData"))?;
-        let parsed = parse_auth_data(&auth_data)?;
-        self.check_auth_data(&parsed)?;
-        let signature = b64url_decode(&response.response.signature)
-            .ok_or(WebauthnError::Malformed("signature"))?;
-        let mut signed = auth_data.clone();
-        signed.extend_from_slice(&Sha256::digest(&client_data));
-        PublicKey::from_cose(public_key_cose)?.verify(&signed, &signature)?;
-        // A counter that stops increasing signals a cloned authenticator. Zero on both sides means
-        // the authenticator keeps no counter (synced passkeys).
-        if (parsed.sign_count != 0 || stored_sign_count != 0)
-            && parsed.sign_count <= stored_sign_count
-        {
-            return Err(WebauthnError::Counter);
-        }
-        Ok(AssertionOutcome {
-            sign_count: parsed.sign_count,
-            backed_up: parsed.flags & FLAG_BS != 0,
-        })
-    }
-
-    fn check_auth_data(&self, parsed: &AuthData) -> Result<()> {
-        if parsed.rp_id_hash != Sha256::digest(self.id.as_bytes()).as_slice() {
-            return Err(WebauthnError::RpId);
-        }
-        if parsed.flags & FLAG_UP == 0 || parsed.flags & FLAG_UV == 0 {
-            return Err(WebauthnError::UserNotVerified);
-        }
-        Ok(())
-    }
+fn str_at<'a>(v: &'a Value, path: &[&str]) -> Option<&'a str> {
+    path.iter().try_fold(v, |v, k| v.get(*k))?.as_str()
 }
 
-/// How long a client gets to finish a ceremony; the server-side challenge lives a little longer.
-pub const CEREMONY_TIMEOUT_MS: u64 = 5 * 60 * 1000;
-
-fn descriptors(creds: &[(String, Vec<String>)]) -> Value {
-    Value::Array(
-        creds
-            .iter()
-            .map(|(id, transports)| {
-                let mut d = json!({ "type": "public-key", "id": id });
-                if !transports.is_empty() {
-                    d["transports"] = json!(transports);
-                }
-                d
+impl RegistrationResponse {
+    pub fn client_data_json(&self) -> &str {
+        str_at(&self.0, &["response", "clientDataJSON"]).unwrap_or_default()
+    }
+    pub fn client_extension_results(&self) -> &Value {
+        self.0.get("clientExtensionResults").unwrap_or(&Value::Null)
+    }
+    pub fn transports(&self) -> Vec<String> {
+        self.0["response"]["transports"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|t| t.as_str().map(str::to_owned))
+                    .collect()
             })
-            .collect(),
-    )
+            .unwrap_or_default()
+    }
 }
 
-/// `RegistrationResponseJSON`, the fields used.
-#[derive(Debug, Clone, Deserialize)]
-pub struct RegistrationResponse {
-    pub id: String,
-    #[serde(rename = "rawId")]
-    pub raw_id: String,
-    pub response: AttestationJson,
-    #[serde(rename = "clientExtensionResults", default)]
-    pub client_extension_results: Value,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct AttestationJson {
-    #[serde(rename = "clientDataJSON")]
-    pub client_data_json: String,
-    #[serde(rename = "attestationObject")]
-    pub attestation_object: String,
-    #[serde(default)]
-    pub transports: Vec<String>,
-}
-
-/// `AuthenticationResponseJSON`, the fields used.
-#[derive(Debug, Clone, Deserialize)]
-pub struct AssertionResponse {
-    pub id: String,
-    #[serde(rename = "rawId")]
-    pub raw_id: String,
-    pub response: AssertionJson,
-    #[serde(rename = "clientExtensionResults", default)]
-    pub client_extension_results: Value,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct AssertionJson {
-    #[serde(rename = "clientDataJSON")]
-    pub client_data_json: String,
-    #[serde(rename = "authenticatorData")]
-    pub authenticator_data: String,
-    pub signature: String,
-    #[serde(rename = "userHandle", default)]
-    pub user_handle: Option<String>,
+impl AssertionResponse {
+    pub fn client_data_json(&self) -> &str {
+        str_at(&self.0, &["response", "clientDataJSON"]).unwrap_or_default()
+    }
+    pub fn raw_id(&self) -> &str {
+        str_at(&self.0, &["rawId"]).unwrap_or_default()
+    }
+    pub fn user_handle(&self) -> Option<&str> {
+        str_at(&self.0, &["response", "userHandle"])
+    }
 }
 
 /// What a client reports of the PRF extension. The output must never reach the server; a client
@@ -366,195 +151,264 @@ pub fn prf_report(client_extension_results: &Value) -> PrfReport {
 pub struct NewCredential {
     /// base64url of the raw credential id.
     pub credential_id: String,
-    /// The credential's COSE_Key, as the authenticator encoded it.
-    pub public_key: Vec<u8>,
-    pub algorithm: i64,
+    /// The `webauthn-rs` passkey (public key, counter, flags), as stored.
+    pub passkey: Value,
     pub sign_count: u32,
     pub backup_eligible: bool,
     pub backed_up: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+/// A verified assertion: the counter and backup state it reported, and the stored passkey brought
+/// up to date with them.
+#[derive(Debug, Clone)]
 pub struct AssertionOutcome {
     pub sign_count: u32,
     pub backed_up: bool,
+    pub passkey: Value,
 }
 
-struct AuthData {
-    rp_id_hash: [u8; 32],
-    flags: u8,
-    sign_count: u32,
-    attested: Option<AttestedCredential>,
+/// The server-side state of a ceremony, as `webauthn_challenges.state` holds it.
+#[derive(Debug, serde::Serialize, Deserialize)]
+#[serde(tag = "kind", content = "state", rename_all = "snake_case")]
+enum Ceremony {
+    Registration(PasskeyRegistration),
+    Authentication(PasskeyAuthentication),
+    Discoverable(DiscoverableAuthentication),
 }
 
-struct AttestedCredential {
-    credential_id: Vec<u8>,
-    public_key: Vec<u8>,
+/// The relying party: its id (a domain) and `webauthn-rs` configured with its exact origins.
+#[derive(Debug, Clone)]
+pub struct RelyingParty {
+    pub id: String,
+    webauthn: Webauthn,
 }
 
-fn parse_auth_data(data: &[u8]) -> Result<AuthData> {
-    const BAD: WebauthnError = WebauthnError::Malformed("authenticatorData");
-    if data.len() < 37 {
-        return Err(BAD);
+/// Drop `null` members: the options go to Android's Credential Manager as JSON, which expects
+/// absent rather than null optional members.
+fn without_nulls(v: Value) -> Value {
+    match v {
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .filter(|(_, v)| !v.is_null())
+                .map(|(k, v)| (k, without_nulls(v)))
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.into_iter().map(without_nulls).collect()),
+        other => other,
     }
-    let rp_id_hash: [u8; 32] = data[..32].try_into().map_err(|_| BAD)?;
-    let flags = data[32];
-    let sign_count = u32::from_be_bytes(data[33..37].try_into().map_err(|_| BAD)?);
-    let attested = if flags & FLAG_AT != 0 {
-        // aaguid (16), credential id length (2), credential id, COSE key (CBOR), then extensions.
-        let rest = data.get(37..).ok_or(BAD)?;
-        let len_bytes = rest.get(16..18).ok_or(BAD)?;
-        let id_len = usize::from(u16::from_be_bytes([len_bytes[0], len_bytes[1]]));
-        if id_len == 0 || id_len > MAX_CREDENTIAL_ID_LEN {
-            return Err(BAD);
-        }
-        let credential_id = rest.get(18..18 + id_len).ok_or(BAD)?.to_vec();
-        let key_and_more = rest.get(18 + id_len..).ok_or(BAD)?;
-        let mut reader = key_and_more;
-        let _: Cbor = ciborium::from_reader(&mut reader).map_err(|_| BAD)?;
-        let key_len = key_and_more.len() - reader.len();
-        Some(AttestedCredential {
-            credential_id,
-            public_key: key_and_more[..key_len].to_vec(),
-        })
-    } else {
-        None
-    };
-    Ok(AuthData {
-        rp_id_hash,
-        flags,
-        sign_count,
-        attested,
-    })
 }
 
-fn map_get_text<'a>(map: &'a Cbor, key: &str) -> Option<&'a Cbor> {
-    map.as_map()?
-        .iter()
-        .find(|(k, _)| k.as_text() == Some(key))
-        .map(|(_, v)| v)
+fn passkey_fields(passkey: &Passkey) -> Result<(Value, u32, bool, bool)> {
+    let value = serde_json::to_value(passkey).map_err(|_| PasskeyError::Malformed("passkey"))?;
+    let cred = &value["cred"];
+    let counter = cred["counter"].as_u64().unwrap_or(0) as u32;
+    let eligible = cred["backup_eligible"].as_bool().unwrap_or(false);
+    let state = cred["backup_state"].as_bool().unwrap_or(false);
+    Ok((value, counter, eligible, state))
 }
 
-fn map_get_int(map: &Cbor, key: i64) -> Option<&Cbor> {
-    map.as_map()?
-        .iter()
-        .find(|(k, _)| k.as_integer().and_then(|i| i64::try_from(i).ok()) == Some(key))
-        .map(|(_, v)| v)
+fn parse_passkey(v: &Value) -> Result<Passkey> {
+    serde_json::from_value(v.clone()).map_err(|_| PasskeyError::Malformed("stored passkey"))
 }
 
-fn cbor_int(v: Option<&Cbor>) -> Option<i64> {
-    v?.as_integer().and_then(|i| i64::try_from(i).ok())
+fn state_json(c: &Ceremony) -> Result<Value> {
+    serde_json::to_value(c).map_err(|_| PasskeyError::Malformed("ceremony state"))
 }
 
-fn cbor_bytes(v: Option<&Cbor>) -> Option<&Vec<u8>> {
-    v?.as_bytes()
-}
-
-/// A credential public key, from its COSE_Key encoding.
-enum PublicKey {
-    Es256(p256::ecdsa::VerifyingKey),
-    EdDsa(ed25519_dalek::VerifyingKey),
-    Rs256(rsa::RsaPublicKey),
-}
-
-impl PublicKey {
-    fn from_cose(cose: &[u8]) -> Result<Self> {
-        const BAD: WebauthnError = WebauthnError::Malformed("public key");
-        let key: Cbor = ciborium::from_reader(cose).map_err(|_| BAD)?;
-        let kty = cbor_int(map_get_int(&key, 1)).ok_or(BAD)?;
-        let alg = cbor_int(map_get_int(&key, 3)).ok_or(BAD)?;
-        match (kty, alg) {
-            // EC2, P-256.
-            (2, ALG_ES256) => {
-                if cbor_int(map_get_int(&key, -1)) != Some(1) {
-                    return Err(WebauthnError::UnsupportedAlgorithm);
-                }
-                let x = cbor_bytes(map_get_int(&key, -2)).ok_or(BAD)?;
-                let y = cbor_bytes(map_get_int(&key, -3)).ok_or(BAD)?;
-                if x.len() != 32 || y.len() != 32 {
-                    return Err(BAD);
-                }
-                let point = p256::EncodedPoint::from_affine_coordinates(
-                    x.as_slice().into(),
-                    y.as_slice().into(),
-                    false,
-                );
-                p256::ecdsa::VerifyingKey::from_encoded_point(&point)
-                    .map(PublicKey::Es256)
-                    .map_err(|_| BAD)
-            }
-            // OKP, Ed25519.
-            (1, ALG_EDDSA) => {
-                if cbor_int(map_get_int(&key, -1)) != Some(6) {
-                    return Err(WebauthnError::UnsupportedAlgorithm);
-                }
-                let x: [u8; 32] = cbor_bytes(map_get_int(&key, -2))
-                    .ok_or(BAD)?
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| BAD)?;
-                ed25519_dalek::VerifyingKey::from_bytes(&x)
-                    .map(PublicKey::EdDsa)
-                    .map_err(|_| BAD)
-            }
-            // RSA.
-            (3, ALG_RS256) => {
-                let n = cbor_bytes(map_get_int(&key, -1)).ok_or(BAD)?;
-                let e = cbor_bytes(map_get_int(&key, -2)).ok_or(BAD)?;
-                rsa::RsaPublicKey::new(
-                    rsa::BigUint::from_bytes_be(n),
-                    rsa::BigUint::from_bytes_be(e),
-                )
-                .map(PublicKey::Rs256)
-                .map_err(|_| BAD)
-            }
-            _ => Err(WebauthnError::UnsupportedAlgorithm),
-        }
-    }
-
-    fn algorithm(&self) -> i64 {
-        match self {
-            PublicKey::Es256(_) => ALG_ES256,
-            PublicKey::EdDsa(_) => ALG_EDDSA,
-            PublicKey::Rs256(_) => ALG_RS256,
-        }
-    }
-
-    fn verify(&self, message: &[u8], signature: &[u8]) -> Result<()> {
-        use p256::ecdsa::signature::Verifier;
-        let ok = match self {
-            PublicKey::Es256(key) => p256::ecdsa::Signature::from_der(signature)
-                .is_ok_and(|sig| key.verify(message, &sig).is_ok()),
-            PublicKey::EdDsa(key) => ed25519_dalek::Signature::from_slice(signature)
-                .is_ok_and(|sig| key.verify_strict(message, &sig).is_ok()),
-            PublicKey::Rs256(key) => {
-                let verifier = rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha256>::new(key.clone());
-                rsa::pkcs1v15::Signature::try_from(signature)
-                    .is_ok_and(|sig| verifier.verify(message, &sig).is_ok())
+impl RelyingParty {
+    /// `origins` are exact (`https://host[:port]`, or `android:apk-key-hash:…`). `webauthn-rs`
+    /// needs one origin on the RP ID's domain to anchor the configuration: the first https one,
+    /// else `https://<rp id>`.
+    pub fn new(id: &str, name: &str, origins: &[String]) -> Result<Self> {
+        let parsed: Vec<Url> = origins
+            .iter()
+            .map(|o| Url::parse(o).map_err(|_| PasskeyError::Configuration))
+            .collect::<Result<_>>()?;
+        let anchor = match parsed
+            .iter()
+            .position(|u| u.scheme() == "https" || u.scheme() == "http")
+        {
+            Some(i) => parsed[i].clone(),
+            None => {
+                Url::parse(&format!("https://{id}")).map_err(|_| PasskeyError::Configuration)?
             }
         };
-        if ok {
-            Ok(())
-        } else {
-            Err(WebauthnError::Signature)
+        let mut builder = WebauthnBuilder::new(id, &anchor)
+            .map_err(|_| PasskeyError::Configuration)?
+            .rp_name(name)
+            .timeout(std::time::Duration::from_millis(CEREMONY_TIMEOUT_MS));
+        for origin in parsed.iter().filter(|u| **u != anchor) {
+            builder = builder.append_allowed_origin(origin);
         }
+        Ok(Self {
+            id: id.to_owned(),
+            webauthn: builder.build()?,
+        })
+    }
+
+    /// `PublicKeyCredentialCreationOptionsJSON` for a discoverable, user-verified passkey with the
+    /// PRF extension (`prf_input` is its `eval.first`), and the ceremony's state. The user handle is
+    /// the account id.
+    pub fn creation_options(
+        &self,
+        user_id: Uuid,
+        user_name: &str,
+        user_display_name: &str,
+        exclude: &[String],
+        prf_input: &str,
+    ) -> Result<(Value, Value)> {
+        let exclude: Vec<CredentialID> = exclude
+            .iter()
+            .filter_map(|id| b64url_decode(id))
+            .map(CredentialID::from)
+            .collect();
+        let display = if user_display_name.is_empty() {
+            user_name
+        } else {
+            user_display_name
+        };
+        let (ccr, state) = self.webauthn.start_passkey_registration(
+            user_id,
+            user_name,
+            display,
+            (!exclude.is_empty()).then_some(exclude),
+        )?;
+        let mut options = serde_json::to_value(&ccr)
+            .map_err(|_| PasskeyError::Malformed("options"))?
+            .get("publicKey")
+            .cloned()
+            .ok_or(PasskeyError::Malformed("options"))?;
+        options["authenticatorSelection"] = json!({
+            "residentKey": "required",
+            "requireResidentKey": true,
+            "userVerification": "required",
+        });
+        options["extensions"]["prf"] = json!({ "eval": { "first": prf_input } });
+        Ok((
+            without_nulls(options),
+            state_json(&Ceremony::Registration(state))?,
+        ))
+    }
+
+    /// Verify a registration response against its ceremony's state.
+    pub fn verify_registration(
+        &self,
+        response: &RegistrationResponse,
+        state: &Value,
+    ) -> Result<NewCredential> {
+        let Ok(Ceremony::Registration(state)) = serde_json::from_value(state.clone()) else {
+            return Err(PasskeyError::Malformed("ceremony state"));
+        };
+        let reg: RegisterPublicKeyCredential = serde_json::from_value(response.0.clone())
+            .map_err(|_| PasskeyError::Malformed("registration response"))?;
+        let passkey = self.webauthn.finish_passkey_registration(&reg, &state)?;
+        let credential_id = b64url(passkey.cred_id().as_ref());
+        let (passkey, sign_count, backup_eligible, backed_up) = passkey_fields(&passkey)?;
+        Ok(NewCredential {
+            credential_id,
+            passkey,
+            sign_count,
+            backup_eligible,
+            backed_up,
+        })
+    }
+
+    fn with_prf(
+        rcr: &impl serde::Serialize,
+        prf_input: &str,
+        prf_by_credential: &[(String, String)],
+    ) -> Result<Value> {
+        let mut options = serde_json::to_value(rcr)
+            .map_err(|_| PasskeyError::Malformed("options"))?
+            .get("publicKey")
+            .cloned()
+            .ok_or(PasskeyError::Malformed("options"))?;
+        let mut prf = json!({ "eval": { "first": prf_input } });
+        if !prf_by_credential.is_empty() {
+            let by: serde_json::Map<String, Value> = prf_by_credential
+                .iter()
+                .map(|(id, input)| (id.clone(), json!({ "first": input })))
+                .collect();
+            prf["evalByCredential"] = Value::Object(by);
+        }
+        // Only PRF: the `uvm` webauthn-rs asks for is of no use here.
+        options["extensions"] = json!({ "prf": prf });
+        options["userVerification"] = json!("required");
+        Ok(without_nulls(options))
+    }
+
+    /// `PublicKeyCredentialRequestOptionsJSON` for a discoverable sign-in (the authenticator
+    /// offers its passkeys for this RP), and the ceremony's state.
+    pub fn discoverable_options(&self, prf_input: &str) -> Result<(Value, Value)> {
+        let (rcr, state) = self.webauthn.start_discoverable_authentication()?;
+        let mut options = Self::with_prf(&rcr, prf_input, &[])?;
+        if let Some(o) = options.as_object_mut() {
+            o.insert("allowCredentials".into(), json!([]));
+        }
+        Ok((options, state_json(&Ceremony::Discoverable(state))?))
+    }
+
+    /// `PublicKeyCredentialRequestOptionsJSON` naming `passkeys` (stored JSON), each with its own
+    /// PRF input, and the ceremony's state.
+    pub fn request_options(
+        &self,
+        passkeys: &[Value],
+        prf_input: &str,
+        prf_by_credential: &[(String, String)],
+    ) -> Result<(Value, Value)> {
+        let creds: Vec<Passkey> = passkeys.iter().map(parse_passkey).collect::<Result<_>>()?;
+        let (rcr, state) = self.webauthn.start_passkey_authentication(&creds)?;
+        let options = Self::with_prf(&rcr, prf_input, prf_by_credential)?;
+        Ok((options, state_json(&Ceremony::Authentication(state))?))
+    }
+
+    /// Verify an assertion against its ceremony's state and the stored passkey it names.
+    pub fn verify_assertion(
+        &self,
+        response: &AssertionResponse,
+        state: &Value,
+        passkey: &Value,
+    ) -> Result<AssertionOutcome> {
+        let cred: PublicKeyCredential = serde_json::from_value(response.0.clone())
+            .map_err(|_| PasskeyError::Malformed("assertion response"))?;
+        let mut stored = parse_passkey(passkey)?;
+        let result = match serde_json::from_value(state.clone()) {
+            Ok(Ceremony::Authentication(state)) => {
+                self.webauthn.finish_passkey_authentication(&cred, &state)?
+            }
+            Ok(Ceremony::Discoverable(state)) => self.webauthn.finish_discoverable_authentication(
+                &cred,
+                state,
+                &[DiscoverableKey::from(&stored)],
+            )?,
+            _ => return Err(PasskeyError::Malformed("ceremony state")),
+        };
+        stored.update_credential(&result);
+        let (passkey, ..) = passkey_fields(&stored)?;
+        Ok(AssertionOutcome {
+            sign_count: result.counter(),
+            backed_up: result.backup_state(),
+            passkey,
+        })
     }
 }
 
 /// A software authenticator for tests: builds registration and assertion responses the way a
-/// browser and platform authenticator would, signing with a P-256 or Ed25519 key.
-#[cfg(any(test, feature = "test-authenticator"))]
+/// browser and platform authenticator would, signing with a P-256 key, for `webauthn-rs` to verify.
+#[cfg(feature = "test-authenticator")]
 pub mod soft {
     use super::*;
+    use ciborium::Value as Cbor;
     use p256::ecdsa::signature::Signer;
+    use sha2::{Digest, Sha256};
 
-    pub enum Key {
-        P256(p256::ecdsa::SigningKey),
-        Ed25519(ed25519_dalek::SigningKey),
-    }
+    const FLAG_UP: u8 = 0x01;
+    const FLAG_UV: u8 = 0x04;
+    const FLAG_AT: u8 = 0x40;
+    const ALG_ES256: i64 = -7;
 
     pub struct SoftAuthenticator {
-        pub key: Key,
+        pub key: p256::ecdsa::SigningKey,
         pub credential_id: Vec<u8>,
         pub sign_count: u32,
         pub user_handle: Vec<u8>,
@@ -567,7 +421,7 @@ pub mod soft {
             let mut bytes = [seed; 32];
             bytes[0] = 1; // keep the scalar in range
             Self {
-                key: Key::P256(p256::ecdsa::SigningKey::from_bytes(&bytes.into()).unwrap()),
+                key: p256::ecdsa::SigningKey::from_bytes(&bytes.into()).unwrap(),
                 credential_id: vec![seed; 16],
                 sign_count: 0,
                 user_handle: user_handle.to_vec(),
@@ -575,14 +429,10 @@ pub mod soft {
             }
         }
 
-        pub fn ed25519(seed: u8, user_handle: &[u8]) -> Self {
-            Self {
-                key: Key::Ed25519(ed25519_dalek::SigningKey::from_bytes(&[seed; 32])),
-                credential_id: vec![seed ^ 0x5a; 20],
-                sign_count: 0,
-                user_handle: user_handle.to_vec(),
-                flags: FLAG_UP | FLAG_UV,
-            }
+        /// Remove user verification from every response (a UP-only authenticator).
+        pub fn without_user_verification(mut self) -> Self {
+            self.flags = FLAG_UP;
+            self
         }
 
         pub fn credential_id_b64(&self) -> String {
@@ -590,27 +440,14 @@ pub mod soft {
         }
 
         fn cose_key(&self) -> Vec<u8> {
-            let map = match &self.key {
-                Key::P256(k) => {
-                    let point = k.verifying_key().to_encoded_point(false);
-                    Cbor::Map(vec![
-                        (Cbor::from(1), Cbor::from(2)),
-                        (Cbor::from(3), Cbor::from(ALG_ES256)),
-                        (Cbor::from(-1), Cbor::from(1)),
-                        (Cbor::from(-2), Cbor::Bytes(point.x().unwrap().to_vec())),
-                        (Cbor::from(-3), Cbor::Bytes(point.y().unwrap().to_vec())),
-                    ])
-                }
-                Key::Ed25519(k) => Cbor::Map(vec![
-                    (Cbor::from(1), Cbor::from(1)),
-                    (Cbor::from(3), Cbor::from(ALG_EDDSA)),
-                    (Cbor::from(-1), Cbor::from(6)),
-                    (
-                        Cbor::from(-2),
-                        Cbor::Bytes(k.verifying_key().to_bytes().to_vec()),
-                    ),
-                ]),
-            };
+            let point = self.key.verifying_key().to_encoded_point(false);
+            let map = Cbor::Map(vec![
+                (Cbor::from(1), Cbor::from(2)),
+                (Cbor::from(3), Cbor::from(ALG_ES256)),
+                (Cbor::from(-1), Cbor::from(1)),
+                (Cbor::from(-2), Cbor::Bytes(point.x().unwrap().to_vec())),
+                (Cbor::from(-3), Cbor::Bytes(point.y().unwrap().to_vec())),
+            ]);
             let mut out = Vec::new();
             ciborium::into_writer(&map, &mut out).unwrap();
             out
@@ -689,16 +526,7 @@ pub mod soft {
             let client_data = Self::client_data("webauthn.get", challenge, origin);
             let mut signed = auth_data.clone();
             signed.extend_from_slice(&Sha256::digest(&client_data));
-            let signature = match &self.key {
-                Key::P256(k) => {
-                    let sig: p256::ecdsa::Signature = k.sign(&signed);
-                    sig.to_der().as_bytes().to_vec()
-                }
-                Key::Ed25519(k) => {
-                    use ed25519_dalek::Signer as _;
-                    k.sign(&signed).to_bytes().to_vec()
-                }
-            };
+            let sig: p256::ecdsa::Signature = self.key.sign(&signed);
             let id = self.credential_id_b64();
             json!({
                 "id": id,
@@ -707,148 +535,139 @@ pub mod soft {
                 "response": {
                     "clientDataJSON": b64url(&client_data),
                     "authenticatorData": b64url(&auth_data),
-                    "signature": b64url(&signature),
+                    "signature": b64url(sig.to_der().as_bytes()),
                     "userHandle": b64url(&self.user_handle),
                 },
                 "authenticatorAttachment": "platform",
-                "clientExtensionResults": { "prf": {} },
+                "clientExtensionResults": {},
             })
         }
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-authenticator"))]
 mod tests {
     use super::soft::SoftAuthenticator;
     use super::*;
 
-    fn rp() -> RelyingParty {
-        RelyingParty {
-            id: "todo.example.com".into(),
-            name: "Atlas".into(),
-            origins: vec![
-                "https://todo.example.com".into(),
-                "android:apk-key-hash:abc".into(),
-            ],
-        }
-    }
-
     const ORIGIN: &str = "https://todo.example.com";
 
-    fn creation(challenge: &str) -> Value {
-        rp().creation_options(challenge, &[7; 16], "a@example.com", "", &[], "cHJm")
+    fn rp() -> RelyingParty {
+        RelyingParty::new(
+            "todo.example.com",
+            "Atlas",
+            &[ORIGIN.into(), "android:apk-key-hash:abc".into()],
+        )
+        .unwrap()
     }
 
-    fn registration(v: Value) -> RegistrationResponse {
-        serde_json::from_value(v).unwrap()
+    fn user() -> Uuid {
+        Uuid::from_bytes([7; 16])
     }
 
-    fn assertion(v: Value) -> AssertionResponse {
-        serde_json::from_value(v).unwrap()
-    }
-
-    #[test]
-    fn registers_and_asserts_with_p256_and_ed25519() {
-        for mut auth in [
-            SoftAuthenticator::p256(3, &[7; 16]),
-            SoftAuthenticator::ed25519(4, &[7; 16]),
-        ] {
-            let opts = creation("Y2hhbGxlbmdl");
-            let reg = registration(auth.register(&opts, ORIGIN, true));
-            assert_eq!(
-                prf_report(&reg.client_extension_results),
-                PrfReport::Enabled
-            );
-            assert_eq!(
-                response_challenge(&reg.response.client_data_json).unwrap(),
-                "Y2hhbGxlbmdl"
-            );
-            let cred = rp().verify_registration(&reg, "Y2hhbGxlbmdl").unwrap();
-            assert_eq!(cred.credential_id, auth.credential_id_b64());
-
-            let req = rp().request_options("b3RoZXI", &[], "cHJm", &[]);
-            let a = assertion(auth.assert(&req, "todo.example.com", ORIGIN, true));
-            let out = rp()
-                .verify_assertion(&a, "b3RoZXI", &cred.public_key, cred.sign_count)
-                .unwrap();
-            assert_eq!(out.sign_count, 1);
-            // The same counter again is a replay or a clone.
-            assert_eq!(
-                rp().verify_assertion(&a, "b3RoZXI", &cred.public_key, 1)
-                    .unwrap_err(),
-                WebauthnError::Counter
-            );
-        }
-    }
-
-    #[test]
-    fn a_zero_counter_authenticator_keeps_working() {
-        let mut auth = SoftAuthenticator::p256(5, &[1; 16]);
-        let reg = registration(auth.register(&creation("YQ"), ORIGIN, true));
-        let cred = rp().verify_registration(&reg, "YQ").unwrap();
-        for _ in 0..2 {
-            let req = rp().request_options("Yg", &[], "cHJm", &[]);
-            let a = assertion(auth.assert(&req, "todo.example.com", ORIGIN, false));
-            assert_eq!(
-                rp().verify_assertion(&a, "Yg", &cred.public_key, 0)
-                    .unwrap()
-                    .sign_count,
-                0
-            );
-        }
-    }
-
-    #[test]
-    fn refuses_wrong_challenge_origin_rp_type_and_signature() {
-        let mut auth = SoftAuthenticator::p256(6, &[1; 16]);
-        let reg = registration(auth.register(&creation("YQ"), ORIGIN, true));
+    fn register(auth: &SoftAuthenticator, origin: &str) -> Result<NewCredential> {
+        let (options, state) = rp()
+            .creation_options(user(), "a@example.com", "", &[], "cHJm")
+            .unwrap();
+        let reg = RegistrationResponse(auth.register(&options, origin, true));
         assert_eq!(
-            rp().verify_registration(&reg, "Yg").unwrap_err(),
-            WebauthnError::Challenge
+            response_challenge(reg.client_data_json()).unwrap(),
+            options["challenge"].as_str().unwrap()
         );
-        let evil = registration(auth.register(&creation("YQ"), "https://evil.example", true));
-        assert!(matches!(
-            rp().verify_registration(&evil, "YQ").unwrap_err(),
-            WebauthnError::Origin(_)
-        ));
-        let android =
-            registration(auth.register(&creation("YQ"), "android:apk-key-hash:abc", true));
-        assert!(rp().verify_registration(&android, "YQ").is_ok());
+        rp().verify_registration(&reg, &state)
+    }
 
-        let cred = rp().verify_registration(&reg, "YQ").unwrap();
-        let req = rp().request_options("Yw", &[], "cHJm", &[]);
-        let other_rp = assertion(auth.assert(&req, "evil.example", ORIGIN, true));
-        assert_eq!(
-            rp().verify_assertion(&other_rp, "Yw", &cred.public_key, 0)
-                .unwrap_err(),
-            WebauthnError::RpId
-        );
-        // A registration response replayed as an assertion.
-        let mut wrong_type = assertion(auth.assert(&req, "todo.example.com", ORIGIN, true));
-        wrong_type.response.client_data_json = reg.response.client_data_json.clone();
+    #[test]
+    fn registers_and_asserts_and_refuses_a_replayed_counter() {
+        let mut auth = SoftAuthenticator::p256(3, user().as_bytes());
+        let cred = register(&auth, ORIGIN).unwrap();
+        assert_eq!(cred.credential_id, auth.credential_id_b64());
+
+        // Discoverable, then naming the credential.
+        let (options, state) = rp().discoverable_options("cHJm").unwrap();
+        assert!(options.get("mediation").is_none());
+        let a = AssertionResponse(auth.assert(&options, "todo.example.com", ORIGIN, true));
+        let out = rp().verify_assertion(&a, &state, &cred.passkey).unwrap();
+        assert_eq!(out.sign_count, 1);
+
+        let (options, state) = rp()
+            .request_options(std::slice::from_ref(&out.passkey), "cHJm", &[])
+            .unwrap();
+        let a = AssertionResponse(auth.assert(&options, "todo.example.com", ORIGIN, true));
+        let next = rp().verify_assertion(&a, &state, &out.passkey).unwrap();
+        assert_eq!(next.sign_count, 2);
+
+        // The same counter again is a clone or a replay.
+        auth.sign_count = 1;
+        let (options, state) = rp()
+            .request_options(std::slice::from_ref(&next.passkey), "cHJm", &[])
+            .unwrap();
+        let a = AssertionResponse(auth.assert(&options, "todo.example.com", ORIGIN, true));
+        assert!(rp().verify_assertion(&a, &state, &next.passkey).is_err());
+    }
+
+    #[test]
+    fn refuses_wrong_origin_rp_signature_and_missing_user_verification() {
+        let mut auth = SoftAuthenticator::p256(6, user().as_bytes());
+        assert!(register(&auth, "https://evil.example").is_err());
+        assert!(register(&auth, "android:apk-key-hash:abc").is_ok());
+        let cred = register(&auth, ORIGIN).unwrap();
+
+        let (options, state) = rp().discoverable_options("cHJm").unwrap();
+        let other_rp = AssertionResponse(auth.assert(&options, "evil.example", ORIGIN, true));
         assert!(rp()
-            .verify_assertion(&wrong_type, "YQ", &cred.public_key, 0)
+            .verify_assertion(&other_rp, &state, &cred.passkey)
             .is_err());
-        // Another key's signature.
-        let mut other = SoftAuthenticator::p256(9, &[1; 16]);
-        other.credential_id = auth.credential_id.clone();
-        other.sign_count = 10;
-        let forged = assertion(other.assert(&req, "todo.example.com", ORIGIN, true));
-        assert_eq!(
-            rp().verify_assertion(&forged, "Yw", &cred.public_key, 0)
-                .unwrap_err(),
-            WebauthnError::Signature
-        );
+
+        let mut forger = SoftAuthenticator::p256(9, user().as_bytes());
+        forger.credential_id = auth.credential_id.clone();
+        forger.sign_count = 10;
+        let (options, state) = rp().discoverable_options("cHJm").unwrap();
+        let forged = AssertionResponse(forger.assert(&options, "todo.example.com", ORIGIN, true));
+        assert!(rp()
+            .verify_assertion(&forged, &state, &cred.passkey)
+            .is_err());
+
+        let up_only = SoftAuthenticator::p256(7, user().as_bytes()).without_user_verification();
+        assert!(register(&up_only, ORIGIN).is_err());
     }
 
     #[test]
-    fn user_verification_is_required() {
-        let mut auth = SoftAuthenticator::p256(7, &[1; 16]);
-        auth.flags = FLAG_UP;
-        let reg = registration(auth.register(&creation("YQ"), ORIGIN, true));
+    fn options_carry_prf_and_require_discoverable_user_verified_passkeys() {
+        let (c, _) = rp()
+            .creation_options(user(), "a@example.com", "Ann", &["aWQ".into()], "cHJm")
+            .unwrap();
+        assert_eq!(c["authenticatorSelection"]["userVerification"], "required");
+        assert_eq!(c["authenticatorSelection"]["residentKey"], "required");
+        assert_eq!(c["extensions"]["prf"]["eval"]["first"], "cHJm");
+        assert_eq!(c["excludeCredentials"][0]["id"], "aWQ");
+        assert_eq!(c["user"]["id"], b64url(user().as_bytes()));
+        assert_eq!(c["rp"]["id"], "todo.example.com");
+        fn no_nulls(v: &Value) -> bool {
+            match v {
+                Value::Null => false,
+                Value::Object(m) => m.values().all(no_nulls),
+                Value::Array(a) => a.iter().all(no_nulls),
+                _ => true,
+            }
+        }
+        assert!(no_nulls(&c));
+
+        let auth = SoftAuthenticator::p256(4, user().as_bytes());
+        let cred = register(&auth, ORIGIN).unwrap();
+        let (r, _) = rp()
+            .request_options(
+                &[cred.passkey],
+                "cHJm",
+                &[(cred.credential_id.clone(), "eHl6".into())],
+            )
+            .unwrap();
+        assert_eq!(r["rpId"], "todo.example.com");
+        assert_eq!(r["userVerification"], "required");
+        assert_eq!(r["allowCredentials"][0]["id"], cred.credential_id);
         assert_eq!(
-            rp().verify_registration(&reg, "YQ").unwrap_err(),
-            WebauthnError::UserNotVerified
+            r["extensions"]["prf"]["evalByCredential"][&cred.credential_id]["first"],
+            "eHl6"
         );
     }
 
@@ -867,34 +686,5 @@ mod tests {
             prf_report(&json!({ "prf": { "enabled": true, "results": { "first": "AAAA" } } })),
             PrfReport::LeakedOutput
         );
-    }
-
-    #[test]
-    fn options_carry_prf_and_require_user_verification() {
-        let c = rp().creation_options(
-            "Yw",
-            &[1, 2],
-            "a@example.com",
-            "Ann",
-            &[("aWQ".into(), vec!["internal".into()])],
-            "cHJm",
-        );
-        assert_eq!(c["authenticatorSelection"]["userVerification"], "required");
-        assert_eq!(c["authenticatorSelection"]["residentKey"], "required");
-        assert_eq!(c["extensions"]["prf"]["eval"]["first"], "cHJm");
-        assert_eq!(c["excludeCredentials"][0]["id"], "aWQ");
-        assert_eq!(c["user"]["id"], "AQI");
-        let r = rp().request_options(
-            "Yw",
-            &[("aWQ".into(), vec![])],
-            "cHJm",
-            &[("aWQ".into(), "eHl6".into())],
-        );
-        assert_eq!(r["rpId"], "todo.example.com");
-        assert_eq!(
-            r["extensions"]["prf"]["evalByCredential"]["aWQ"]["first"],
-            "eHl6"
-        );
-        assert!(r["allowCredentials"][0].get("transports").is_none());
     }
 }

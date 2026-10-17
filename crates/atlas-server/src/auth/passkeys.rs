@@ -69,10 +69,9 @@ fn relying_party(state: &AppState) -> AppResult<RelyingParty> {
         .passkeys
         .as_ref()
         .ok_or(AppError::PasskeysDisabled)?;
-    Ok(RelyingParty {
-        id: cfg.rp_id.clone(),
-        name: cfg.rp_name.clone(),
-        origins: cfg.origins.clone(),
+    RelyingParty::new(&cfg.rp_id, &cfg.rp_name, &cfg.origins).map_err(|e| {
+        tracing::error!(error = %e, "passkey relying party configuration");
+        AppError::Internal
     })
 }
 
@@ -153,9 +152,9 @@ fn check_prf(client_extension_results: &Value) -> AppResult<()> {
 fn transports_of(response: &RegistrationResponse) -> Vec<String> {
     const KNOWN: &[&str] = &["usb", "nfc", "ble", "smart-card", "hybrid", "internal"];
     let mut out: Vec<String> = Vec::new();
-    for t in &response.response.transports {
-        if KNOWN.contains(&t.as_str()) && !out.contains(t) && out.len() < MAX_TRANSPORTS {
-            out.push(t.clone());
+    for t in response.transports() {
+        if KNOWN.contains(&t.as_str()) && !out.contains(&t) && out.len() < MAX_TRANSPORTS {
+            out.push(t);
         }
     }
     out
@@ -168,52 +167,70 @@ fn normalize_credential_id(raw: &str) -> Option<String> {
         .map(|b| b64url(&b))
 }
 
-/// Start a ceremony: a fresh 32-byte challenge, stored with its purpose and account. Expired
-/// ceremonies and re-auth proofs are swept here.
+/// Store a ceremony `webauthn-rs` started: its options' challenge, its purpose and account, and
+/// its state, until the answer spends it. Expired ceremonies and re-auth proofs are swept here.
+/// Answers the options for the client.
 async fn issue_challenge(
     state: &AppState,
     purpose: &'static str,
     user_id: Option<Uuid>,
-) -> AppResult<String> {
+    (options, ceremony): (Value, Value),
+) -> AppResult<Json<OptionsResponse>> {
     sqlx::query("DELETE FROM webauthn_challenges WHERE expires_at < now()")
         .execute(&state.pool)
         .await?;
     sqlx::query("DELETE FROM passkey_reauth_proofs WHERE expires_at < now()")
         .execute(&state.pool)
         .await?;
-    let mut bytes = [0u8; 32];
-    rand::rng().fill_bytes(&mut bytes);
-    let challenge = b64url(&bytes);
+    let challenge = options["challenge"]
+        .as_str()
+        .and_then(b64url_decode)
+        .map(|b| b64url(&b))
+        .ok_or(AppError::Internal)?;
     sqlx::query(
-        "INSERT INTO webauthn_challenges (challenge, purpose, user_id, expires_at)
-         VALUES ($1, $2, $3, now() + make_interval(secs => $4))",
+        "INSERT INTO webauthn_challenges (challenge, purpose, user_id, state, expires_at)
+         VALUES ($1, $2, $3, $4, now() + make_interval(secs => $5))",
     )
     .bind(&challenge)
     .bind(purpose)
     .bind(user_id)
+    .bind(&ceremony)
     .bind(CHALLENGE_TTL_SECS as f64)
     .execute(&state.pool)
     .await?;
-    Ok(challenge)
+    Ok(Json(OptionsResponse { options }))
 }
 
-/// Spend a ceremony: the challenge a response answers, if it is live and of `purpose`. Answers
-/// the account it was issued for (`Some(None)` for a discoverable sign-in); `None` when there
-/// is no such ceremony.
+/// A ceremony being answered: the account it was issued for (`None` for a discoverable
+/// sign-in) and the state `webauthn-rs` verifies against.
+struct Ceremony {
+    user_id: Option<Uuid>,
+    state: Value,
+}
+
+/// Spend a ceremony: the one a response's challenge names, if it is live and of `purpose`;
+/// `None` when there is no such ceremony.
 async fn take_challenge(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     challenge: &str,
     purpose: &'static str,
-) -> AppResult<Option<Option<Uuid>>> {
-    Ok(sqlx::query_scalar(
+) -> AppResult<Option<Ceremony>> {
+    let row: Option<(Option<Uuid>, Value)> = sqlx::query_as(
         "DELETE FROM webauthn_challenges
           WHERE challenge = $1 AND purpose = $2 AND expires_at > now()
-      RETURNING user_id",
+      RETURNING user_id, state",
     )
     .bind(challenge)
     .bind(purpose)
     .fetch_optional(executor)
-    .await?)
+    .await?;
+    Ok(row.map(|(user_id, state)| Ceremony { user_id, state }))
+}
+
+/// A ceremony could not start (the relying party refused its own input).
+fn internal(e: impl std::fmt::Display) -> AppError {
+    tracing::error!(error = %e, "could not start a passkey ceremony");
+    AppError::Internal
 }
 
 fn invalid(e: impl std::fmt::Display) -> AppError {
@@ -227,7 +244,7 @@ pub(super) fn validate_signup_passkey(state: &AppState, passkey: &SignupPasskey)
     relying_party(state)?;
     root_key::validate_wrap("passkey.encrypted_root_key", &passkey.encrypted_root_key)?;
     clean_name(passkey.name.as_deref())?;
-    check_prf(&passkey.credential.client_extension_results)
+    check_prf(passkey.credential.client_extension_results())
 }
 
 /// Verify a passkey signup's registration against the signup ceremony begun for `user_id`,
@@ -239,14 +256,13 @@ pub(super) async fn verify_signup_passkey(
     passkey: &SignupPasskey,
 ) -> AppResult<VerifiedPasskey> {
     let rp = relying_party(state)?;
-    let challenge =
-        response_challenge(&passkey.credential.response.client_data_json).map_err(invalid)?;
-    match take_challenge(&mut *conn, &challenge, "signup").await? {
-        Some(Some(for_user)) if for_user == user_id => {}
+    let challenge = response_challenge(passkey.credential.client_data_json()).map_err(invalid)?;
+    let ceremony = match take_challenge(&mut *conn, &challenge, "signup").await? {
+        Some(c) if c.user_id == Some(user_id) => c,
         _ => return Err(invalid(NO_CEREMONY)),
-    }
+    };
     let credential = rp
-        .verify_registration(&passkey.credential, &challenge)
+        .verify_registration(&passkey.credential, &ceremony.state)
         .map_err(invalid)?;
     Ok(VerifiedPasskey {
         credential,
@@ -264,17 +280,16 @@ pub(super) async fn store_passkey(
 ) -> AppResult<PasskeySlot> {
     let c = &passkey.credential;
     let id: Option<Uuid> = sqlx::query_scalar(
-        "INSERT INTO passkeys (user_id, credential_id, public_key, algorithm, sign_count,
+        "INSERT INTO passkeys (user_id, credential_id, credential, sign_count,
                                transports, backup_eligible, backed_up, prf_salt, name,
                                encrypted_root_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (credential_id) DO NOTHING
          RETURNING id",
     )
     .bind(user_id)
     .bind(&c.credential_id)
-    .bind(&c.public_key)
-    .bind(c.algorithm as i32)
+    .bind(&c.passkey)
     .bind(i64::from(c.sign_count))
     .bind(&passkey.transports)
     .bind(c.backup_eligible)
@@ -314,24 +329,21 @@ pub(super) async fn consume_reauth_proof(
     Ok(())
 }
 
-/// The account's passkeys as `(credential id, transports)` descriptors and PRF inputs.
+/// The account's stored passkeys (`webauthn-rs` JSON) and each one's `(credential id, PRF input)`.
 async fn credentials_of(
     state: &AppState,
     user_id: Uuid,
-) -> AppResult<(Vec<(String, Vec<String>)>, Vec<(String, String)>)> {
-    let rows: Vec<(String, Vec<String>, String)> = sqlx::query_as(
-        "SELECT credential_id, transports, prf_salt FROM passkeys
+) -> AppResult<(Vec<Value>, Vec<(String, String)>)> {
+    let rows: Vec<(String, Value, String)> = sqlx::query_as(
+        "SELECT credential_id, credential, prf_salt FROM passkeys
           WHERE user_id = $1 ORDER BY created_at",
     )
     .bind(user_id)
     .fetch_all(&state.pool)
     .await?;
-    let descriptors = rows
-        .iter()
-        .map(|(id, transports, _)| (id.clone(), transports.clone()))
-        .collect();
+    let passkeys = rows.iter().map(|(_, cred, _)| cred.clone()).collect();
     let prf = rows.into_iter().map(|(id, _, salt)| (id, salt)).collect();
-    Ok((descriptors, prf))
+    Ok((passkeys, prf))
 }
 
 #[derive(Debug, Deserialize)]
@@ -356,17 +368,10 @@ pub async fn signup_options(
     if email.is_empty() || email.len() > 254 || display_name.len() > 200 {
         return Err(AppError::BadRequest("a valid email is required".into()));
     }
-    let challenge = issue_challenge(&state, "signup", Some(req.user_id)).await?;
-    Ok(Json(OptionsResponse {
-        options: rp.creation_options(
-            &challenge,
-            req.user_id.as_bytes(),
-            &email,
-            display_name,
-            &[],
-            &prf_input(),
-        ),
-    }))
+    let ceremony = rp
+        .creation_options(req.user_id, &email, display_name, &[], &prf_input())
+        .map_err(internal)?;
+    issue_challenge(&state, "signup", Some(req.user_id), ceremony).await
 }
 
 /// `POST /auth/passkeys/register/options`: begin adding a passkey to the signed-in account.
@@ -387,23 +392,17 @@ pub async fn register_options(
     if !has_root {
         return Err(AppError::BadRequest("the account has no root key".into()));
     }
-    let (exclude, _) = credentials_of(&state, user.user_id).await?;
-    if exclude.len() as i64 >= MAX_PASSKEYS {
+    let (_, existing) = credentials_of(&state, user.user_id).await?;
+    if existing.len() as i64 >= MAX_PASSKEYS {
         return Err(AppError::Conflict(format!(
             "the limit of {MAX_PASSKEYS} passkeys"
         )));
     }
-    let challenge = issue_challenge(&state, "register", Some(user.user_id)).await?;
-    Ok(Json(OptionsResponse {
-        options: rp.creation_options(
-            &challenge,
-            user.user_id.as_bytes(),
-            &email,
-            &display_name,
-            &exclude,
-            &prf_input(),
-        ),
-    }))
+    let exclude: Vec<String> = existing.into_iter().map(|(id, _)| id).collect();
+    let ceremony = rp
+        .creation_options(user.user_id, &email, &display_name, &exclude, &prf_input())
+        .map_err(internal)?;
+    issue_challenge(&state, "register", Some(user.user_id), ceremony).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -456,9 +455,8 @@ pub async fn register(
     let rp = relying_party(&state)?;
     root_key::validate_wrap("encrypted_root_key", &req.encrypted_root_key)?;
     let name = clean_name(req.name.as_deref())?;
-    check_prf(&req.credential.client_extension_results)?;
-    let challenge =
-        response_challenge(&req.credential.response.client_data_json).map_err(invalid)?;
+    check_prf(req.credential.client_extension_results())?;
+    let challenge = response_challenge(req.credential.client_data_json()).map_err(invalid)?;
     verify_password_hash(
         &state,
         user.user_id,
@@ -468,12 +466,12 @@ pub async fn register(
     .await?;
 
     let mut tx = state.pool.begin().await?;
-    match take_challenge(&mut *tx, &challenge, "register").await? {
-        Some(Some(for_user)) if for_user == user.user_id => {}
+    let ceremony = match take_challenge(&mut *tx, &challenge, "register").await? {
+        Some(c) if c.user_id == Some(user.user_id) => c,
         _ => return Err(invalid(NO_CEREMONY)),
-    }
+    };
     let credential = rp
-        .verify_registration(&req.credential, &challenge)
+        .verify_registration(&req.credential, &ceremony.state)
         .map_err(invalid)?;
     let has_root: bool = sqlx::query_scalar(
         "SELECT root_key_created_at IS NOT NULL FROM users WHERE id = $1 FOR UPDATE",
@@ -623,33 +621,38 @@ pub async fn login_options(
         .map(|e| e.trim().to_lowercase())
         .filter(|e| !e.is_empty());
     let Some(email) = email else {
-        let challenge = issue_challenge(&state, "login", None).await?;
-        return Ok(Json(OptionsResponse {
-            options: rp.request_options(&challenge, &[], &prf_input(), &[]),
-        }));
+        let ceremony = rp.discoverable_options(&prf_input()).map_err(internal)?;
+        return issue_challenge(&state, "login", None, ceremony).await;
     };
     let user_id: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM users WHERE email = $1 AND is_e2ee = TRUE")
             .bind(&email)
             .fetch_optional(&state.pool)
             .await?;
-    let (mut allow, mut prf) = match user_id {
+    let (passkeys, prf) = match user_id {
         Some(id) => credentials_of(&state, id).await?,
         None => (Vec::new(), Vec::new()),
     };
-    if allow.is_empty() {
+    if passkeys.is_empty() {
+        // No passkey to name: a discoverable ceremony that names a stand-in credential, shaped
+        // like a real one, so the answer does not tell whether the account exists. No passkey
+        // answers for it, and any other assertion is held to an account of `None`, like a
+        // discoverable sign-in.
         let mut h = Sha256::new();
         h.update(state.config.jwt_secret.as_slice());
         h.update(b"passkey-dummy");
         h.update(email.as_bytes());
         let id = b64url(&h.finalize()[..16]);
-        allow.push((id.clone(), vec!["internal".into(), "hybrid".into()]));
-        prf.push((id, prf_input()));
+        let (mut options, ceremony) = rp.discoverable_options(&prf_input()).map_err(internal)?;
+        options["allowCredentials"] = serde_json::json!([{ "type": "public-key", "id": id, "transports": ["internal", "hybrid"] }]);
+        options["extensions"]["prf"]["evalByCredential"] =
+            serde_json::json!({ id: { "first": prf_input() } });
+        return issue_challenge(&state, "login", None, (options, ceremony)).await;
     }
-    let challenge = issue_challenge(&state, "login", user_id).await?;
-    Ok(Json(OptionsResponse {
-        options: rp.request_options(&challenge, &allow, &prf_input(), &prf),
-    }))
+    let ceremony = rp
+        .request_options(&passkeys, &prf_input(), &prf)
+        .map_err(internal)?;
+    issue_challenge(&state, "login", user_id, ceremony).await
 }
 
 /// The stored passkey an assertion names, once verified: its slot.
@@ -669,22 +672,22 @@ async fn verify_assertion(
     fail: fn() -> AppError,
 ) -> AppResult<Asserted> {
     let rp = relying_party(state)?;
-    let challenge =
-        response_challenge(&credential.response.client_data_json).map_err(|_| fail())?;
-    let ceremony_user = take_challenge(&state.pool, &challenge, purpose)
+    let challenge = response_challenge(credential.client_data_json()).map_err(|_| fail())?;
+    let ceremony = take_challenge(&state.pool, &challenge, purpose)
         .await?
         .ok_or_else(fail)?;
-    let credential_id = normalize_credential_id(&credential.raw_id).ok_or_else(fail)?;
+    let ceremony_user = ceremony.user_id;
+    let credential_id = normalize_credential_id(credential.raw_id()).ok_or_else(fail)?;
     #[derive(sqlx::FromRow)]
     struct Row {
         id: Uuid,
         user_id: Uuid,
-        public_key: Vec<u8>,
+        credential: Value,
         sign_count: i64,
         encrypted_root_key: Value,
     }
     let row: Row = sqlx::query_as(
-        "SELECT id, user_id, public_key, sign_count, encrypted_root_key
+        "SELECT id, user_id, credential, sign_count, encrypted_root_key
            FROM passkeys WHERE credential_id = $1",
     )
     .bind(&credential_id)
@@ -697,27 +700,27 @@ async fn verify_assertion(
     {
         return Err(fail());
     }
-    if let Some(handle) = credential.response.user_handle.as_deref() {
+    if let Some(handle) = credential.user_handle() {
         if b64url_decode(handle).as_deref() != Some(row.user_id.as_bytes().as_slice()) {
             return Err(fail());
         }
     }
-    let stored = u32::try_from(row.sign_count).map_err(|_| fail())?;
     let outcome = rp
-        .verify_assertion(credential, &challenge, &row.public_key, stored)
+        .verify_assertion(credential, &ceremony.state, &row.credential)
         .map_err(|e| {
             tracing::info!(error = %e, "passkey assertion refused");
             fail()
         })?;
     // Lands only while the counter is where it was read: two uses of one assertion race here.
     let updated = sqlx::query(
-        "UPDATE passkeys SET sign_count = $2, backed_up = $3, last_used_at = now()
+        "UPDATE passkeys SET sign_count = $2, backed_up = $3, credential = $5, last_used_at = now()
           WHERE id = $1 AND sign_count = $4",
     )
     .bind(row.id)
     .bind(i64::from(outcome.sign_count))
     .bind(outcome.backed_up)
     .bind(row.sign_count)
+    .bind(&outcome.passkey)
     .execute(&state.pool)
     .await?;
     if updated.rows_affected() == 0 {
@@ -775,10 +778,10 @@ pub async fn reauth_options(
     if allow.is_empty() {
         return Err(AppError::BadRequest("the account has no passkeys".into()));
     }
-    let challenge = issue_challenge(&state, "reauth", Some(user.user_id)).await?;
-    Ok(Json(OptionsResponse {
-        options: rp.request_options(&challenge, &allow, &prf_input(), &prf),
-    }))
+    let ceremony = rp
+        .request_options(&allow, &prf_input(), &prf)
+        .map_err(internal)?;
+    issue_challenge(&state, "reauth", Some(user.user_id), ceremony).await
 }
 
 #[derive(Debug, Deserialize)]

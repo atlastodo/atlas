@@ -561,16 +561,18 @@ the server has `WEBAUTHN_RP_ID`, which adds the `passkeys` capability to discove
   authenticators only evaluate PRF on assertions); none at all is refused. The client strips the
   output from every response, and the server refuses a response that carries `prf.results`. The
   server stores the input per credential (`passkeys.prf_salt`) so a later scheme can differ.
-- **Storage.** `passkeys` holds the credential id (base64url), its COSE public key and algorithm,
-  the signature counter, transports, backup flags, name, created and last-used times, and the
-  wrapped root. Challenges live in `webauthn_challenges` (purpose, account, expiry), each spent by
+- **Storage.** `passkeys` holds the credential id (base64url), the credential as webauthn-rs
+  stores it (`Passkey`: public key, algorithm, counter, flags), copies of the signature counter, transports, backup flags, name, created and last-used times, and the
+  wrapped root. Challenges live in `webauthn_challenges` (purpose, account, the ceremony state webauthn-rs
+  verifies against, expiry), each spent by
   the `DELETE … RETURNING` that answers it, within six minutes.
-- **Verification.** A small relying party over RustCrypto: `clientDataJSON` type, challenge and
-  exact origin (`WEBAUTHN_ORIGINS`, plus the Android app's `android:apk-key-hash:` origin), the RP
-  ID hash, user presence and user verification, the signature (ES256, EdDSA, RS256) and a counter
+- **Verification.** webauthn-rs (`auth/webauthn.rs` adapts it): `clientDataJSON` type, challenge
+  and exact origin (`WEBAUTHN_ORIGINS`, plus the Android app's `android:apk-key-hash:` origin), the
+  RP ID hash, user presence and user verification, the signature (ES256, RS256) and a counter
   that must increase unless both sides are zero (synced passkeys keep none). Attestation is not
-  verified: options ask for `none`. webauthn-rs was not used because it is MPL-2.0, outside the
-  licence allow-list.
+  verified: options ask for `none`. webauthn-rs does not model PRF, so the extension is added to
+  the options JSON; registration options also ask for a discoverable credential, and a modal
+  discoverable sign-in drops the conditional mediation webauthn-rs sets. It links OpenSSL.
 - **Ceremonies.** `POST /auth/passkeys/signup/options` (unauthenticated, for the client-chosen
   account id, which is the passkey's user handle) then `POST /auth/signup` with `passkey` and no
   password: the account gets the passkey's slot and the recovery slot, no password slot, no

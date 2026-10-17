@@ -14,9 +14,9 @@ CREATE TABLE passkeys (
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     -- base64url (unpadded) of the raw credential id, as WebAuthn JSON carries it.
     credential_id TEXT NOT NULL UNIQUE,
-    -- The credential's COSE_Key as the authenticator encoded it, and its COSE algorithm.
-    public_key BYTEA NOT NULL,
-    algorithm INTEGER NOT NULL,
+    -- The credential as webauthn-rs stores it (`Passkey`: public key, algorithm, counter, flags).
+    credential JSONB NOT NULL,
+    -- Copies of what the list shows, kept in step with `credential` at each sign-in.
     sign_count BIGINT NOT NULL DEFAULT 0,
     transports TEXT[] NOT NULL DEFAULT '{}',
     backup_eligible BOOLEAN NOT NULL DEFAULT FALSE,
@@ -40,6 +40,8 @@ CREATE TABLE webauthn_challenges (
     challenge TEXT PRIMARY KEY,
     purpose TEXT NOT NULL CHECK (purpose IN ('signup', 'register', 'login', 'reauth')),
     user_id UUID,
+    -- The ceremony state webauthn-rs verifies the answer against.
+    state JSONB NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL
 );
 

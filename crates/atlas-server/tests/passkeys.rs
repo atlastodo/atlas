@@ -288,7 +288,7 @@ async fn add_passkey(
     .await;
     assert_eq!(status, StatusCode::OK, "{resp:?}");
     let options = resp["options"].clone();
-    let mut auth = SoftAuthenticator::ed25519(seed, acct.user_id.as_bytes());
+    let mut auth = SoftAuthenticator::p256(seed, acct.user_id.as_bytes());
     auth.credential_id = random_bytes::<20>().to_vec();
     let mut body = json!({
         "credential": auth.register(&options, ORIGIN, true),

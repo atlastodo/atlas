@@ -518,6 +518,9 @@ cargo build --release -p atlas-server            # the server binary
 (cd apps/mobile && EXPO_PUBLIC_API_URL=/api bun run export:web)   # the web app, in apps/mobile/dist
 ```
 
+The server links OpenSSL (for passkey verification): building needs its headers and
+`pkg-config` (`libssl-dev` on Debian and Ubuntu), and running needs the library (`libssl3`).
+
 Run `target/release/atlas-server` with `DATABASE_URL`, `JWT_SECRET` and
 `STATIC_DIR=apps/mobile/dist`, and set `BLOB_DIR` to a directory the server can write. The
 project is tested against PostgreSQL 16.

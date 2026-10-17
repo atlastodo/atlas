@@ -117,6 +117,9 @@ in
     cargo-watch
     cargo-nextest
     cargo-deny
+    # OpenSSL for webauthn-rs (passkey verification), found through pkg-config
+    openssl
+    pkg-config
     # Container tooling
     docker-compose
     # Desktop tooling
