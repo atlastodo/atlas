@@ -1,7 +1,7 @@
 //! App manifests: which app owns each synced entity kind, and which of its fields travel in
 //! plaintext.
 //!
-//! Atlas is a suite of apps (todo today) on one server and one account. Each app ships a
+//! Atlas is a suite of apps (todo, journal) on one server and one account. Each app ships a
 //! first-party manifest in the repository's `manifests/` directory, compiled in here
 //! ([`BUNDLED_MANIFESTS`]) and bundled by the clients too, so server and clients read the same
 //! table. Operators never load manifests from disk; they choose which bundled apps an instance
@@ -21,7 +21,10 @@ use serde_json::Value;
 use crate::op::EntityKind;
 
 /// The manifests compiled into this build, as JSON.
-pub const BUNDLED_MANIFESTS: &[&str] = &[include_str!("../../../manifests/todo.json")];
+pub const BUNDLED_MANIFESTS: &[&str] = &[
+    include_str!("../../../manifests/todo.json"),
+    include_str!("../../../manifests/journal.json"),
+];
 
 /// Apps whose kinds predate namespacing and keep their bare wire names (`task`, `project`).
 /// Every other app's kinds must be `<app>.<kind>`.
@@ -242,6 +245,20 @@ mod tests {
             .unwrap()
             .plaintext_fields
             .contains("anything"));
+    }
+
+    #[test]
+    fn journal_owns_its_namespaced_kinds_and_keeps_nothing_plaintext() {
+        let registry = Registry::bundled();
+        let journal = registry.app("journal").expect("journal is bundled");
+        assert_eq!(journal.name, "Atlas Journal");
+        assert_eq!(EntityKind::JournalEntry.app(), "journal");
+        assert_eq!(EntityKind::JournalPreference.app(), "journal");
+        assert_eq!(journal.kinds.len(), 2);
+        for kind in journal.kinds.values() {
+            assert_eq!(kind.plaintext_fields, PlaintextFields::Only(Vec::new()));
+        }
+        assert_eq!(registry.app_of("preference").unwrap().app, "todo");
     }
 
     #[test]

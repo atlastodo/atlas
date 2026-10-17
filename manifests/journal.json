@@ -1,0 +1,10 @@
+{
+  "_doc": "The Atlas Journal app manifest: daily journal entries, end-to-end encrypted. Its kinds are namespaced `journal.<kind>`. Journal v1 is personal: the server never fans its ops out to another account and reads none of their fields, so every field value is encrypted (no plaintext_fields). `journal.entry` is one entry (date, title, body, mood, tags, …), `journal.preference` one of the app's settings. Bump `version` whenever the kinds or their plaintext fields change.",
+  "app": "journal",
+  "name": "Atlas Journal",
+  "version": 1,
+  "kinds": {
+    "journal.entry": { "plaintext_fields": [] },
+    "journal.preference": { "plaintext_fields": [] }
+  }
+}
