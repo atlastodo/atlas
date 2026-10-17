@@ -28,6 +28,8 @@ fn start_server() -> String {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async move {
             let config = Config {
+                passkeys: None,
+                android_asset_links: None,
                 database_url: test_database_url(),
                 jwt_secret: b"integration-test-secret-32-bytes-x".to_vec(),
                 access_ttl_seconds: 900,
