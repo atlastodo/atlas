@@ -57,10 +57,10 @@ in
   # Enable it per machine with a devenv.local.nix containing `{ android.enable = true; }`.
   android = {
     enable = lib.mkDefault false;
-    platforms.version = [ "34" "35" "36" ];
+    platforms.version = [ "34" "35" "36" "37" ];
     systemImageTypes = [ "google_apis_playstore" ];
     abis = [ "x86_64" ];
-    buildTools.version = [ "34.0.0" "35.0.0" "36.0.0" ];
+    buildTools.version = [ "34.0.0" "35.0.0" "36.0.0" "37.0.0" ];
     ndk.version = [ "27.0.12077973" "27.1.12297006" ];
     cmake.version = [ "3.22.1" ];
     emulator.enable = true;
