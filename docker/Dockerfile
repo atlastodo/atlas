@@ -1,17 +1,28 @@
 # Multi-stage build for Atlas Todo (Axum backend + Expo React Native Web frontend).
 #
+# The web app comes one of two ways (TODO_WEB_FROM):
+#   source   (default) built here from apps/mobile, while the app lives in this repository
+#   release  a pinned web build downloaded from TODO_WEB_URL (an atlas-todo-web-X.Y.Z.tar.gz release
+#            asset: one top-level directory holding the static files) and checked against
+#            TODO_WEB_SHA256 before it is unpacked; the source stage is then never built.
+#            docker.yml passes all three from the "todo" pin in apps.lock.json when it has one:
+#              docker build -f docker/Dockerfile --build-arg TODO_WEB_FROM=release \
+#                --build-arg TODO_WEB_URL=https://.../atlas-todo-web-X.Y.Z.tar.gz \
+#                --build-arg TODO_WEB_SHA256=<sha256 of that file> .
+#
 # Toolchain pins -- bump them together with devenv (devenv.lock) and CI:
 #   BUN_VERSION  Bun, the package manager: keep equal to BUN_VERSION in .github/workflows/*.yml
 #                (the release workflow passes no BUN_VERSION build-arg, so this default ships)
 #   rust:1.98    the toolchain CI uses (1.98.1); must stay >= rust-version in Cargo.toml
 ARG BUN_VERSION=1.4.2
+ARG TODO_WEB_FROM=source
 
 # Bun comes from its official image instead of a curl|bash installer.
 FROM --platform=$BUILDPLATFORM oven/bun:${BUN_VERSION}-debian AS bun
 
-# Stage 1: Build the Expo web frontend. It is the same for every architecture, so a multi-arch
-# build runs it once on the build host.
-FROM --platform=$BUILDPLATFORM node:26-bookworm-slim AS web-builder
+# Stage 1 (TODO_WEB_FROM=source): Build the Expo web frontend into /web. It is the same for every
+# architecture, so a multi-arch build runs it once on the build host.
+FROM --platform=$BUILDPLATFORM node:26-bookworm-slim AS web-source
 WORKDIR /app
 # Bun installs packages; real Node runs Metro.
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
@@ -35,7 +46,33 @@ ENV EXPO_PUBLIC_API_URL=$PUBLIC_API_URL
 ARG REPO_URL=https://github.com/atlastodo/atlas-todo
 ENV EXPO_PUBLIC_REPO_URL=$REPO_URL
 ENV CI=1 EXPO_NO_TELEMETRY=1
-RUN cd apps/mobile && bunx expo export --platform web && node scripts/postexport-favicon.mjs
+RUN cd apps/mobile && bunx expo export --platform web && node scripts/postexport-favicon.mjs \
+    && mv dist /web
+
+# Stage 1 (TODO_WEB_FROM=release): the pinned web build, verified, into /web. Architecture-free too.
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS web-release
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+ARG TODO_WEB_URL
+ARG TODO_WEB_SHA256
+# The checksum is required and checked before tar reads a byte, so the pin (not whoever serves the
+# URL) decides what ships. GNU tar refuses absolute and ".." member names.
+RUN set -eu; \
+    if [ -z "${TODO_WEB_URL:-}" ]; then \
+      echo "TODO_WEB_FROM=release needs TODO_WEB_URL and TODO_WEB_SHA256" >&2; exit 1; \
+    fi; \
+    if ! printf '%s' "${TODO_WEB_SHA256:-}" | grep -Eqx '[0-9a-f]{64}'; then \
+      echo "TODO_WEB_SHA256 must be the asset's SHA-256 (64 lowercase hex digits)" >&2; exit 1; \
+    fi; \
+    curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o /tmp/web.tar.gz "$TODO_WEB_URL"; \
+    echo "$TODO_WEB_SHA256  /tmp/web.tar.gz" | sha256sum -c -; \
+    mkdir /web; \
+    tar -xzf /tmp/web.tar.gz -C /web --strip-components=1 --no-same-owner --no-same-permissions; \
+    rm /tmp/web.tar.gz; \
+    test -f /web/index.html || { echo "$TODO_WEB_URL has no index.html in its top directory" >&2; exit 1; }
+
+# Whichever of the two TODO_WEB_FROM names; BuildKit builds only that one.
+FROM web-${TODO_WEB_FROM} AS web
 
 # Stage 2: Compile the Rust backend binary
 FROM rust:1.99-bookworm AS server-builder
@@ -76,7 +113,7 @@ RUN groupadd --system --gid 10001 atlas \
     && chown atlas:atlas /app/data
 
 COPY --from=server-builder /app/target/release/atlas-server /usr/local/bin/atlas-server
-COPY --from=web-builder /app/apps/mobile/dist /app/dist
+COPY --from=web /web /app/dist
 COPY migrations /app/migrations
 # The licence and, in CI builds, the third-party notices (the glob lets a local build go without).
 COPY LICENSE THIRD_PARTY_NOTICES.tx[t] /usr/share/doc/atlas-todo/

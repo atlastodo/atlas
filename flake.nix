@@ -27,16 +27,33 @@
       # Cargo.toml in lockstep with package.json, so no bump step is needed here.
       version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
 
-      # Adds atlas-server, atlas-web-dist and atlas-desktop to a package set.
+      # The pinned app web builds (apps.lock.json, which docker.yml reads too): a "todo" pin makes
+      # atlas-web-dist that release asset instead of a build of apps/mobile.
+      appsLock =
+        if builtins.pathExists ./apps.lock.json then
+          builtins.fromJSON (builtins.readFile ./apps.lock.json)
+        else
+          { };
+      todoWebPin = appsLock.todo or null;
+
+      # Adds atlas-server, atlas-web-dist(-source) and atlas-desktop to a package set.
       overlay = final: _prev: {
         atlas-server = final.callPackage ./nix/packages/atlas-server.nix { inherit version; };
-        atlas-web-dist = final.callPackage ./nix/packages/web-dist.nix {
+        atlas-web-dist-source = final.callPackage ./nix/packages/web-dist.nix {
           inherit version;
           bun2nix = bun2nix.packages.${final.stdenv.hostPlatform.system}.default;
         };
+        atlas-web-dist =
+          if todoWebPin != null then
+            final.callPackage ./nix/packages/web-dist-pinned.nix { pin = todoWebPin; }
+          else
+            final.atlas-web-dist-source;
+        # Always the source build: the pinned asset is built for a server (its API at /api on the
+        # page's origin), while the desktop app asks for a server at sign-in.
         atlas-desktop = final.callPackage ./nix/packages/atlas-desktop.nix {
           inherit version;
           bun2nix = bun2nix.packages.${final.stdenv.hostPlatform.system}.default;
+          atlas-web-dist = final.atlas-web-dist-source;
         };
       };
 
@@ -64,6 +81,7 @@
         {
           inherit (pkgs) atlas-server atlas-desktop;
           web-dist = pkgs.atlas-web-dist;
+          web-dist-source = pkgs.atlas-web-dist-source;
           default = pkgs.atlas-server;
         }
       );
