@@ -302,17 +302,31 @@ export interface SessionView {
 export interface ApiTokenView {
   id: string;
   name: string;
+  /** The apps the token carries keys for and may sync (absent from servers predating app scopes: todo). */
+  apps?: string[];
   created_at: number;
   last_used_at?: number;
 }
 
-/** `POST /auth/api-tokens`: a token the client generated, with its keys wrapped for it. */
+/** One non-todo app's key and X25519 identity wrapped for an API token (`wrapAppKeysForApiToken`). */
+export interface ApiTokenAppKeyWraps {
+  wrapped_key: { v: 1; iv: string; ct: string };
+  wrapped_private_key: { v: 1; iv: string; ct: string };
+}
+
+/**
+ * `POST /auth/api-tokens`: a token the client generated, with its keys wrapped for it. `apps`
+ * defaults to `["todo"]`; the todo wraps are sent exactly when it lists todo, and `app_keys` has
+ * one entry per other app (needs the `app_scoped_api_tokens` capability).
+ */
 export interface CreateApiTokenPayload {
   id: string;
   name: string;
   auth: string;
-  wrapped_dek: { v: 1; iv: string; ct: string };
-  wrapped_private_key: { v: 1; iv: string; ct: string };
+  apps?: string[];
+  wrapped_dek?: { v: 1; iv: string; ct: string };
+  wrapped_private_key?: { v: 1; iv: string; ct: string };
+  app_keys?: Record<string, ApiTokenAppKeyWraps>;
 }
 
 /** `POST /auth/api-token/session`: an access token (no refresh token) and the token's wraps. */
@@ -321,8 +335,12 @@ export interface ApiTokenSessionResponse {
   expires_in: number;
   token_id: string;
   user_id: string;
-  wrapped_dek: { v: 1; iv: string; ct: string };
-  wrapped_private_key: { v: 1; iv: string; ct: string };
+  /** The apps the session may sync (absent from servers predating app scopes: todo). */
+  apps?: string[];
+  /** The todo key and identity; absent for a token without todo. */
+  wrapped_dek?: { v: 1; iv: string; ct: string };
+  wrapped_private_key?: { v: 1; iv: string; ct: string };
+  app_keys?: Record<string, ApiTokenAppKeyWraps>;
   public_key?: string;
   signing_public_key?: string;
   encrypted_signing_key?: { v: 1; iv: string; ct: string };

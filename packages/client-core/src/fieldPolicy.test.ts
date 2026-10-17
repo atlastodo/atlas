@@ -19,10 +19,16 @@ describe("field encryption policy", () => {
     expect(PLAINTEXT_FIELDS).toEqual(fromManifest);
   });
 
-  it("bundles the todo manifest and maps its kinds to it", () => {
-    expect(BUNDLED_MANIFESTS.map((m) => m.app)).toEqual([manifest.app]);
+  it("bundles the todo and journal manifests and maps their kinds to them", () => {
+    expect(BUNDLED_MANIFESTS.map((m) => m.app)).toEqual([manifest.app, "journal"]);
     expect(BUNDLED_MANIFESTS[0]!.version).toBe(manifest.version);
     for (const kind of Object.keys(PLAINTEXT_FIELDS)) expect(appOfKind(kind)?.app).toBe("todo");
+    const journal = BUNDLED_MANIFESTS[1]!;
+    expect(journal.name).toBe("Atlas Journal");
+    expect(Object.keys(journal.kinds).sort()).toEqual(["journal.entry", "journal.preference"]);
+    for (const spec of Object.values(journal.kinds)) expect(spec.plaintext_fields).toEqual([]);
+    expect(appOfKind("journal.entry")?.app).toBe("journal");
+    expect(appOfKind("entry")).toBeUndefined();
     expect(appOfKind("notes.note")).toBeUndefined();
     expect(appOfKind("toString")).toBeUndefined();
   });

@@ -7,6 +7,7 @@
  * reads against.
  */
 
+import journalManifest from "../../../manifests/journal.json";
 import todoManifest from "../../../manifests/todo.json";
 import type { EntityKind } from "./types";
 
@@ -18,9 +19,14 @@ export interface AppManifest {
   kinds: Record<string, { plaintext_fields: readonly string[] | "all" }>;
 }
 
-/** The manifests bundled into this client, as the server bundles them. */
+/**
+ * The manifests bundled into this client, as the server bundles them. `EntityKind` (and so
+ * {@link PLAINTEXT_FIELDS}) is todo's kinds: this store syncs todo. Another app's client reads its
+ * kinds from its own manifest here (journal's encrypt every field).
+ */
 export const BUNDLED_MANIFESTS: readonly AppManifest[] = Object.freeze([
   todoManifest as unknown as AppManifest,
+  journalManifest as unknown as AppManifest,
 ]);
 
 /** The bundled app owning the kind with this wire name, if any. */
