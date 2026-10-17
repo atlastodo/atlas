@@ -199,6 +199,11 @@ impl AtlasClient {
         (self.now)()
     }
 
+    /// The zone dates are read and shown in.
+    pub fn time_zone(&self) -> &TimeZone {
+        &self.time_zone
+    }
+
     pub fn user_id(&self) -> &str {
         &self.session.user_id
     }

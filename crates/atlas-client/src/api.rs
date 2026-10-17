@@ -1,7 +1,7 @@
 //! The HTTP API (`api.ts`, the parts an integration uses): API-token sessions, discovery, project
 //! keys and `/sync/*`, encrypting op values on the way out and opening them on the way in.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use atlas_core::{Change, EntityKind, Operation};
@@ -9,8 +9,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::crypto::{
-    encrypt_field, is_encrypted_envelope, ApiTokenWrap, EncryptedPayload, FieldLocation, KeyScope,
-    Keyring, WrappedProjectKey, DEK_KEY_ID,
+    encrypt_field, is_encrypted_envelope, ApiTokenAppWraps, ApiTokenWrap, EncryptedPayload,
+    FieldLocation, KeyScope, Keyring, WrappedProjectKey, DEK_KEY_ID, TODO_APP,
 };
 use crate::discovery::{parse_discovery, ServerDiscovery, LEGACY_DISCOVERY};
 use crate::error::{Error, Result};
@@ -24,6 +24,9 @@ use crate::trust::{read_key_trust, KEY_TRUST_ID};
 
 /// The sync protocol this client speaks (`SYNC_PROTOCOL`).
 pub const SYNC_PROTOCOL: u32 = 6;
+
+/// Names the apps a sync request works with (`x-atlas-sync-apps`); todo when absent.
+pub const SYNC_APPS_HEADER: &str = "x-atlas-sync-apps";
 
 /// Snapshot page size, in entities.
 pub const SNAPSHOT_PAGE_KEYS: u32 = 500;
@@ -120,14 +123,27 @@ pub struct ApiTokenSession {
     pub expires_in: u64,
     pub token_id: String,
     pub user_id: String,
-    pub wrapped_dek: ApiTokenWrap,
-    pub wrapped_private_key: ApiTokenWrap,
+    /// The apps the token is for; a server predating app-scoped tokens sends none (todo).
+    #[serde(default = "default_token_apps")]
+    pub apps: Vec<String>,
+    /// The todo key, present exactly when the token is for todo.
+    #[serde(default)]
+    pub wrapped_dek: Option<ApiTokenWrap>,
+    #[serde(default)]
+    pub wrapped_private_key: Option<ApiTokenWrap>,
+    /// Every other app's key and identity, by app id.
+    #[serde(default)]
+    pub app_keys: BTreeMap<String, ApiTokenAppWraps>,
     #[serde(default)]
     pub public_key: Option<String>,
     #[serde(default)]
     pub signing_public_key: Option<String>,
     #[serde(default)]
     pub encrypted_signing_key: Option<EncryptedPayload>,
+}
+
+fn default_token_apps() -> Vec<String> {
+    vec![TODO_APP.to_owned()]
 }
 
 /// A row of `GET /project-keys`.
@@ -187,6 +203,7 @@ pub struct ApiClient {
     transport: Box<dyn Transport>,
     reauthenticate: Option<Reauthenticate>,
     legacy_done: bool,
+    sync_apps: Option<String>,
 }
 
 /// Body-credential endpoints: a 401 there means a wrong credential.
@@ -215,6 +232,7 @@ impl ApiClient {
             transport,
             reauthenticate: None,
             legacy_done: false,
+            sync_apps: None,
         }
     }
 
@@ -228,6 +246,16 @@ impl ApiClient {
 
     pub fn set_reauthenticate(&mut self, f: Reauthenticate) {
         self.reauthenticate = Some(f);
+    }
+
+    /// The apps every `/sync/*` request names in [`SYNC_APPS_HEADER`]; `None` sends no header,
+    /// which the server reads as todo.
+    pub fn set_sync_apps(&mut self, apps: Option<String>) {
+        self.sync_apps = apps;
+    }
+
+    pub fn sync_apps(&self) -> Option<&str> {
+        self.sync_apps.as_deref()
     }
 
     pub fn set_legacy_migrated(&mut self, done: bool) {
@@ -264,6 +292,11 @@ impl ApiClient {
 
     fn raw_request(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
         let mut headers = vec![("x-atlas-sync-protocol", SYNC_PROTOCOL.to_string())];
+        if let Some(apps) = &self.sync_apps {
+            if path.starts_with("/sync/") {
+                headers.push((SYNC_APPS_HEADER, apps.clone()));
+            }
+        }
         if let Some(token) = self.token.lock().expect("token lock").clone() {
             headers.push(("authorization", format!("Bearer {token}")));
         }

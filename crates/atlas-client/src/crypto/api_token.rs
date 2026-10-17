@@ -5,8 +5,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    decrypt_aes_gcm, encrypt_aes_gcm_with_iv, hkdf32, json_aad, random_bytes, uuid_from_bytes,
-    CryptoError, CryptoResult, EncryptedPayload,
+    decrypt_aes_gcm, encrypt_aes_gcm_with_iv, hkdf32, json_aad, random_bytes, root_key::TODO_APP,
+    uuid_from_bytes, CryptoError, CryptoResult, EncryptedPayload,
 };
 
 pub const API_TOKEN_PREFIX: &str = "atlas_pat_";
@@ -192,6 +192,82 @@ pub fn unwrap_api_token_keys(
     let size = || CryptoError::new("an API token wrap holds a key of the wrong size");
     Ok((
         dek.try_into().map_err(|_| size())?,
+        private_key.try_into().map_err(|_| size())?,
+    ))
+}
+
+/// One `app_keys` entry of a token: another app's key and X25519 identity, wrapped for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApiTokenAppWraps {
+    pub wrapped_key: ApiTokenWrap,
+    pub wrapped_private_key: ApiTokenWrap,
+}
+
+fn check_token_app(app: &str) -> CryptoResult<()> {
+    if app == TODO_APP {
+        return Err(CryptoError::new(
+            "todo's key travels as wrapped_dek (wrap_keys_for_api_token)",
+        ));
+    }
+    let mut bytes = app.bytes();
+    let ok = bytes.next().is_some_and(|b| b.is_ascii_lowercase())
+        && bytes.all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_'));
+    if !ok {
+        return Err(CryptoError::new(format!("not an app id: {app}")));
+    }
+    Ok(())
+}
+
+/// Wrap a non-todo app's key and X25519 identity for the token (`wrapAppKeysForApiToken`), as one
+/// `app_keys` entry: associated data slots `app_key:<app>` and `app_private_key:<app>`, so one
+/// app's wrap does not open as another's.
+pub fn wrap_app_keys_for_api_token(
+    parts: &ApiTokenParts,
+    user_id: &str,
+    app: &str,
+    app_key: &[u8; 32],
+    private_key: &[u8; 32],
+) -> CryptoResult<ApiTokenAppWraps> {
+    check_token_app(app)?;
+    let k = derive_api_token_keys(parts).wrap_key;
+    let wrap = |key: &[u8], slot: &str| -> CryptoResult<ApiTokenWrap> {
+        let p =
+            encrypt_aes_gcm_with_iv(&k, key, &wrap_aad(user_id, &parts.id, slot), random_bytes())?;
+        Ok(ApiTokenWrap {
+            v: 1,
+            iv: p.iv,
+            ct: p.ct,
+        })
+    };
+    Ok(ApiTokenAppWraps {
+        wrapped_key: wrap(app_key, &format!("app_key:{app}"))?,
+        wrapped_private_key: wrap(private_key, &format!("app_private_key:{app}"))?,
+    })
+}
+
+/// Open one `app_keys` entry a token session returned (`unwrapApiTokenAppKeys`): the app key and
+/// the app's X25519 private key. Fails when it is not this token's, account's or app's.
+pub fn unwrap_api_token_app_keys(
+    parts: &ApiTokenParts,
+    user_id: &str,
+    app: &str,
+    wraps: &ApiTokenAppWraps,
+) -> CryptoResult<([u8; 32], [u8; 32])> {
+    check_token_app(app)?;
+    let k = derive_api_token_keys(parts).wrap_key;
+    let app_key = decrypt_aes_gcm(
+        &k,
+        &wraps.wrapped_key.payload(),
+        &wrap_aad(user_id, &parts.id, &format!("app_key:{app}")),
+    )?;
+    let private_key = decrypt_aes_gcm(
+        &k,
+        &wraps.wrapped_private_key.payload(),
+        &wrap_aad(user_id, &parts.id, &format!("app_private_key:{app}")),
+    )?;
+    let size = || CryptoError::new("an API token wrap holds a key of the wrong size");
+    Ok((
+        app_key.try_into().map_err(|_| size())?,
         private_key.try_into().map_err(|_| size())?,
     ))
 }

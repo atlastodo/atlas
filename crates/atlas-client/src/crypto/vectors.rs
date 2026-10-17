@@ -1,7 +1,7 @@
 //! The shared crypto vectors in `test-vectors/`, asserted against this crate. The TypeScript client
 //! asserts the same files, so both stay byte-compatible.
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::*;
 
@@ -93,7 +93,6 @@ fn the_login_derivations_match() {
 
 #[test]
 fn kdf_parameters_outside_the_bounds_are_refused() {
-    use serde_json::json;
     assert_eq!(kdf_from_wire(&Value::Null, &Value::Null).unwrap(), None);
     assert_eq!(
         kdf_from_wire(
@@ -148,6 +147,65 @@ fn api_token_vectors() {
                 .is_err()
         );
         assert!(unwrap_api_token_keys(&parts, s(v, "user_id"), &wp, &wd).is_err());
+
+        // Every other app's key and identity, as `app_keys` carries them.
+        for (app, entry) in v["app_keys"].as_object().into_iter().flatten() {
+            let wraps: ApiTokenAppWraps = serde_json::from_value(json!({
+                "wrapped_key": entry["wrapped_key"],
+                "wrapped_private_key": entry["wrapped_private_key"],
+            }))
+            .unwrap();
+            let (app_key, app_private) =
+                unwrap_api_token_app_keys(&parts, s(v, "user_id"), app, &wraps).unwrap();
+            assert_eq!(hex::encode(app_key), s(entry, "app_key"), "{app}");
+            assert_eq!(
+                hex::encode(app_private),
+                s(entry, "app_private_key"),
+                "{app}"
+            );
+            // Bound to the account, the app and the slot.
+            let other_user = "01920000-0000-7000-8000-000000000002";
+            assert!(unwrap_api_token_app_keys(&parts, other_user, app, &wraps).is_err());
+            assert!(unwrap_api_token_app_keys(&parts, s(v, "user_id"), "notes", &wraps).is_err());
+            assert!(unwrap_api_token_app_keys(&parts, s(v, "user_id"), "todo", &wraps).is_err());
+            let swapped = ApiTokenAppWraps {
+                wrapped_key: wraps.wrapped_private_key.clone(),
+                wrapped_private_key: wraps.wrapped_key.clone(),
+            };
+            assert!(unwrap_api_token_app_keys(&parts, s(v, "user_id"), app, &swapped).is_err());
+            // Nor does the todo slot open an app wrap, or the reverse.
+            assert!(unwrap_api_token_keys(
+                &parts,
+                s(v, "user_id"),
+                &wraps.wrapped_key,
+                &wraps.wrapped_private_key
+            )
+            .is_err());
+            let wd_as_app = ApiTokenAppWraps {
+                wrapped_key: wd.clone(),
+                wrapped_private_key: wp.clone(),
+            };
+            assert!(unwrap_api_token_app_keys(&parts, s(v, "user_id"), app, &wd_as_app).is_err());
+            // A fresh wrap round-trips.
+            let fresh =
+                wrap_app_keys_for_api_token(&parts, s(v, "user_id"), app, &app_key, &app_private)
+                    .unwrap();
+            assert_eq!(
+                unwrap_api_token_app_keys(&parts, s(v, "user_id"), app, &fresh).unwrap(),
+                (app_key, app_private)
+            );
+        }
+        assert!(
+            v["app_keys"]["journal"].is_object(),
+            "the vectors cover journal"
+        );
+    }
+    let parts = generate_api_token();
+    for bad in ["todo", "", "Journal", "1x", "a-b"] {
+        assert!(
+            wrap_app_keys_for_api_token(&parts, "u", bad, &[1; 32], &[2; 32]).is_err(),
+            "{bad}"
+        );
     }
     for bad in [
         "",
@@ -456,7 +514,6 @@ fn envelope_vectors() {
 
 #[test]
 fn envelopes_are_recognised_by_shape() {
-    use serde_json::json;
     assert!(is_encrypted_envelope(
         &json!({"__enc": 2, "kid": "dek", "iv": "a", "ct": "b"})
     ));
