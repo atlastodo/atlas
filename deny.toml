@@ -32,6 +32,9 @@ allow = [
     "Zlib",
     # Community Data License Agreement – Permissive 2.0 (webpki-roots, transitive via rustls TLS).
     "CDLA-Permissive-2.0",
+    # Mozilla Public License 2.0: file-level (weak) copyleft, compatible with the project's
+    # AGPL-3.0 (MPL 2.0 section 3.3). Added for webauthn-rs (passkey verification) and its crates.
+    "MPL-2.0",
 ]
 confidence-threshold = 0.8
 

@@ -55,6 +55,8 @@ async fn setup() -> (AppState, Router, std::net::SocketAddr) {
             blob_gc_grace_days: 7,
             max_blob_transfers: 16,
             apps: vec!["todo".into()],
+            passkeys: None,
+            android_asset_links: None,
             static_dir: None,
         },
     );

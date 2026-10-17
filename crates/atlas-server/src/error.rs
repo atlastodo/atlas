@@ -69,6 +69,18 @@ pub enum AppError {
     /// An invite naming someone already an active member; roles change via `PATCH`.
     #[error("already a member of this project")]
     AlreadyMember,
+    /// A passkey route on an instance without `WEBAUTHN_RP_ID`: 404 `passkeys_disabled`.
+    #[error("passkeys are not enabled on this server")]
+    PasskeysDisabled,
+    /// A passkey registration whose credential has no PRF (it could sign in but not unlock).
+    #[error("this passkey does not support the PRF extension, which unlocking the account needs")]
+    PasskeyPrfUnsupported,
+    /// A WebAuthn response that does not verify, or a ceremony that is unknown or expired.
+    #[error("passkey verification failed: {0}")]
+    PasskeyInvalid(String),
+    /// Removing the password or a passkey that is the account's last way to sign in.
+    #[error("this is the account's last way to sign in")]
+    LastUnlockMethod,
     #[error("not found")]
     NotFound,
     /// A filesystem operation failed (blob store I/O); surfaced as `internal error`, logged with path context.
@@ -116,6 +128,11 @@ impl AppError {
             | AppError::RotationNotPending
             | AppError::AlreadyMember => StatusCode::CONFLICT,
             AppError::NotFound => StatusCode::NOT_FOUND,
+            AppError::PasskeysDisabled => StatusCode::NOT_FOUND,
+            AppError::PasskeyPrfUnsupported | AppError::PasskeyInvalid(_) => {
+                StatusCode::BAD_REQUEST
+            }
+            AppError::LastUnlockMethod => StatusCode::CONFLICT,
             AppError::Filesystem(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             AppError::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
@@ -142,6 +159,10 @@ impl AppError {
             AppError::AlreadyMember => Some("already_member"),
             AppError::InteractiveSessionRequired => Some("interactive_session_required"),
             AppError::AppNotEnabled { .. } => Some("app_not_enabled"),
+            AppError::PasskeysDisabled => Some("passkeys_disabled"),
+            AppError::PasskeyPrfUnsupported => Some("passkey_prf_unsupported"),
+            AppError::PasskeyInvalid(_) => Some("passkey_invalid"),
+            AppError::LastUnlockMethod => Some("last_unlock_method"),
             _ => None,
         }
     }

@@ -15,6 +15,7 @@ import { CircleAlert, KeyRound } from "../ui/icons";
 import { useAuth } from "./AuthContext";
 import { useSignOut } from "./useSignOut";
 import { LoginScreen } from "./LoginScreen";
+import { describePasskeyError } from "./passkeyErrors";
 
 /**
  * The gate for a locked session: signed in but without the unwrapped keys, so nothing can be
@@ -25,14 +26,17 @@ import { LoginScreen } from "./LoginScreen";
  */
 export function UnlockScreen() {
   const { t } = useTranslation();
-  const { session, unlock } = useAuth();
+  const { session, unlock, unlockWithPasskey, passkeyAuthenticator } = useAuth();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { signOut, dialog } = useSignOut();
 
   if (!session) return null;
-  if (!hasWrappedKeys(session)) {
+  // A passkey-only account has no password blobs: its passkeys unlock it, where this device can.
+  const passwordUnlock = hasWrappedKeys(session);
+  const passkeyUnlock = passkeyAuthenticator !== null && session.hasRootKey !== false;
+  if (!passwordUnlock && !passkeyUnlock) {
     return <LoginScreen initialEmail={session.user.email} notice={t("unlock.reloginNotice")} />;
   }
 
@@ -45,6 +49,20 @@ export function UnlockScreen() {
       if (!unlocked) setError(t("unlock.wrongPassword"));
     } catch {
       setError(t("auth.genericError"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitPasskey = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const unlocked = await unlockWithPasskey();
+      if (!unlocked) setError(t("unlock.passkeyFailed"));
+    } catch (err) {
+      setError(describePasskeyError(err, t) ?? t("unlock.passkeyFailed"));
     } finally {
       setBusy(false);
     }
@@ -72,23 +90,25 @@ export function UnlockScreen() {
           </Text>
 
           <View className="mt-4 gap-3">
-            <View className="gap-1">
-              <Text className="text-sm text-neutral-600 dark:text-neutral-400">
-                {t("auth.password")}
-              </Text>
-              <TextInput
-                accessibilityLabel={t("auth.password")}
-                value={password}
-                onChangeText={setPassword}
-                onSubmitEditing={submit}
-                secureTextEntry
-                textContentType="password"
-                autoComplete="current-password"
-                autoCapitalize="none"
-                autoCorrect={false}
-                className="rounded-md border border-neutral-300 bg-white px-3 py-3 text-neutral-900 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-              />
-            </View>
+            {passwordUnlock && (
+              <View className="gap-1">
+                <Text className="text-sm text-neutral-600 dark:text-neutral-400">
+                  {t("auth.password")}
+                </Text>
+                <TextInput
+                  accessibilityLabel={t("auth.password")}
+                  value={password}
+                  onChangeText={setPassword}
+                  onSubmitEditing={submit}
+                  secureTextEntry
+                  textContentType="password"
+                  autoComplete="current-password"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  className="rounded-md border border-neutral-300 bg-white px-3 py-3 text-neutral-900 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                />
+              </View>
+            )}
 
             {error !== null && (
               <View
@@ -103,18 +123,36 @@ export function UnlockScreen() {
               </View>
             )}
 
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy || !password}
-              onPress={submit}
-              className={
-                "mt-1 flex-row items-center justify-center gap-2 rounded-md bg-accent-600 px-3 py-3 active:bg-accent-500 web:cursor-pointer " +
-                (busy || !password ? "opacity-60" : "")
-              }
-            >
-              {busy && <ActivityIndicator color="white" size="small" />}
-              <Text className="text-sm font-medium text-white">{t("unlock.submit")}</Text>
-            </Pressable>
+            {passwordUnlock && (
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy || !password}
+                onPress={submit}
+                className={
+                  "mt-1 flex-row items-center justify-center gap-2 rounded-md bg-accent-600 px-3 py-3 active:bg-accent-500 web:cursor-pointer " +
+                  (busy || !password ? "opacity-60" : "")
+                }
+              >
+                {busy && <ActivityIndicator color="white" size="small" />}
+                <Text className="text-sm font-medium text-white">{t("unlock.submit")}</Text>
+              </Pressable>
+            )}
+            {passkeyUnlock && (
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy}
+                onPress={() => void submitPasskey()}
+                className={
+                  "flex-row items-center justify-center gap-2 rounded-md border border-neutral-300 px-3 py-3 web:cursor-pointer dark:border-neutral-700 " +
+                  (busy ? "opacity-60" : "")
+                }
+              >
+                <KeyRound size={18} className="text-neutral-700 dark:text-neutral-200" />
+                <Text className="text-sm font-medium text-neutral-800 dark:text-neutral-100">
+                  {t("unlock.withPasskey")}
+                </Text>
+              </Pressable>
+            )}
           </View>
 
           <Pressable

@@ -3,6 +3,8 @@
   lib,
   rustPlatform,
   version,
+  openssl,
+  pkg-config,
 }:
 
 let
@@ -30,6 +32,9 @@ rustPlatform.buildRustPackage {
 
   # Vendored from Cargo.lock (no git dependencies, so no outputHashes).
   cargoLock.lockFile = root + "/Cargo.lock";
+  # webauthn-rs (passkey verification) links OpenSSL.
+  nativeBuildInputs = [ pkg-config ];
+  buildInputs = [ openssl ];
   cargoBuildFlags = [
     "-p"
     "atlas-server"

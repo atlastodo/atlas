@@ -185,6 +185,27 @@ introduced. Details in [docs/architecture.md](./docs/architecture.md#account-roo
   stored wrapped directly under your password and phrase (the pre-root-key layout). Those copies
   are deprecated and will be removed in a later release.
 
+### Passkeys
+
+When the server has passkeys on, a passkey can sign you in and unlock your data, next to or
+instead of a password. Details in [docs/architecture.md](./docs/architecture.md#passkeys).
+
+- A passkey unlocks through the WebAuthn PRF extension: your device derives a key from the
+  passkey's PRF output and the root key is stored wrapped under it. The PRF output never leaves
+  the device, so the server holds a passkey's public key and a wrapped root it cannot open.
+  Passkeys without PRF are refused.
+- A passkey-only account has no password at all. Its recovery phrase is the fallback, and a
+  recovery sets a password. Where passkeys do not work (iOS and the desktop app today), such an
+  account cannot sign in.
+- Actions that need your password (changing it, a new recovery phrase, deleting the account,
+  adding or removing a passkey) take a fresh passkey confirmation instead: a single-use proof that
+  expires after five minutes. A session opened with an API token cannot reach any passkey route.
+- Adding a passkey needs the password or another passkey, so a stolen session alone cannot add a
+  way into the account.
+- Recovery and a scheduled deletion remove every passkey; remove them from your password manager
+  too.
+- Attestation is not checked: the server does not restrict which authenticator holds a passkey.
+
 ### Upgrading from a pre-public build
 
 Installs from before the first public release migrate automatically. The first sync of the updated

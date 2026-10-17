@@ -29,6 +29,9 @@ use crate::state::AppState;
 /// Append a name when a feature lands; never remove one a released client may check for.
 pub const CAPABILITIES: &[&str] = &["api_tokens", "app_manifests", "account_apps", "root_key"];
 
+/// Advertised next to [`CAPABILITIES`] when the instance has passkeys on (`WEBAUTHN_RP_ID`).
+pub const PASSKEYS_CAPABILITY: &str = "passkeys";
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/discovery", get(discovery))
@@ -53,7 +56,7 @@ pub struct Discovery {
     pub protocol_version: u32,
     /// The oldest client protocol `/sync/*` accepts ([`crate::sync::MIN_SYNC_PROTOCOL`]).
     pub min_protocol_version: u32,
-    pub capabilities: &'static [&'static str],
+    pub capabilities: Vec<&'static str>,
     /// The apps this instance offers.
     pub apps: Vec<DiscoveryApp>,
 }
@@ -70,7 +73,17 @@ pub async fn discovery(State(state): State<AppState>) -> Json<Discovery> {
         version: env!("CARGO_PKG_VERSION"),
         protocol_version: crate::sync::SYNC_PROTOCOL,
         min_protocol_version: crate::sync::MIN_SYNC_PROTOCOL,
-        capabilities: CAPABILITIES,
+        capabilities: CAPABILITIES
+            .iter()
+            .copied()
+            .chain(
+                state
+                    .config
+                    .passkeys
+                    .is_some()
+                    .then_some(PASSKEYS_CAPABILITY),
+            )
+            .collect(),
         apps: instance_apps(&state)
             .map(|m| DiscoveryApp {
                 id: m.app.clone(),

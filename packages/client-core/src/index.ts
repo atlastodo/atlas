@@ -24,4 +24,5 @@ export * from "./realtime";
 export * from "./session";
 export * from "./password";
 export * from "./rootKey";
+export * from "./passkeys";
 export * from "./crypto";

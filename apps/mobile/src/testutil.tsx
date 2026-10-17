@@ -69,6 +69,14 @@ export function fakeAuth(overrides: Partial<AuthContextValue> = {}): AuthContext
     upgradeRequired: false,
     retryAfterUpgrade: () => {},
     signOutNotice: null,
+    passkeyAuthenticator: null,
+    loginWithPasskey: async () => {},
+    signupWithPasskey: async () => {},
+    confirmWithPasskey: async () => ({ reauthToken: "proof", rootKey: null }),
+    unlockWithPasskey: async () => true,
+    addPasskey: async () => {},
+    removePasskey: async () => {},
+    removePassword: async () => {},
     ...overrides,
   };
 }

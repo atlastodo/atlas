@@ -149,6 +149,7 @@ in
         OP_RETENTION_DAYS = 60;
         AUTH_RATE_LIMIT_TRUST_FORWARDED = true;
         CORS_ALLOWED_ORIGINS = "https://todo.example.com,app://atlas-todo";
+        WEBAUTHN_RP_ID = "todo.example.com";
       };
       description = ''
         Extra server settings, passed through as environment variables with the

@@ -8,6 +8,7 @@ import { useIsWide } from "../../hooks/useIsWide";
 import { Row, Section } from "../../ui/Section";
 import { Lock } from "../../ui/icons";
 import { PasswordInput } from "./shared";
+import { describePasskeyError } from "../../auth/passkeyErrors";
 
 /**
  * Create a new recovery phrase. The server verifies the password and replaces the phrase's key and
@@ -16,7 +17,9 @@ import { PasswordInput } from "./shared";
  */
 export function RecoveryPhraseSection() {
   const { t } = useTranslation();
-  const { replaceRecoveryPhrase } = useAuth();
+  const { replaceRecoveryPhrase, confirmWithPasskey, session } = useAuth();
+  // A passkey-only account confirms with a passkey instead.
+  const hasPassword = session?.user.has_password !== false;
   const isWide = useIsWide();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -25,21 +28,21 @@ export function RecoveryPhraseSection() {
 
   const submit = async () => {
     if (busy) return;
-    if (password === "") {
+    if (hasPassword && password === "") {
       setError(t("settings.deletePasswordHint"));
       return;
     }
     setError(null);
     setBusy(true);
     try {
-      const next = await replaceRecoveryPhrase(password);
+      const next = await replaceRecoveryPhrase(hasPassword ? password : await confirmWithPasskey());
       setPassword("");
       setPhrase(next);
     } catch (err) {
       setError(
         apiErrorCode(err) === "invalid_credentials"
           ? t("settings.passwordIncorrect")
-          : t("settings.newRecoveryPhraseFailed"),
+          : (describePasskeyError(err, t) ?? t("settings.newRecoveryPhraseFailed")),
       );
     } finally {
       setBusy(false);
@@ -51,19 +54,25 @@ export function RecoveryPhraseSection() {
       <Text className="py-3 text-sm text-neutral-600 dark:text-neutral-400">
         {t("settings.newRecoveryPhraseDesc")}
       </Text>
-      <Row label={t("settings.newRecoveryPhrasePassword")}>
-        <PasswordInput
-          accessibilityLabel={t("settings.newRecoveryPhrasePassword")}
-          value={password}
-          onChangeText={(v) => {
-            setPassword(v);
-            setError(null);
-          }}
-          textContentType="password"
-          onSubmitEditing={() => void submit()}
-          placeholder={t("settings.recoveryPasswordPlaceholder")}
-        />
-      </Row>
+      {hasPassword ? (
+        <Row label={t("settings.newRecoveryPhrasePassword")}>
+          <PasswordInput
+            accessibilityLabel={t("settings.newRecoveryPhrasePassword")}
+            value={password}
+            onChangeText={(v) => {
+              setPassword(v);
+              setError(null);
+            }}
+            textContentType="password"
+            onSubmitEditing={() => void submit()}
+            placeholder={t("settings.recoveryPasswordPlaceholder")}
+          />
+        </Row>
+      ) : (
+        <Text className="pb-1 text-sm text-neutral-600 dark:text-neutral-400">
+          {t("settings.newRecoveryPhrasePasskey")}
+        </Text>
+      )}
       <View className={isWide ? "flex-row items-center gap-3 py-3" : "gap-2 py-3"}>
         <Pressable
           accessibilityRole="button"

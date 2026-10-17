@@ -143,8 +143,17 @@ pub fn app(state: AppState) -> Router {
         )
     };
 
+    // Digital Asset Links for the Android app, only when configured: otherwise a file of that name
+    // in STATIC_DIR stays reachable.
+    let well_known = if state.config.android_asset_links.is_some() {
+        Router::new().route("/.well-known/assetlinks.json", get(asset_links))
+    } else {
+        Router::new()
+    };
+
     Router::new()
         .merge(api.clone())
+        .merge(well_known)
         .nest("/api", api.fallback(api_404))
         .fallback(static_fallback_handler)
         .layer(axum::middleware::from_fn_with_state(
@@ -173,6 +182,25 @@ pub fn app(state: AppState) -> Router {
                 .on_failure(DefaultOnFailure::new().level(tracing::Level::ERROR)),
         )
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+}
+
+/// `GET /.well-known/assetlinks.json`: the statement Android checks before it lets the app use this
+/// domain's passkeys (`delegate_permission/common.get_login_creds`), from `ANDROID_APP_PACKAGE` and
+/// `ANDROID_APP_CERT_SHA256`.
+async fn asset_links(State(state): State<AppState>) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    match &state.config.android_asset_links {
+        Some(links) => Json(json!([{
+            "relation": ["delegate_permission/common.get_login_creds"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": links.package,
+                "sha256_cert_fingerprints": links.cert_fingerprints,
+            },
+        }]))
+        .into_response(),
+        None => axum::http::StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 /// The admin API shares `/admin/*` with what used to be the web app's admin pages (now a Settings
@@ -397,6 +425,8 @@ mod tests {
             blob_gc_grace_days: 7,
             max_blob_transfers: 16,
             apps: vec!["todo".into()],
+            passkeys: None,
+            android_asset_links: None,
             static_dir,
         }
     }

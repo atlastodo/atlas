@@ -1,9 +1,10 @@
 //! The account root key and the per-app keys under it.
 //!
 //! A random 32-byte root key sits above one key per app. The unlock slots wrap the root: the
-//! password-derived MEK (`users.encrypted_root_key`) and the recovery phrase
-//! (`users.recovery_encrypted_root_key`); passkeys will be further slots. The root wraps each app's
-//! key (`account_app_keys`); the account's original DEK is the `todo` app's key, unchanged.
+//! password-derived MEK (`users.encrypted_root_key`), the recovery phrase
+//! (`users.recovery_encrypted_root_key`) and each passkey (`passkeys.encrypted_root_key`, see
+//! [`super::passkeys`]). The root wraps each app's key (`account_app_keys`); the account's original
+//! DEK is the `todo` app's key, unchanged.
 //!
 //! The server sees only ciphertext and checks shapes. The rules it does enforce:
 //! - Every route here is interactive ([`InteractiveAuthUser`]): an API-token session, which holds a
@@ -180,6 +181,8 @@ pub async fn drop_for_legacy_write(conn: &mut sqlx::PgConnection, user_id: Uuid)
         .bind(user_id)
         .execute(&mut *conn)
         .await?;
+    // The passkeys wrap the dropped root: nothing they unlock is left.
+    super::handlers::drop_passkeys(conn, user_id).await?;
     Ok(())
 }
 
@@ -226,7 +229,10 @@ pub async fn get(
 #[derive(Debug, Deserialize)]
 pub struct MigrateRequest {
     /// The current auth hash: a bearer token alone must not install a root key.
-    pub current_password: String,
+    #[serde(default)]
+    pub current_password: Option<String>,
+    #[serde(default)]
+    pub reauth_token: Option<String>,
     pub encrypted_root_key: Value,
     /// The root sealed to (or wrapped under) the recovery key. Optional: an account without a
     /// phrase-derived recovery key has no recovery slot until it registers one.
@@ -252,8 +258,13 @@ pub async fn migrate(
         validate_recovery_slot(slot)?;
     }
     validate_app_keys(&req.app_keys)?;
-    let password_hash =
-        super::handlers::verify_password_hash(&state, user.user_id, &req.current_password).await?;
+    let password_hash = super::handlers::verify_password_hash(
+        &state,
+        user.user_id,
+        req.current_password.as_deref(),
+        req.reauth_token.as_deref(),
+    )
+    .await?;
     let sealed_to = req
         .recovery_public_key
         .as_deref()
@@ -284,7 +295,7 @@ pub async fn migrate(
                     WHEN $3::jsonb IS NOT NULL AND recovery_public_key = $4 THEN $3::jsonb
                     ELSE NULL END,
                 updated_at = now()
-          WHERE id = $1 AND root_key_created_at IS NULL AND password_hash = $5",
+          WHERE id = $1 AND root_key_created_at IS NULL AND password_hash IS NOT DISTINCT FROM $5",
     )
     .bind(user.user_id)
     .bind(&req.encrypted_root_key)
@@ -304,7 +315,10 @@ pub async fn migrate(
 
 #[derive(Debug, Deserialize)]
 pub struct PutRecoverySlotRequest {
-    pub current_password: String,
+    #[serde(default)]
+    pub current_password: Option<String>,
+    #[serde(default)]
+    pub reauth_token: Option<String>,
     pub recovery_public_key: String,
     pub recovery_encrypted_root_key: Value,
 }
@@ -319,8 +333,13 @@ pub async fn put_recovery_slot(
     Json(req): Json<PutRecoverySlotRequest>,
 ) -> AppResult<StatusCode> {
     validate_recovery_slot(&req.recovery_encrypted_root_key)?;
-    let password_hash =
-        super::handlers::verify_password_hash(&state, user.user_id, &req.current_password).await?;
+    let password_hash = super::handlers::verify_password_hash(
+        &state,
+        user.user_id,
+        req.current_password.as_deref(),
+        req.reauth_token.as_deref(),
+    )
+    .await?;
     let key = req.recovery_public_key.trim().to_ascii_lowercase();
     #[derive(sqlx::FromRow)]
     struct Row {
@@ -350,7 +369,7 @@ pub async fn put_recovery_slot(
     let updated = sqlx::query(
         "UPDATE users SET recovery_encrypted_root_key = $2, updated_at = now()
           WHERE id = $1 AND recovery_encrypted_root_key IS NULL AND root_key_created_at IS NOT NULL
-            AND recovery_public_key = $3 AND password_hash = $4",
+            AND recovery_public_key = $3 AND password_hash IS NOT DISTINCT FROM $4",
     )
     .bind(user.user_id)
     .bind(&req.recovery_encrypted_root_key)

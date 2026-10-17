@@ -19,3 +19,26 @@ export const SERVER_REQUIREMENTS: ServerRequirements = {
 export async function ensureServerCompatible(client: ApiClient): Promise<void> {
   assertServerCompatible(await client.getDiscovery(), SERVER_REQUIREMENTS);
 }
+
+/** The server does not offer passkeys (no `WEBAUTHN_RP_ID`, or a release predating them). */
+export class PasskeysUnavailableError extends Error {
+  constructor() {
+    super("this server does not offer passkeys");
+    this.name = "PasskeysUnavailableError";
+  }
+}
+
+/** Throws `PasskeysUnavailableError` unless the server lists the `passkeys` capability. */
+export async function ensurePasskeysOffered(client: ApiClient): Promise<void> {
+  const discovery = await client.getDiscovery();
+  if (!discovery.capabilities.includes("passkeys")) throw new PasskeysUnavailableError();
+}
+
+/** Whether the server offers passkeys; false when it cannot be asked. */
+export async function serverOffersPasskeys(client: ApiClient): Promise<boolean> {
+  try {
+    return (await client.getDiscovery()).capabilities.includes("passkeys");
+  } catch {
+    return false;
+  }
+}

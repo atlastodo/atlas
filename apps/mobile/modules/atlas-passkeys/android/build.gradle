@@ -1,0 +1,21 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.atlaspasskeys'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.atlaspasskeys"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // Credential Manager, and its Google Play services provider for Android 13 and older.
+  implementation "androidx.credentials:credentials:1.5.0"
+  implementation "androidx.credentials:credentials-play-services-auth:1.5.0"
+}

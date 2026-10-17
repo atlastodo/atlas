@@ -70,6 +70,8 @@ export interface AuthUser {
   is_admin?: boolean;
   /** `false` asks the user to confirm the phrase; absent means unknown until `/auth/me`. */
   has_recovery_key?: boolean;
+  /** `false` for an account without a password (passkey-only); absent from older servers. */
+  has_password?: boolean;
 }
 
 export type EncryptedFieldPayload =
@@ -163,7 +165,9 @@ export interface RecoveryKeysResponse {
 }
 
 export interface ReplaceRecoveryKeyPayload {
-  current_password: string;
+  /** The current auth hash, or instead `reauth_token` (a passkey proof, `passkeyReauth`). */
+  current_password?: string;
+  reauth_token?: string;
   recovery_public_key: string;
   recovery_encrypted_dek: { iv: string; ct: string };
   recovery_encrypted_private_key: { iv: string; ct: string };
@@ -189,7 +193,9 @@ export interface RootKeyResponse {
 
 /** `POST /auth/root-key`: migrate an account created before root keys (set once). */
 export interface MigrateRootKeyPayload {
-  current_password: string;
+  /** The current auth hash, or instead `reauth_token` (a passkey proof, `passkeyReauth`). */
+  current_password?: string;
+  reauth_token?: string;
   encrypted_root_key: import("./crypto").RootKeyWrap;
   recovery_encrypted_root_key?: import("./crypto").SealedRootKeyWrap;
   /** The recovery public key the slot was sealed to. */
@@ -199,13 +205,17 @@ export interface MigrateRootKeyPayload {
 
 /** `PUT /auth/root-key/recovery`: fill an empty recovery slot. */
 export interface PutRecoveryRootKeyPayload {
-  current_password: string;
+  /** The current auth hash, or instead `reauth_token` (a passkey proof, `passkeyReauth`). */
+  current_password?: string;
+  reauth_token?: string;
   recovery_public_key: string;
   recovery_encrypted_root_key: import("./crypto").RootKeyWrap;
 }
 
 export interface RegisterRecoveryKeyPayload {
-  current_password: string;
+  /** The current auth hash, or instead `reauth_token` (a passkey proof, `passkeyReauth`). */
+  current_password?: string;
+  reauth_token?: string;
   recovery_public_key: string;
 }
 
@@ -228,7 +238,9 @@ export interface RecoverAccountPayload {
 }
 
 export interface ChangePasswordPayload {
-  current_password: string;
+  /** The current auth hash, or instead `reauth_token` (a passkey proof, `passkeyReauth`). */
+  current_password?: string;
+  reauth_token?: string;
   new_password: string;
   encrypted_dek: { iv: string; ct: string };
   encrypted_private_key: { iv: string; ct: string };
@@ -270,6 +282,8 @@ export interface AuthResponse {
   app_keys?: AppKeyRow[];
   recovery_public_key?: string;
   has_recovery_root_key?: boolean;
+  /** On a passkey sign-in or signup: the root key under that passkey's slot. */
+  passkey?: PasskeySlotView;
 }
 
 export type MemberRole = "owner" | "editor" | "commenter";
@@ -491,3 +505,108 @@ export interface AdminAuditEntry {
   details: Record<string, unknown>;
   created_at_ms: number;
 }
+
+// --- Passkeys: WebAuthn Level 3 JSON, binary fields as unpadded base64url --------------------
+
+export interface PasskeyDescriptor {
+  type: "public-key";
+  id: string;
+  transports?: string[];
+}
+
+/** The PRF extension's inputs, as the server names them. */
+export interface PasskeyPrfInputs {
+  eval?: { first: string; second?: string };
+  evalByCredential?: Record<string, { first: string; second?: string }>;
+}
+
+/** `PublicKeyCredentialCreationOptionsJSON`. */
+export interface PasskeyCreationOptions {
+  challenge: string;
+  rp: { id: string; name: string };
+  user: { id: string; name: string; displayName: string };
+  pubKeyCredParams: { type: "public-key"; alg: number }[];
+  timeout?: number;
+  excludeCredentials?: PasskeyDescriptor[];
+  authenticatorSelection?: {
+    residentKey?: string;
+    requireResidentKey?: boolean;
+    userVerification?: string;
+    authenticatorAttachment?: string;
+  };
+  attestation?: string;
+  extensions?: { credProps?: boolean; prf?: PasskeyPrfInputs };
+}
+
+/** `PublicKeyCredentialRequestOptionsJSON`. */
+export interface PasskeyRequestOptions {
+  challenge: string;
+  rpId: string;
+  timeout?: number;
+  userVerification?: string;
+  allowCredentials?: PasskeyDescriptor[];
+  extensions?: { prf?: PasskeyPrfInputs };
+}
+
+/** `RegistrationResponseJSON`. */
+export interface PasskeyRegistrationResponse {
+  id: string;
+  rawId: string;
+  type: "public-key";
+  response: { clientDataJSON: string; attestationObject: string; transports?: string[] };
+  authenticatorAttachment?: string | null;
+  clientExtensionResults: Record<string, unknown>;
+}
+
+/** `AuthenticationResponseJSON`. */
+export interface PasskeyAssertionResponse {
+  id: string;
+  rawId: string;
+  type: "public-key";
+  response: {
+    clientDataJSON: string;
+    authenticatorData: string;
+    signature: string;
+    userHandle?: string | null;
+  };
+  authenticatorAttachment?: string | null;
+  clientExtensionResults: Record<string, unknown>;
+}
+
+/** A passkey's root slot, from a passkey sign-in, signup or re-authentication. */
+export interface PasskeySlotView {
+  id: string;
+  credential_id: string;
+  encrypted_root_key: import("./crypto").RootKeyWrap;
+}
+
+/** A passkey as `GET /auth/passkeys` lists it (unix millis). */
+export interface PasskeyView {
+  id: string;
+  credential_id: string;
+  name: string;
+  transports: string[];
+  backup_eligible: boolean;
+  backed_up: boolean;
+  created_at: number;
+  last_used_at?: number;
+}
+
+/** `POST /auth/passkeys/reauth`: a single-use proof for `reauth_token`, and the passkey's slot. */
+export interface PasskeyReauthResponse {
+  reauth_token: string;
+  expires_in: number;
+  passkey: PasskeySlotView;
+}
+
+/** The passkey of a passkey signup, or of `POST /auth/passkeys` (with a proof). */
+export interface PasskeyRegistrationPayload {
+  credential: PasskeyRegistrationResponse;
+  name?: string;
+  encrypted_root_key: import("./crypto").RootKeyWrap;
+  current_password?: string;
+  reauth_token?: string;
+}
+
+/** A current password or a passkey re-authentication proof, for the account-critical routes. */
+export type AccountProof = { current_password: string } | { reauth_token: string };

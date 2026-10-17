@@ -43,6 +43,8 @@ fn config(apps: Vec<String>) -> Config {
         max_blob_transfers: 16,
         static_dir: None,
         apps,
+        passkeys: None,
+        android_asset_links: None,
     }
 }
 

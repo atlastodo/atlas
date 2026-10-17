@@ -1,0 +1,34 @@
+{
+  "description": "Passkey unlock slots: prf_input is base64url(SHA-256('atlas-passkey-prf-v1')), the PRF input every passkey evaluates; slot_key = HKDF-SHA256(ikm = prf_output, salt = raw credential id, info = 'atlas-passkey-slot-v1', 32 bytes); passkey_slot is root_key wrapped under slot_key for slot 'passkey:<credential_id>' (see root_key_vectors.json for the wrap format).",
+  "prf_input": "kmxzZ1snAy6Gy3jVZDhuJIBJ_K2s8MUaTlnqu5A4aGQ",
+  "vectors": [
+    {
+      "name": "platform passkey",
+      "user_id": "01920000-0000-4000-8000-0000000000aa",
+      "root_key": "1111111111111111111111111111111111111111111111111111111111111111",
+      "prf_output": "6666666666666666666666666666666666666666666666666666666666666666",
+      "credential_id": "Y3JlZC0xLWlkLWJ5dGVz",
+      "slot": "passkey:Y3JlZC0xLWlkLWJ5dGVz",
+      "slot_key": "3d72772d67b572bd5c06e122888c67ed813f0ec6f4a28fb9fcaa90af27803889",
+      "passkey_slot": {
+        "v": 1,
+        "iv": "280xv4I3tEscy5XR",
+        "ct": "o3+2nHmyLJee1oSP/B6N1p84834etdV9pZpDn09ZuoRcTQql1cjP0VibMXI7qO1/"
+      }
+    },
+    {
+      "name": "security key, long id",
+      "user_id": "01920000-0000-4000-8000-0000000000bb",
+      "root_key": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "prf_output": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0ff0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0",
+      "credential_id": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QA",
+      "slot": "passkey:AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QA",
+      "slot_key": "27f73265a760af59aebdd9decc84ccd1dc0d62ef544170a088fbd273a6fae76c",
+      "passkey_slot": {
+        "v": 1,
+        "iv": "dAkxxWmpFRID/sdV",
+        "ct": "FRd4pW7Pc23/Z4iFCIGrzBJoORuYpUwJA5QG8RE2VI7RijQB9K+r2NxUfbrkDD/g"
+      }
+    }
+  ]
+}
