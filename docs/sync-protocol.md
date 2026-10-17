@@ -15,6 +15,8 @@ Every `/sync/*` HTTP request carries:
 - `Authorization: Bearer <access token>` (from `POST /auth/login`, renewed with
   `POST /auth/refresh`).
 - `x-atlas-sync-protocol: <version>`, the client's protocol version. The current version is 6.
+- Optionally `x-atlas-sync-apps: <app>[,<app>…]`, the apps this client syncs (see
+  [App scope](#app-scope)). Without it the client is a todo client.
 
 The server answers `426 Upgrade Required` with
 `{"code": "upgrade_required", "min_protocol": <n>}` when the version is missing or below its
@@ -24,10 +26,35 @@ reads (pull, snapshot, socket tickets) have separate budgets. All routes are als
 
 Before signing in, a client may read the public `GET /discovery` for the server's
 `protocol_version`, `capabilities` and offered `apps`; a 404 means a server older than discovery
-(protocol 1). An op whose entity kind belongs to an app (`manifests/<app>.json`) that is not
-enabled for the instance or the account is refused with
-`403 {"code": "app_not_enabled", "app": <id>, "scope": "instance" | "account"}`, and pull and
-the snapshot do not serve such ops. See [architecture.md](./architecture.md#apps-and-manifests).
+(protocol 1).
+
+### App scope
+
+The server hosts several apps of the Atlas suite (`manifests/<app>.json`, listed by
+`GET /discovery`), all in one op log per account with one sequence. A client names the apps it
+syncs in `x-atlas-sync-apps` (comma-separated app ids; servers with the `app_scoped_sync`
+capability). A request without it is scoped to `todo`, so clients that predate the header see no
+change.
+
+- Pull, the snapshot, the WebSocket (backlog and live messages) and `GET /auth/export` carry only
+  ops of the scope's apps. The cursor still moves past every other app's ops: a pull that is
+  caught up returns the partition's newest sequence, and a live message whose ops all belong to
+  another app arrives with `"operations": []` and its `from` and `cursor`, so the cursor moves
+  without a gap. A cursor is valid only for the scope it was pulled under; a client that changes
+  its scope bootstraps again from the snapshot.
+- Push refuses an op outside the scope (below).
+- The socket's scope is the one its `POST /sync/ws-ticket` request named.
+- Refusals are `403 {"code": "app_not_enabled", "app": <id>, "scope": <where>}`:
+  - `instance`: the server does not offer the app (`ATLAS_APPS`).
+  - `account`: the account has not enabled it (`PUT /auth/apps/:app`).
+  - `session`: a push holds an op of an enabled app outside the request's scope.
+  - `token`: an API-token session named, or defaulted to, an app its token carries no key for.
+- An app named in the header must be enabled for the instance and the account, or every route
+  answers 403. Without the header, a todo the account or instance switched off is hidden silently
+  (an empty pull), as before the header existed.
+- An unknown app id or an empty list is `400`.
+
+See [architecture.md](./architecture.md#apps-and-manifests).
 
 ## Operations
 
@@ -48,16 +75,19 @@ an operation that sets one field or deletes the entity:
 
 A delete has `"op": "delete"` and no `field` or `value`.
 
-- `entity` is one of `task`, `project`, `section`, `label`, `comment`, `preference`,
+- `entity` is one of todo's `task`, `project`, `section`, `label`, `comment`, `preference`,
   `saved_filter`, `reminder`, `project_member`, `activity`, `focus_session`, `habit`,
-  `habit_checkin`, `attachment`. The server refuses other kinds, and `project_member` ops, which
-  only the server writes.
+  `habit_checkin`, `attachment`, or journal's `journal.entry` and `journal.preference`. The
+  server refuses other kinds, and `project_member` ops, which only the server writes. Journal ops
+  never leave their owner's partition, whatever their fields say.
 - `ts` is a hybrid logical clock stamp. `counter` is at most 65535; a clock that would pass it
   moves to the next millisecond instead. `wall_ms` may be at most five minutes ahead of the
   server's clock.
 - `value` is any JSON value of at most 64 KiB serialized. Values are encrypted, except the
   routing fields listed in the `plaintext_fields` of [`manifests/todo.json`](../manifests/todo.json)
   (such as a task's `project_id`), which the server reads to find who shares an entity.
+  [`manifests/journal.json`](../manifests/journal.json) lists none: every journal value is
+  encrypted.
   [architecture.md](./architecture.md#field-values) describes the envelope.
 
 ### Resolving state
@@ -115,7 +145,7 @@ again in that pull, which is harmless.
 ### `POST /sync/ws-ticket` and `GET /sync/ws`
 
 `POST /sync/ws-ticket` returns `{"ticket": "<opaque>", "expires_in": 30}`: a single-use ticket
-for one socket. Open `GET /sync/ws?ticket=<ticket>&since=<seq>&protocol=<version>` (browsers
+for one socket, scoped to the apps the request named. Open `GET /sync/ws?ticket=<ticket>&since=<seq>&protocol=<version>` (browsers
 cannot set headers on a WebSocket, so the version and ticket travel in the query). The handshake
 answers `401` for an unknown, used or expired ticket, and `410 {"code": "cursor_expired"}`
 before any socket opens when `since` predates retention.
@@ -143,6 +173,9 @@ The server pings every 30 seconds. Keep polling `pull` as a fallback in case the
 | 4       | Field values use the `__enc: 2` envelope bound to entity and field.                                |
 | 5       | The WebSocket opens with a single-use ticket, not the access token.                                |
 | 6       | Load only owner-signed key deliveries and follow key rotations. Current, and the server's minimum. |
+
+The app scope (`x-atlas-sync-apps`) is no protocol version: it is optional, its absence means
+todo, and clients detect it by the `app_scoped_sync` discovery capability.
 
 The minimum only rises: each version above fixed a way an older client harmed data or keys in a
 way the server cannot detect. See [decision 0004](./decisions/0004-protocol-floor-only-rises.md).

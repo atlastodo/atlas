@@ -8,7 +8,9 @@ import {
   generateApiToken,
   InvalidApiTokenError,
   parseApiToken,
+  unwrapApiTokenAppKeys,
   unwrapApiTokenKeys,
+  wrapAppKeysForApiToken,
   wrapKeysForApiToken,
   type ApiTokenWrap,
 } from "./apiToken";
@@ -27,6 +29,15 @@ interface Vector {
   private_key: string;
   wrapped_dek: ApiTokenWrap;
   wrapped_private_key: ApiTokenWrap;
+  app_keys?: Record<
+    string,
+    {
+      app_key: string;
+      app_private_key: string;
+      wrapped_key: ApiTokenWrap;
+      wrapped_private_key: ApiTokenWrap;
+    }
+  >;
 }
 
 const fixturePath = fileURLToPath(
@@ -59,6 +70,14 @@ describe("API token vectors", () => {
       expect(bytesToHex(keys.dek)).toBe(v.dek);
       expect(bytesToHex(keys.privateKey)).toBe(v.private_key);
     });
+
+    for (const [app, a] of Object.entries(v.app_keys ?? {})) {
+      it(`opens the stored ${app} app wraps: ${v.name}`, () => {
+        const keys = unwrapApiTokenAppKeys(parts, v.user_id, app, a);
+        expect(bytesToHex(keys.appKey)).toBe(a.app_key);
+        expect(bytesToHex(keys.privateKey)).toBe(a.app_private_key);
+      });
+    }
   }
 });
 
@@ -111,6 +130,34 @@ describe("API tokens", () => {
         wrapped_private_key: wrapped.wrapped_dek,
       }),
     ).toThrow();
+  });
+
+  it("wraps another app's keys bound to that app, never as the todo key", () => {
+    const parts = generateApiToken();
+    const app = { appKey: randomBytes(32), privateKey: randomBytes(32) };
+    const wrapped = wrapAppKeysForApiToken(parts, userId, "journal", app);
+    const opened = unwrapApiTokenAppKeys(parts, userId, "journal", wrapped);
+    expect(opened.appKey).toEqual(app.appKey);
+    expect(opened.privateKey).toEqual(app.privateKey);
+
+    expect(() => unwrapApiTokenAppKeys(parts, userId, "notes", wrapped)).toThrow();
+    expect(() => unwrapApiTokenAppKeys(generateApiToken(), userId, "journal", wrapped)).toThrow();
+    // Not openable as the todo key, nor the todo key as it.
+    expect(() =>
+      unwrapApiTokenKeys(parts, userId, {
+        wrapped_dek: wrapped.wrapped_key,
+        wrapped_private_key: wrapped.wrapped_private_key,
+      }),
+    ).toThrow();
+    const todo = wrapKeysForApiToken(parts, userId, keys);
+    expect(() =>
+      unwrapApiTokenAppKeys(parts, userId, "journal", {
+        wrapped_key: todo.wrapped_dek,
+        wrapped_private_key: todo.wrapped_private_key,
+      }),
+    ).toThrow();
+    expect(() => wrapAppKeysForApiToken(parts, userId, "todo", app)).toThrow();
+    expect(() => unwrapApiTokenKeys(parts, userId, {})).toThrow(/no todo key/);
   });
 
   it("never puts the secret in what the server receives", () => {

@@ -203,7 +203,11 @@ async fn close_code(ws: &mut Ws) -> Option<u16> {
 async fn still_open(state: &AppState, user: Uuid, ws: &mut Ws) -> bool {
     state.hub.publish(
         user,
-        json!({ "operations": [], "cursor": 0, "from": 0 }).to_string(),
+        atlas_server::sync::PullResponse {
+            operations: Vec::new(),
+            cursor: 0,
+            from: 0,
+        },
     );
     next_text(ws, 5).await
 }

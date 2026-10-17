@@ -115,6 +115,9 @@ pub struct AuthUser {
     /// Whether an API token opened the session (`device_id` is then the token's id). Such a
     /// session reaches the data routes only; see [`InteractiveAuthUser`].
     pub api_token: bool,
+    /// For an API-token session, the apps its token carries keys for (`api_tokens.apps`): the
+    /// only apps it may sync. `None` for an interactive session.
+    pub token_apps: Option<Vec<String>>,
 }
 
 /// [`AuthUser`] for the account-critical routes (credentials, recovery, sessions, API tokens,
@@ -193,10 +196,11 @@ async fn authenticate_bearer(
     if api_token && claims.did.is_none() {
         return Err(AppError::Unauthorized);
     }
-    let (disabled, deletion_scheduled_at, live_session): (
+    let (disabled, deletion_scheduled_at, live_session, token_apps): (
         bool,
         Option<time::OffsetDateTime>,
         bool,
+        Option<Vec<String>>,
     ) = sqlx::query_as(
         "SELECT disabled_at IS NOT NULL, deletion_scheduled_at,
                 CASE WHEN $3 THEN EXISTS (
@@ -206,6 +210,10 @@ async fn authenticate_bearer(
                     SELECT 1 FROM refresh_tokens
                      WHERE user_id = $1 AND device_id = $2
                        AND revoked_at IS NULL AND expires_at > now())
+                END,
+                CASE WHEN $3 THEN (
+                    SELECT apps FROM api_tokens
+                     WHERE id = $2 AND user_id = $1 AND revoked_at IS NULL)
                 END
            FROM users WHERE id = $1",
     )
@@ -233,6 +241,8 @@ async fn authenticate_bearer(
             device_id: claims.did,
             token_expires_at: claims.exp,
             api_token,
+            // A token session always has a list (empty only if the row vanished meanwhile).
+            token_apps: api_token.then(|| token_apps.unwrap_or_default()),
         },
         deletion_scheduled_at,
     ))

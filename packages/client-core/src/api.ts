@@ -366,6 +366,26 @@ export interface ApiClientOptions {
    * a 401, resolves a new access token, and the request is retried once with it.
    */
   reauthenticate?: () => Promise<string>;
+  /**
+   * The apps this client syncs ({@link SYNC_APPS_HEADER} on every request): pull, the snapshot,
+   * the socket and the export then carry only their ops, and push refuses any other. Omitted, the
+   * server treats the client as todo, as every client predating app-scoped sync. A cursor is only
+   * good for the scope it was pulled under: changing it means re-bootstrapping from the snapshot.
+   * Needs the server's `app_scoped_sync` capability.
+   */
+  apps?: readonly string[];
+}
+
+/** Header naming a request's app scope (`apps.rs` in the server). */
+export const SYNC_APPS_HEADER = "x-atlas-sync-apps";
+
+/** `GET /auth/apps` entry: an app the instance offers, and whether the account has it enabled. */
+export interface AccountAppView {
+  id: string;
+  name: string;
+  version: number;
+  enabled: boolean;
+  enabled_at?: number;
 }
 
 export class ApiClient {
@@ -387,8 +407,13 @@ export class ApiClient {
   private reauthenticating: Promise<string> | null = null;
   private refreshing: Promise<void> | null = null;
   private readonly consumed = new Set<string>();
+  private readonly syncApps?: string;
 
   constructor(opts: ApiClientOptions) {
+    if (opts.apps !== undefined) {
+      if (opts.apps.length === 0) throw new Error("an app scope names at least one app");
+      this.syncApps = [...new Set(opts.apps)].sort().join(",");
+    }
     this.baseUrl = opts.baseUrl.replace(/\/$/, "");
     this.token = opts.token;
     this.refreshToken = opts.refreshToken;
@@ -453,6 +478,7 @@ export class ApiClient {
 
   private baseHeaders(): Record<string, string> {
     const headers: Record<string, string> = { "x-atlas-sync-protocol": String(SYNC_PROTOCOL) };
+    if (this.syncApps) headers[SYNC_APPS_HEADER] = this.syncApps;
     if (this.token) headers["authorization"] = `Bearer ${this.token}`;
     return headers;
   }
@@ -821,6 +847,14 @@ export class ApiClient {
     wrapped: Pick<AppKeyRow, "wrapped_key" | "wrapped_private_key">,
   ): Promise<void> {
     return this.request("PUT", `/auth/app-keys/${encodeURIComponent(app)}`, wrapped);
+  }
+  /** The instance's apps and whether this account has each enabled (interactive sessions only). */
+  async listAccountApps(): Promise<AccountAppView[]> {
+    return (await this.request<{ apps: AccountAppView[] }>("GET", "/auth/apps")).apps;
+  }
+  /** Enable an app for the account; idempotent. Use `enableApp` (rootKey.ts), which keys it first. */
+  enableAccountApp(app: string): Promise<AccountAppView> {
+    return this.request("PUT", `/auth/apps/${encodeURIComponent(app)}`);
   }
   getUserPublicKey(email: string): Promise<UserPublicKeyResponse> {
     return this.request("GET", `/users/public-key?email=${encodeURIComponent(email)}`);

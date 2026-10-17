@@ -12,7 +12,15 @@
 //! A token session reaches the data routes (sync, project keys, members, attachments) but not
 //! the account-critical ones ([`super::InteractiveAuthUser`]). Revoking a token ends its sessions
 //! on their next request and drops its wrapped keys.
+//!
+//! A token is scoped to apps (`apps`, todo when the client names none): it carries a copy of each
+//! of their keys and identities, and its sessions may sync only those apps
+//! ([`crate::apps::SessionApps`]). The todo key travels as `wrapped_dek` / `wrapped_private_key`
+//! as before; every other app's in `app_keys`. Never the account root key.
 
+use std::collections::BTreeMap;
+
+use atlas_core::Registry;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -24,6 +32,16 @@ use super::token::{hash_refresh_token, issue_access_token_of_kind, TokenKind};
 use super::InteractiveAuthUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
+
+/// The app whose key a token carries as `wrapped_dek` (the account's DEK).
+const TODO_APP: &str = "todo";
+
+/// One non-todo app's key and X25519 identity, wrapped for a token.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenAppKey {
+    pub wrapped_key: serde_json::Value,
+    pub wrapped_private_key: serde_json::Value,
+}
 
 /// How many unrevoked tokens one account may hold.
 pub const MAX_LIVE_TOKENS: i64 = 25;
@@ -39,14 +57,25 @@ pub struct CreateApiTokenRequest {
     pub id: Uuid,
     pub name: String,
     pub auth: String,
-    pub wrapped_dek: serde_json::Value,
-    pub wrapped_private_key: serde_json::Value,
+    /// The apps the token is for; todo when absent (every client predating app-scoped tokens).
+    #[serde(default)]
+    pub apps: Option<Vec<String>>,
+    /// The todo key and identity: required when the token is for todo, refused otherwise.
+    #[serde(default)]
+    pub wrapped_dek: Option<serde_json::Value>,
+    #[serde(default)]
+    pub wrapped_private_key: Option<serde_json::Value>,
+    /// Every other app's key and identity, one entry per app the token is for.
+    #[serde(default)]
+    pub app_keys: BTreeMap<String, TokenAppKey>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ApiTokenView {
     pub id: Uuid,
     pub name: String,
+    /// The apps the token carries keys for and may sync.
+    pub apps: Vec<String>,
     /// Unix millis, like the session list.
     pub created_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,8 +94,16 @@ pub struct ApiTokenSessionResponse {
     pub expires_in: i64,
     pub token_id: Uuid,
     pub user_id: Uuid,
-    pub wrapped_dek: serde_json::Value,
-    pub wrapped_private_key: serde_json::Value,
+    /// The apps this session may sync (`x-atlas-sync-apps` names a subset).
+    pub apps: Vec<String>,
+    /// The todo key and identity; absent for a token without todo.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wrapped_dek: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wrapped_private_key: Option<serde_json::Value>,
+    /// Every other app's key and identity, by app.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub app_keys: BTreeMap<String, TokenAppKey>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,6 +136,62 @@ fn millis(t: OffsetDateTime) -> i64 {
     t.unix_timestamp() * 1000
 }
 
+/// The token's apps, checked against what the request wraps: bundled ids, sorted, deduplicated,
+/// at least one; the todo wraps present exactly when todo is listed, and one `app_keys` entry
+/// for every other app and none besides.
+fn check_token_apps(req: &CreateApiTokenRequest) -> AppResult<Vec<String>> {
+    let mut apps = req.apps.clone().unwrap_or_else(|| vec![TODO_APP.into()]);
+    apps.sort();
+    apps.dedup();
+    if apps.is_empty() {
+        return Err(AppError::BadRequest(
+            "a token is for at least one app".into(),
+        ));
+    }
+    let registry = Registry::bundled();
+    if let Some(app) = apps.iter().find(|a| registry.app(a).is_none()) {
+        return Err(AppError::BadRequest(format!(
+            "{app} is not an app this server bundles"
+        )));
+    }
+    let todo = apps.iter().any(|a| a == TODO_APP);
+    match (todo, &req.wrapped_dek, &req.wrapped_private_key) {
+        (true, Some(dek), Some(private_key)) => {
+            validate_wrap("wrapped_dek", dek)?;
+            validate_wrap("wrapped_private_key", private_key)?;
+        }
+        (true, _, _) => {
+            return Err(AppError::BadRequest(
+                "a todo token needs wrapped_dek and wrapped_private_key".into(),
+            ))
+        }
+        (false, None, None) => {}
+        (false, _, _) => {
+            return Err(AppError::BadRequest(
+                "a token without todo carries no todo key".into(),
+            ))
+        }
+    }
+    for app in apps.iter().filter(|a| *a != TODO_APP) {
+        let key = req
+            .app_keys
+            .get(app)
+            .ok_or_else(|| AppError::BadRequest(format!("app_keys has no entry for {app}")))?;
+        validate_wrap("app_keys.wrapped_key", &key.wrapped_key)?;
+        validate_wrap("app_keys.wrapped_private_key", &key.wrapped_private_key)?;
+    }
+    if req
+        .app_keys
+        .keys()
+        .any(|app| !apps.contains(app) || app == TODO_APP)
+    {
+        return Err(AppError::BadRequest(
+            "app_keys holds an app the token is not for".into(),
+        ));
+    }
+    Ok(apps)
+}
+
 /// `POST /auth/api-tokens`: register a token the client generated. 409 when the id is taken or
 /// the account already holds [`MAX_LIVE_TOKENS`].
 pub async fn create(
@@ -113,8 +206,25 @@ pub async fn create(
         ));
     }
     validate_auth(&req.auth)?;
-    validate_wrap("wrapped_dek", &req.wrapped_dek)?;
-    validate_wrap("wrapped_private_key", &req.wrapped_private_key)?;
+    let apps = check_token_apps(&req)?;
+    // A token acts within the account's enabled apps, and a non-todo app's key exists only once
+    // the account enabled it (`PUT /auth/app-keys/:app`).
+    crate::apps::SessionApps::resolve(&state, user.user_id, None, Some(apps.clone())).await?;
+    let keyed: Vec<String> =
+        sqlx::query_scalar("SELECT app FROM account_app_keys WHERE user_id = $1 AND app = ANY($2)")
+            .bind(user.user_id)
+            .bind(&apps)
+            .fetch_all(&state.pool)
+            .await?;
+    if let Some(app) = apps.iter().find(|a| *a != TODO_APP && !keyed.contains(a)) {
+        return Err(AppError::BadRequest(format!(
+            "the account has no {app} key to give a token"
+        )));
+    }
+    let app_keys = (!req.app_keys.is_empty())
+        .then(|| serde_json::to_value(&req.app_keys))
+        .transpose()
+        .map_err(|_| AppError::Internal)?;
 
     let mut tx = state.pool.begin().await?;
     // Serialize concurrent creates for one account so the cap holds.
@@ -134,8 +244,9 @@ pub async fn create(
         )));
     }
     let created_at: Option<OffsetDateTime> = sqlx::query_scalar(
-        "INSERT INTO api_tokens (id, user_id, name, auth_hash, wrapped_dek, wrapped_private_key)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        "INSERT INTO api_tokens
+            (id, user_id, name, auth_hash, wrapped_dek, wrapped_private_key, apps, app_keys)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT DO NOTHING
          RETURNING created_at",
     )
@@ -145,6 +256,8 @@ pub async fn create(
     .bind(hash_refresh_token(&req.auth))
     .bind(&req.wrapped_dek)
     .bind(&req.wrapped_private_key)
+    .bind(&apps)
+    .bind(&app_keys)
     .fetch_optional(&mut *tx)
     .await?;
     let created_at =
@@ -155,6 +268,7 @@ pub async fn create(
         Json(ApiTokenView {
             id: req.id,
             name: name.to_string(),
+            apps,
             created_at: millis(created_at),
             last_used_at: None,
         }),
@@ -166,8 +280,15 @@ pub async fn list(
     State(state): State<AppState>,
     InteractiveAuthUser(user): InteractiveAuthUser,
 ) -> AppResult<Json<Vec<ApiTokenView>>> {
-    let rows: Vec<(Uuid, String, OffsetDateTime, Option<OffsetDateTime>)> = sqlx::query_as(
-        "SELECT id, name, created_at, last_used_at FROM api_tokens
+    #[allow(clippy::type_complexity)]
+    let rows: Vec<(
+        Uuid,
+        String,
+        Vec<String>,
+        OffsetDateTime,
+        Option<OffsetDateTime>,
+    )> = sqlx::query_as(
+        "SELECT id, name, apps, created_at, last_used_at FROM api_tokens
           WHERE user_id = $1 AND revoked_at IS NULL
           ORDER BY created_at DESC",
     )
@@ -176,9 +297,10 @@ pub async fn list(
     .await?;
     Ok(Json(
         rows.into_iter()
-            .map(|(id, name, created_at, last_used_at)| ApiTokenView {
+            .map(|(id, name, apps, created_at, last_used_at)| ApiTokenView {
                 id,
                 name,
+                apps,
                 created_at: millis(created_at),
                 last_used_at: last_used_at.map(millis),
             })
@@ -194,7 +316,7 @@ pub async fn revoke(
 ) -> AppResult<StatusCode> {
     let res = sqlx::query(
         "UPDATE api_tokens
-            SET revoked_at = now(), wrapped_dek = NULL, wrapped_private_key = NULL
+            SET revoked_at = now(), wrapped_dek = NULL, wrapped_private_key = NULL, app_keys = NULL
           WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
     )
     .bind(id)
@@ -216,7 +338,7 @@ pub async fn revoke_all(
 ) -> AppResult<()> {
     sqlx::query(
         "UPDATE api_tokens
-            SET revoked_at = now(), wrapped_dek = NULL, wrapped_private_key = NULL
+            SET revoked_at = now(), wrapped_dek = NULL, wrapped_private_key = NULL, app_keys = NULL
           WHERE user_id = $1 AND revoked_at IS NULL",
     )
     .bind(user_id)
@@ -241,6 +363,8 @@ pub async fn open_session(
         user_id: Uuid,
         wrapped_dek: Option<serde_json::Value>,
         wrapped_private_key: Option<serde_json::Value>,
+        apps: Vec<String>,
+        app_keys: Option<serde_json::Value>,
         disabled: bool,
         deletion_scheduled_at: Option<OffsetDateTime>,
         public_key: Option<String>,
@@ -251,7 +375,7 @@ pub async fn open_session(
         "UPDATE api_tokens t SET last_used_at = now()
            FROM users u
           WHERE t.id = $1 AND t.auth_hash = $2 AND t.revoked_at IS NULL AND u.id = t.user_id
-      RETURNING t.user_id, t.wrapped_dek, t.wrapped_private_key,
+      RETURNING t.user_id, t.wrapped_dek, t.wrapped_private_key, t.apps, t.app_keys,
                 u.disabled_at IS NOT NULL AS disabled, u.deletion_scheduled_at,
                 u.public_key, u.signing_public_key, u.encrypted_signing_key",
     )
@@ -266,10 +390,21 @@ pub async fn open_session(
     if let Some(scheduled_at) = row.deletion_scheduled_at {
         return Err(super::handlers::scheduled_deletion_error(scheduled_at));
     }
-    let (Some(wrapped_dek), Some(wrapped_private_key)) = (row.wrapped_dek, row.wrapped_private_key)
-    else {
-        return Err(AppError::Unauthorized);
+    // Every app the token is for must still have its wraps (revoking nulls them).
+    let app_keys: BTreeMap<String, TokenAppKey> = match row.app_keys {
+        Some(v) => serde_json::from_value(v).map_err(|_| AppError::Internal)?,
+        None => BTreeMap::new(),
     };
+    let todo = row.apps.iter().any(|a| a == TODO_APP);
+    let todo_wrapped = row.wrapped_dek.is_some() && row.wrapped_private_key.is_some();
+    let complete = row
+        .apps
+        .iter()
+        .filter(|a| *a != TODO_APP)
+        .all(|a| app_keys.contains_key(a));
+    if row.apps.is_empty() || (todo && !todo_wrapped) || !complete {
+        return Err(AppError::Unauthorized);
+    }
     let access_token = issue_access_token_of_kind(
         row.user_id,
         req.token_id,
@@ -284,8 +419,10 @@ pub async fn open_session(
         expires_in: state.config.access_ttl_seconds,
         token_id: req.token_id,
         user_id: row.user_id,
-        wrapped_dek,
-        wrapped_private_key,
+        apps: row.apps,
+        wrapped_dek: row.wrapped_dek.filter(|_| todo),
+        wrapped_private_key: row.wrapped_private_key.filter(|_| todo),
+        app_keys,
         public_key: row.public_key,
         signing_public_key: row.signing_public_key,
         encrypted_signing_key: row.encrypted_signing_key,

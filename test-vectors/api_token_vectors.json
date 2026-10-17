@@ -19,6 +19,22 @@
         "v": 1,
         "iv": "l2nPRSjQZoO56UnU",
         "ct": "MIFrDSJAYkDsdJMpOMkj3Ver17WcnHifP5S6kC9tn1vCmzTl2riDGn/PyWXBcbNZ"
+      },
+      "app_keys": {
+        "journal": {
+          "app_key": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "app_private_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "wrapped_key": {
+            "v": 1,
+            "iv": "Ik58StGQ4pLCppDT",
+            "ct": "PEZttIofCrKjGnN0i2f6Y53/RpxDTpR0oFMcuRLIYYC2t0DGU/SVmnhsx2HWL+Zq"
+          },
+          "wrapped_private_key": {
+            "v": 1,
+            "iv": "dXrtP9iobV/5dQK7",
+            "ct": "YVQDhrVqw2A7XxrJ1DBI/qTTTVQ0FlPSaGNiMxAE5GyMh3JDOvj6Sl4JjdNi0xQY"
+          }
+        }
       }
     }
   ]

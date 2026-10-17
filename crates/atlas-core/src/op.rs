@@ -38,11 +38,18 @@ pub enum EntityKind {
     /// Link fields (`task_id`, `blob_sha`, `thumb_sha`) are plaintext and must not join the
     /// client's SENSITIVE_FIELDS; the encrypted `meta` payload uses its own `__aenc:1` marker.
     Attachment,
+    /// An Atlas Journal entry (`manifests/journal.json`). Personal: never fanned out to another
+    /// account, and the server reads none of its fields.
+    #[serde(rename = "journal.entry")]
+    JournalEntry,
+    /// An Atlas Journal setting. Personal, like [`EntityKind::JournalEntry`].
+    #[serde(rename = "journal.preference")]
+    JournalPreference,
 }
 
 impl EntityKind {
     /// Every kind, in declaration order.
-    pub const ALL: [EntityKind; 14] = [
+    pub const ALL: [EntityKind; 16] = [
         EntityKind::Task,
         EntityKind::Project,
         EntityKind::Section,
@@ -57,6 +64,8 @@ impl EntityKind {
         EntityKind::Habit,
         EntityKind::HabitCheckin,
         EntityKind::Attachment,
+        EntityKind::JournalEntry,
+        EntityKind::JournalPreference,
     ];
 
     /// The kind's wire name (its serde form), as the manifests and the op store key it.
@@ -76,6 +85,8 @@ impl EntityKind {
             EntityKind::Habit => "habit",
             EntityKind::HabitCheckin => "habit_checkin",
             EntityKind::Attachment => "attachment",
+            EntityKind::JournalEntry => "journal.entry",
+            EntityKind::JournalPreference => "journal.preference",
         }
     }
 
@@ -306,6 +317,11 @@ mod tests {
             assert_eq!(EntityKind::from_wire(kind.as_str()), Some(kind));
         }
         assert_eq!(EntityKind::from_wire("notes.note"), None);
+        assert_eq!(
+            EntityKind::from_wire("journal.entry"),
+            Some(EntityKind::JournalEntry)
+        );
+        assert_eq!(EntityKind::from_wire("entry"), None);
     }
 
     #[test]

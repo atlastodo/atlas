@@ -291,13 +291,14 @@ pub(crate) struct LiveBatch {
 
 impl LiveBatch {
     pub(super) fn publish(self, hub: &SyncHub, user: Uuid) {
-        if let Ok(payload) = serde_json::to_string(&PullResponse {
-            operations: self.ops,
-            cursor: self.cursor,
-            from: self.from,
-        }) {
-            hub.publish(user, payload);
-        }
+        hub.publish(
+            user,
+            PullResponse {
+                operations: self.ops,
+                cursor: self.cursor,
+                from: self.from,
+            },
+        );
     }
 }
 

@@ -7,13 +7,19 @@
  * - {@link ensureRootKey}: after a password sign-in or unlock, migrate an account that has no root
  *   (`POST /auth/root-key`, set once; a device that loses the race loads the winner's root), or
  *   fill a missing recovery slot. Best effort: the account works on the legacy wraps meanwhile.
+ * - {@link enableApp}: give the account another app of the suite (journal): its own key and
+ *   X25519 identity under the root, then the app enabled. Needs the root, so an account from
+ *   before root keys must have migrated first (any password sign-in or unlock does it).
  */
 
-import { apiErrorCode, type ApiClient } from "./api";
+import { apiErrorCode, type AccountAppView, type ApiClient } from "./api";
 import {
   TODO_APP,
   generateAccountId,
   generateRootKey,
+  generateUserKeypair,
+  getPublicKey,
+  randomBytes,
   sealRootKey,
   unwrapAppKey,
   unwrapAppPrivateKey,
@@ -241,4 +247,110 @@ export async function ensureRootKey(
     return { rootKey: input.rootKey, state: { ...state, hasRecoveryRootKey: true } };
   }
   return null;
+}
+
+/** A non-todo app's keys: its 32-byte key and its X25519 identity. */
+export interface AppKeys {
+  app: string;
+  appKey: Uint8Array;
+  privateKey: Uint8Array;
+  /** The identity's public key (hex). */
+  publicKey: string;
+}
+
+/** {@link enableApp} needs the root key, which an account from before root keys does not have yet. */
+export class RootKeyRequiredError extends Error {
+  constructor() {
+    super(
+      "enabling an app needs the account root key: sign in with the password once so the account migrates",
+    );
+    this.name = "RootKeyRequiredError";
+  }
+}
+
+function checkApp(app: string): void {
+  if (app === TODO_APP) throw new Error("todo's key is the account's DEK; it is always enabled");
+}
+
+/** A new app key and identity, and the `account_app_keys` row wrapping them under the root. */
+export function buildAppKey(
+  rootKey: Uint8Array,
+  userId: string,
+  app: string,
+): { keys: AppKeys; row: AppKeyRow } {
+  checkApp(app);
+  const appKey = randomBytes(32);
+  const identity = generateUserKeypair();
+  return {
+    keys: { app, appKey, privateKey: identity.secretKey, publicKey: identity.publicKey },
+    row: {
+      app,
+      wrapped_key: wrapAppKey(appKey, rootKey, userId, app),
+      wrapped_private_key: wrapAppPrivateKey(identity.secretKey, appKey, userId, app),
+    },
+  };
+}
+
+/** Open an app's row under the root; throws when there is none or it does not open. */
+export function openAppKey(
+  rootKey: Uint8Array,
+  userId: string,
+  app: string,
+  appKeys: AppKeyRow[] | undefined,
+): AppKeys {
+  checkApp(app);
+  const row = appKeys?.find((k) => k.app === app);
+  if (!row) throw new Error(`the account has no ${app} app key`);
+  if (!row.wrapped_private_key) throw new Error(`the account's ${app} key has no identity`);
+  const appKey = unwrapAppKey(row.wrapped_key, rootKey, userId, app);
+  const privateKey = unwrapAppPrivateKey(row.wrapped_private_key, appKey, userId, app);
+  return { app, appKey, privateKey, publicKey: getPublicKey(privateKey) };
+}
+
+/**
+ * Enable another app of the suite for the account (`journal`): create its key and X25519 identity
+ * under the root (`PUT /auth/app-keys/:app`), then enable it (`PUT /auth/apps/:app`). Resolves the
+ * app's keys and the root state with the app's row folded in.
+ *
+ * Idempotent and safe when devices race: an app that already has a key is opened, not replaced;
+ * the server sets a key once, and a device that loses the race (409 `key_already_stored`) loads
+ * the stored row (`GET /auth/root-key`) and opens that. Enabling is idempotent on the server.
+ *
+ * Needs the unlocked root (`rootKey`): an account from before root keys must migrate first
+ * ({@link ensureRootKey}, run at every password sign-in or unlock); without it this throws
+ * {@link RootKeyRequiredError}. The session must be interactive (an API token gets 403).
+ */
+export async function enableApp(
+  api: Pick<ApiClient, "putAppKey" | "getRootKey" | "enableAccountApp">,
+  input: {
+    userId: string;
+    rootKey: Uint8Array | null;
+    app: string;
+    state?: RootKeyState;
+  },
+): Promise<{ keys: AppKeys; state: RootKeyState; app: AccountAppView }> {
+  const { userId, rootKey, app } = input;
+  checkApp(app);
+  if (!rootKey || input.state?.hasRootKey === false) throw new RootKeyRequiredError();
+  const state: RootKeyState = { ...input.state, appKeys: [...(input.state?.appKeys ?? [])] };
+  const known = state.appKeys!.find((k) => k.app === app);
+  let keys: AppKeys;
+  if (known) {
+    keys = openAppKey(rootKey, userId, app, state.appKeys);
+  } else {
+    const fresh = buildAppKey(rootKey, userId, app);
+    try {
+      await api.putAppKey(app, fresh.row);
+      keys = fresh.keys;
+      state.appKeys!.push(fresh.row);
+    } catch (err) {
+      if (apiErrorCode(err) !== "key_already_stored") throw err;
+      // Another device keyed the app first: its key is the account's.
+      const stored = await api.getRootKey();
+      keys = openAppKey(rootKey, userId, app, stored.app_keys);
+      state.appKeys = stored.app_keys;
+    }
+  }
+  const view = await api.enableAccountApp(app);
+  return { keys, state, app: view };
 }

@@ -452,7 +452,11 @@ async fn a_lagging_socket_is_closed() {
     for _ in 0..1000 {
         state.hub.publish(
             user,
-            json!({ "operations": [], "cursor": 0, "from": 0 }).to_string(),
+            atlas_server::sync::PullResponse {
+                operations: Vec::new(),
+                cursor: 0,
+                from: 0,
+            },
         );
     }
     let closed = tokio::time::timeout(Duration::from_secs(5), async {
@@ -632,7 +636,11 @@ async fn sockets_close_on_request_per_device_or_per_user() {
     // The other device keeps streaming.
     state.hub.publish(
         user,
-        json!({ "operations": [], "cursor": 0, "from": 0 }).to_string(),
+        atlas_server::sync::PullResponse {
+            operations: Vec::new(),
+            cursor: 0,
+            from: 0,
+        },
     );
     assert!(next_payload(&mut laptop_ws, 5).await.is_some());
 

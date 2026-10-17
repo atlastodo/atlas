@@ -87,7 +87,11 @@ export function deriveApiTokenKeys(parts: ApiTokenParts): { auth: string; wrapKe
   };
 }
 
-type WrapSlot = "dek" | "private_key";
+/**
+ * Which key a wrap holds: the todo key (the DEK) and identity keep their original slot names;
+ * another app's are `app_key:<app>` and `app_private_key:<app>`.
+ */
+type WrapSlot = "dek" | "private_key" | `app_key:${string}` | `app_private_key:${string}`;
 
 const wrapAad = (userId: string, tokenId: string, slot: WrapSlot) =>
   utf8ToBytes(
@@ -110,12 +114,18 @@ export function wrapKeysForApiToken(
   };
 }
 
-/** Open the wraps a token session returned; throws when they are not this token's. */
+/**
+ * Open the todo wraps a token session returned; throws when they are not this token's, or when the
+ * token carries no todo key (a token for other apps only).
+ */
 export function unwrapApiTokenKeys(
   parts: ApiTokenParts,
   userId: string,
-  wrapped: { wrapped_dek: ApiTokenWrap; wrapped_private_key: ApiTokenWrap },
+  wrapped: { wrapped_dek?: ApiTokenWrap; wrapped_private_key?: ApiTokenWrap },
 ): { dek: Uint8Array; privateKey: Uint8Array } {
+  if (!wrapped.wrapped_dek || !wrapped.wrapped_private_key) {
+    throw new Error("this API token carries no todo key");
+  }
   const { wrapKey } = deriveApiTokenKeys(parts);
   const dek = decryptAesGcm(wrapKey, wrapped.wrapped_dek, wrapAad(userId, parts.id, "dek"));
   const privateKey = decryptAesGcm(
@@ -127,4 +137,64 @@ export function unwrapApiTokenKeys(
     throw new Error("an API token wrap holds a key of the wrong size");
   }
   return { dek, privateKey };
+}
+
+function checkTokenApp(app: string): string {
+  if (app === "todo") throw new Error("todo's key travels as wrapped_dek (wrapKeysForApiToken)");
+  if (!/^[a-z][a-z0-9_]*$/.test(app)) throw new Error(`not an app id: ${app}`);
+  return app;
+}
+
+/**
+ * Wrap a non-todo app's key and X25519 identity for the token `parts`, as one `app_keys` entry
+ * of `POST /auth/api-tokens`. The associated data names the app, so one app's wrap does not open
+ * as another's.
+ */
+export function wrapAppKeysForApiToken(
+  parts: ApiTokenParts,
+  userId: string,
+  app: string,
+  keys: { appKey: Uint8Array; privateKey: Uint8Array },
+): { wrapped_key: ApiTokenWrap; wrapped_private_key: ApiTokenWrap } {
+  checkTokenApp(app);
+  const { wrapKey } = deriveApiTokenKeys(parts);
+  return {
+    wrapped_key: {
+      v: 1,
+      ...encryptAesGcm(wrapKey, keys.appKey, wrapAad(userId, parts.id, `app_key:${app}`)),
+    },
+    wrapped_private_key: {
+      v: 1,
+      ...encryptAesGcm(
+        wrapKey,
+        keys.privateKey,
+        wrapAad(userId, parts.id, `app_private_key:${app}`),
+      ),
+    },
+  };
+}
+
+/** Open one `app_keys` entry a token session returned; throws when it is not this token's or app's. */
+export function unwrapApiTokenAppKeys(
+  parts: ApiTokenParts,
+  userId: string,
+  app: string,
+  wrapped: { wrapped_key: ApiTokenWrap; wrapped_private_key: ApiTokenWrap },
+): { appKey: Uint8Array; privateKey: Uint8Array } {
+  checkTokenApp(app);
+  const { wrapKey } = deriveApiTokenKeys(parts);
+  const appKey = decryptAesGcm(
+    wrapKey,
+    wrapped.wrapped_key,
+    wrapAad(userId, parts.id, `app_key:${app}`),
+  );
+  const privateKey = decryptAesGcm(
+    wrapKey,
+    wrapped.wrapped_private_key,
+    wrapAad(userId, parts.id, `app_private_key:${app}`),
+  );
+  if (appKey.byteLength !== 32 || privateKey.byteLength !== 32) {
+    throw new Error("an API token wrap holds a key of the wrong size");
+  }
+  return { appKey, privateKey };
 }

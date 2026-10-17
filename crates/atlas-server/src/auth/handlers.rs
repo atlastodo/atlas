@@ -1884,10 +1884,13 @@ pub async fn revoke_other_devices(
 ///
 /// - `account`: the `/auth/me` profile plus the primary E2EE envelope (so an export can seed a
 ///   new device). Never the password hash, recovery-wrapped blobs or operational stamps.
-/// - `data`: the materialized entity state as snapshot-shaped ops ([`crate::sync::partition_ops`]).
+/// - `data`: the materialized entity state as snapshot-shaped ops ([`crate::sync::partition_ops`])
+///   of the requested apps (`x-atlas-sync-apps`, todo by default) that are enabled, and `apps`,
+///   that scope.
 pub async fn export(
     State(state): State<AppState>,
     AuthUserAllowScheduled(user): AuthUserAllowScheduled,
+    requested: crate::apps::RequestedApps,
 ) -> AppResult<Response> {
     let row: UserRow = sqlx::query_as::<_, UserRow>(sqlx::AssertSqlSafe(format!(
         "SELECT {USER_COLUMNS} FROM users WHERE id = $1"
@@ -1897,7 +1900,10 @@ pub async fn export(
     .await?
     .ok_or(AppError::NotFound)?;
 
-    let operations = crate::sync::partition_ops(&state.pool, user.user_id).await?;
+    // The data of the apps the caller names (`x-atlas-sync-apps`, todo by default) that the
+    // instance and the account have enabled, like a sync session's.
+    let apps = crate::apps::SessionApps::for_request(&state, &user, requested).await?;
+    let operations = crate::sync::partition_ops(&state.pool, user.user_id, &apps.kinds()).await?;
     let app_keys = root_key::load_app_keys(&state.pool, user.user_id).await?;
 
     let body = Json(serde_json::json!({
@@ -1921,6 +1927,7 @@ pub async fn export(
             "app_keys": app_keys,
         },
         "data": {
+            "apps": apps.scope(),
             "operations": operations,
         },
     }));
