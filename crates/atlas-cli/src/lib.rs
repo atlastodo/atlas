@@ -1,11 +1,13 @@
 //! The `atlas` command line, at parity with `packages/cli/src/cli.ts`: the same environment, commands,
 //! JSON output and exit codes. Commands also take the app they belong to (`atlas todo tasks list`);
-//! the flat forms (`atlas tasks list`) stay as aliases.
+//! the flat forms (`atlas tasks list`) stay as aliases. Atlas Journal's commands always name their
+//! app (`atlas journal entries list`) and open a journal session of the token.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 use atlas_client::client::{AtlasClient, CreateTask, TaskQuery, TaskStatus};
+use atlas_client::journal::{check_mood, JournalFields, JournalQuery, JOURNAL_APP};
 use atlas_client::rules::dates::parse_due;
 use atlas_client::rules::zoned::resolve_time_zone;
 use atlas_client::session::ConnectOptions;
@@ -42,9 +44,19 @@ Commands (all print JSON; each also works with its app first, e.g. `atlas todo t
   changes [--since CURSOR]   tasks created, updated, completed and deleted after CURSOR;
                              without one, only the current cursor to start from
 
+Atlas Journal (needs a token that includes Atlas Journal):
+  journal entries list [--from DAY] [--to DAY] [--tag T] [--search TEXT]
+  journal entries get ID
+  journal entries add [--date DAY] [--title TEXT] [--body TEXT] [--mood 1-5] [--tag T]...
+                      [--json OBJECT]
+  journal entries update ID [same fields as add] [--json OBJECT]
+  journal entries delete ID
+
 DATE is YYYY-MM-DD, YYYY-MM-DDTHH:MM (in ATLAS_TZ), ISO 8601 with an offset, unix ms, today,
 tomorrow, or none. P and L are names or ids. --json takes the fields as one JSON object
 (title, notes, due, priority, project, labels, recurrence), handy when templating from n8n.
+DAY is YYYY-MM-DD, today, yesterday or tomorrow (in ATLAS_TZ); an entry's date defaults to
+today. A journal --json takes date, title, body, mood (null clears it) and tags.
 
 Errors go to stderr as {{\"error\": ..., \"code\": ...}} with exit code 1 (2 for usage errors)."
     )
@@ -97,12 +109,19 @@ const OPTIONS: &[(&str, Kind)] = &[
     ("recurrence", Kind::Str),
     ("json", Kind::Str),
     ("since", Kind::Str),
+    ("date", Kind::Str),
+    ("body", Kind::Str),
+    ("mood", Kind::Str),
+    ("tag", Kind::Multi),
+    ("from", Kind::Str),
+    ("to", Kind::Str),
 ];
 
 #[derive(Debug, Default)]
 struct Values {
     strings: HashMap<String, String>,
-    labels: Option<Vec<String>>,
+    /// The repeatable options (`--label`, `--tag`), each value in order.
+    multi: HashMap<String, Vec<String>>,
     help: bool,
     version: bool,
 }
@@ -110,6 +129,10 @@ struct Values {
 impl Values {
     fn get(&self, name: &str) -> Option<&str> {
         self.strings.get(name).map(String::as_str)
+    }
+
+    fn all(&self, name: &str) -> Option<&Vec<String>> {
+        self.multi.get(name)
     }
 }
 
@@ -169,7 +192,7 @@ fn parse_args(argv: &[String]) -> Result<(Values, Vec<String>), String> {
                         },
                     };
                     if *kind == Kind::Multi {
-                        values.labels.get_or_insert_with(Vec::new).push(value);
+                        values.multi.entry(name.to_owned()).or_default().push(value);
                     } else {
                         values.strings.insert(name.to_owned(), value);
                     }
@@ -206,8 +229,16 @@ const COMMANDS: &[&str] = &[
     "changes",
 ];
 
-/// The apps whose commands this CLI has, for `atlas <app> <command>`.
+/// The apps whose commands may also go without the app's name (`atlas tasks list`).
 const APPS: &[&str] = &["todo"];
+
+/// Atlas Journal's commands, always after `journal`.
+const JOURNAL_NEEDS_ID: &[&str] = &[
+    "journal entries get",
+    "journal entries update",
+    "journal entries delete",
+];
+const JOURNAL_COMMANDS: &[&str] = &["journal entries list", "journal entries add"];
 
 /// Run one command and return the exit code.
 pub fn run(argv: &[String], io: &mut Io<'_>) -> i32 {
@@ -242,28 +273,56 @@ pub fn run(argv: &[String], io: &mut Io<'_>) -> i32 {
         .filter(|d| !d.is_empty())
         .map(PathBuf::from);
 
-    // `atlas todo tasks list` is `atlas tasks list`.
-    let rest: &[String] = match positionals.first() {
-        Some(app) if APPS.contains(&app.as_str()) && positionals.len() > 1 => &positionals[1..],
-        _ => &positionals,
+    let journal = positionals.first().map(String::as_str) == Some(JOURNAL_APP);
+    let (command, target) = if journal {
+        // `atlas journal entries get ID`.
+        let command = positionals
+            .iter()
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let known = JOURNAL_COMMANDS.contains(&command.as_str())
+            || JOURNAL_NEEDS_ID.contains(&command.as_str());
+        if !known {
+            return usage(
+                io,
+                &format!("unknown command \"{}\"", positionals.join(" ")),
+            );
+        }
+        let target = positionals.get(3).cloned();
+        if JOURNAL_NEEDS_ID.contains(&command.as_str()) && target.is_none() {
+            return usage(io, &format!("\"{command}\" needs an entry id"));
+        }
+        (command, target)
+    } else {
+        // `atlas todo tasks list` is `atlas tasks list`.
+        let rest: &[String] = match positionals.first() {
+            Some(app) if APPS.contains(&app.as_str()) && positionals.len() > 1 => &positionals[1..],
+            _ => &positionals,
+        };
+        let command = rest.iter().take(2).cloned().collect::<Vec<_>>().join(" ");
+        let target = rest.get(2).cloned();
+        if !COMMANDS.contains(&command.as_str()) && !NEEDS_ID.contains(&command.as_str()) {
+            return usage(
+                io,
+                &format!("unknown command \"{}\"", positionals.join(" ")),
+            );
+        }
+        if NEEDS_ID.contains(&command.as_str()) && target.is_none() {
+            return usage(io, &format!("\"{command}\" needs a task id"));
+        }
+        if command == "tasks quick" && target.is_none() {
+            return usage(io, "\"tasks quick\" needs the text");
+        }
+        (command, target)
     };
-    let command = rest.iter().take(2).cloned().collect::<Vec<_>>().join(" ");
-    let target = rest.get(2).cloned();
-    if !COMMANDS.contains(&command.as_str()) && !NEEDS_ID.contains(&command.as_str()) {
-        return usage(
-            io,
-            &format!("unknown command \"{}\"", positionals.join(" ")),
-        );
-    }
-    if NEEDS_ID.contains(&command.as_str()) && target.is_none() {
-        return usage(io, &format!("\"{command}\" needs a task id"));
-    }
-    if command == "tasks quick" && target.is_none() {
-        return usage(io, "\"tasks quick\" needs the text");
-    }
     let mut opts = ConnectOptions::new(&server_url, &token);
     opts.time_zone = time_zone.clone();
     opts.state_dir = state_dir;
+    if journal {
+        opts.app = JOURNAL_APP.to_owned();
+    }
     let connected = match io.connect {
         Some(connect) => connect(opts),
         None => AtlasClient::connect(opts),
@@ -375,7 +434,89 @@ fn dispatch(
                 to_json(atlas.changes(since as u64)?)
             }
         },
+        "journal entries list" => {
+            let tags = values.all("tag").cloned().unwrap_or_default();
+            if tags.len() > 1 {
+                return Err(Fail::Usage("journal entries list takes one --tag".into()));
+            }
+            to_json(atlas.journal_entries(&JournalQuery {
+                from: values.get("from").map(str::to_owned),
+                to: values.get("to").map(str::to_owned),
+                tag: tags.into_iter().next(),
+                search: values.get("search").map(str::to_owned),
+            })?)
+        }
+        "journal entries get" => to_json(atlas.journal_entry(id)?),
+        "journal entries add" => to_json(atlas.create_journal_entry(journal_fields(values)?)?),
+        "journal entries update" => {
+            to_json(atlas.update_journal_entry(id, journal_fields(values)?)?)
+        }
+        "journal entries delete" => {
+            atlas.delete_journal_entry(id)?;
+            to_json(json!({ "deleted": id }))
+        }
         other => return Err(Fail::Usage(format!("unknown command \"{other}\""))),
+    })
+}
+
+/// The `--json` object, when given.
+fn json_object(values: &Values) -> Result<Map<String, Value>, Fail> {
+    let Some(text) = values.get("json") else {
+        return Ok(Map::new());
+    };
+    let parsed: Value =
+        serde_json::from_str(text).map_err(|_| Fail::Usage("--json is not valid JSON".into()))?;
+    match parsed {
+        Value::Object(o) => Ok(o),
+        _ => Err(Fail::Usage("--json must be an object".into())),
+    }
+}
+
+/// A journal entry's fields for `add` and `update`: flags over `--json`. Strings stay strings
+/// (`title`, `body`, `date`); a mood is 1 to 5, or `none` / null to clear it; tags are a list.
+fn journal_fields(values: &Values) -> Result<JournalFields, Fail> {
+    let json = json_object(values)?;
+    let text = |flag: &str| -> Result<Option<String>, Fail> {
+        if let Some(v) = values.get(flag) {
+            return Ok(Some(v.to_owned()));
+        }
+        match json.get(flag) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(s)) => Ok(Some(s.clone())),
+            Some(_) => Err(Fail::Usage(format!("{flag} must be a string"))),
+        }
+    };
+    let mood = match values.get("mood") {
+        Some(m) if m.is_empty() || m.eq_ignore_ascii_case("none") => Some(None),
+        Some(m) => Some(Some(check_mood(&js_number(&Value::from(m)))?)),
+        None => match json.get("mood") {
+            None => None,
+            Some(Value::Null) => Some(None),
+            Some(m) => Some(Some(check_mood(m)?)),
+        },
+    };
+    let tags = match values.all("tag") {
+        Some(t) => Some(t.clone()),
+        None => match json.get("tags") {
+            None | Some(Value::Null) => None,
+            Some(Value::Array(items)) => Some(
+                items
+                    .iter()
+                    .map(|t| match t {
+                        Value::String(s) => Ok(s.clone()),
+                        _ => Err(Fail::Usage("tags must be a list of strings".into())),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            Some(_) => return Err(Fail::Usage("tags must be a list of strings".into())),
+        },
+    };
+    Ok(JournalFields {
+        date: text("date")?,
+        title: text("title")?,
+        body: text("body")?,
+        mood,
+        tags,
     })
 }
 
@@ -394,7 +535,7 @@ fn list_query(values: &Values, tz: Option<&str>, now: i64) -> Result<TaskQuery, 
         Some("all") => Some(TaskStatus::All),
         Some(_) => return Err(Fail::Usage("--status is open, completed or all".into())),
     };
-    let labels = values.labels.clone().unwrap_or_default();
+    let labels = values.all("label").cloned().unwrap_or_default();
     if labels.len() > 1 {
         return Err(Fail::Usage("tasks list takes one --label".into()));
     }
@@ -567,7 +708,7 @@ fn task_fields(values: &Values, tz: Option<&str>, now: i64) -> Result<TaskFields
     if let Some(r) = pick("recurrence", "recurrence") {
         f.recurrence = Some(truthy(&r).then(|| js_string(&r)));
     }
-    let labels = match &values.labels {
+    let labels = match values.all("label") {
         Some(l) => Some(Value::from(l.clone())),
         None => json.get("labels").cloned(),
     };
@@ -672,7 +813,7 @@ mod tests {
         .unwrap();
         assert!(v.help && v.version);
         assert_eq!(p, ["a", "--z"]);
-        assert_eq!(v.labels.unwrap(), ["x", "y"]);
+        assert_eq!(*v.all("label").unwrap(), ["x", "y"]);
         assert!(parse_args(&args(&["--foo"]))
             .unwrap_err()
             .starts_with("Unknown option '--foo'"));

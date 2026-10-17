@@ -85,6 +85,25 @@ fn refused(app: &str, scope: &str) -> HttpResponse {
     )
 }
 
+/// A current server's `GET /discovery` offering `apps`, with app-scoped sync and tokens.
+pub fn current_discovery(apps: &[&str]) -> Value {
+    json!({
+        "service": "atlas-server",
+        "version": "0.2.0",
+        "protocol_version": 6,
+        "min_protocol_version": 6,
+        "capabilities": ["api_tokens", "app_manifests", "account_apps", "root_key",
+                         "app_scoped_sync", "app_scoped_api_tokens"],
+        "apps": apps
+            .iter()
+            .map(|a| {
+                let name = Registry::bundled().app(a).map_or(*a, |m| m.name.as_str());
+                json!({"id": a, "name": name, "version": 1})
+            })
+            .collect::<Vec<_>>(),
+    })
+}
+
 impl FakeServer {
     /// A todo token.
     pub fn new() -> Self {

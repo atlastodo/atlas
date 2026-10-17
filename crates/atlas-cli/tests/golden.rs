@@ -1,5 +1,6 @@
 //! `test-vectors/cli_golden.json`: runs recorded from the TypeScript CLI before its retirement,
-//! reproduced byte for byte by this CLI against the same fake server.
+//! reproduced byte for byte by this CLI against the same fake server, and the Atlas Journal runs
+//! recorded from this CLI since.
 
 use std::collections::HashMap;
 
@@ -7,7 +8,7 @@ use atlas_cli::{run, Io};
 use atlas_client::client::AtlasClient;
 use atlas_client::session::{ConnectOptions, Session};
 use atlas_client::store::Store;
-use atlas_client::testing::FakeServer;
+use atlas_client::testing::{current_discovery, FakeServer};
 use atlas_core::EntityKind;
 use serde_json::Value;
 use uuid::Uuid;
@@ -64,7 +65,18 @@ fn reproduces_the_recorded_runs() {
     for (si, scenario) in golden["scenarios"].as_array().unwrap().iter().enumerate() {
         let name = scenario["name"].as_str().unwrap();
         let tz = scenario["tz"].as_str().unwrap();
-        let server = FakeServer::new();
+        // `token_apps`: the token's apps (todo when absent), on a current server offering every
+        // bundled app.
+        let server = match scenario.get("token_apps").and_then(Value::as_array) {
+            None => FakeServer::new(),
+            Some(apps) => {
+                let apps: Vec<&str> = apps.iter().map(|a| a.as_str().unwrap()).collect();
+                let server = FakeServer::with_apps(&apps);
+                server.state.lock().unwrap().discovery =
+                    Some(current_discovery(&["todo", "journal"]));
+                server
+            }
+        };
         let mut refs: HashMap<String, String> = HashMap::new();
         let mut ids = HashMap::new();
         for (ti, step) in scenario["steps"].as_array().unwrap().iter().enumerate() {
@@ -72,6 +84,8 @@ fn reproduces_the_recorded_runs() {
                 let mut opts = ConnectOptions::new("http://atlas.test", &server.token_string());
                 opts.transport = Some(server.transport());
                 opts.store = Some(Box::new(fixed_store));
+                // The seed is written by a session of its kind's app.
+                opts.app = kind(seed["entity"].as_str().unwrap()).app().to_owned();
                 let mut app = Session::connect(opts).unwrap();
                 let id = app.store.new_entity_id();
                 for (field, value) in seed["fields"].as_object().unwrap() {

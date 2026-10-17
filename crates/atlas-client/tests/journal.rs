@@ -5,25 +5,14 @@ use atlas_client::client::AtlasClient;
 use atlas_client::crypto::{decrypt_field, FieldEnvelope, FieldLocation, KeyScope};
 use atlas_client::journal::{JournalFields, JournalQuery};
 use atlas_client::session::ConnectOptions;
-use atlas_client::testing::FakeServer;
+use atlas_client::testing::{current_discovery, FakeServer};
 use atlas_client::Error;
-use serde_json::{json, Value};
 
 const NOW: i64 = 1_792_279_800_000; // 2026-10-17T23:30:00Z, the 18th in Copenhagen
 
-fn discovery(apps: &[&str]) -> Value {
-    json!({
-        "service": "atlas-server", "version": "0.2.0", "protocol_version": 6,
-        "min_protocol_version": 6,
-        "capabilities": ["api_tokens", "app_manifests", "account_apps", "root_key",
-                         "app_scoped_sync", "app_scoped_api_tokens"],
-        "apps": apps.iter().map(|a| json!({"id": a, "name": a, "version": 1})).collect::<Vec<_>>(),
-    })
-}
-
 fn server(token_apps: &[&str]) -> FakeServer {
     let server = FakeServer::with_apps(token_apps);
-    server.state.lock().unwrap().discovery = Some(discovery(&["todo", "journal"]));
+    server.state.lock().unwrap().discovery = Some(current_discovery(&["todo", "journal"]));
     server
 }
 
@@ -211,7 +200,7 @@ fn a_token_without_the_app_is_refused_clearly() {
         "unknown_app"
     );
     let todo_server = FakeServer::with_apps(&["journal"]);
-    todo_server.state.lock().unwrap().discovery = Some(discovery(&["todo"]));
+    todo_server.state.lock().unwrap().discovery = Some(current_discovery(&["todo"]));
     let err = connect(&todo_server, "journal").err().unwrap();
     assert_eq!(code(&err), "server_incompatible");
     // A server from before discovery has no journal at all.
