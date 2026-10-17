@@ -68,7 +68,7 @@ op id makes pushes idempotent.
 
 ## Apps and manifests
 
-Atlas is becoming a suite of end-to-end encrypted apps (todo now; notes and a password vault
+Atlas is becoming a suite of end-to-end encrypted apps (todo and journal now; notes and a password vault
 later) on one generic server and one account. Each app has a first-party manifest in
 `manifests/<app>.json`: its id, a display name, a version, and its entity kinds with the fields
 of each that travel in plaintext. The manifests are part of the release: `atlas-core` compiles
@@ -86,24 +86,64 @@ exactly one manifest and every manifest kind is a variant.
 
 Enablement has two levels:
 
-- Instance: `ATLAS_APPS` (default `todo`) names the bundled apps the server offers. An id the
+- Instance: `ATLAS_APPS` (default `todo`; `todo,journal` to offer Atlas Journal) names the bundled apps the server offers. An id the
   release does not bundle stops the server at startup.
 - Account: the `account_apps` table (`user_id`, `app`, `enabled_at`). A trigger gives every new
   user row `todo`, and the migration backfilled existing accounts. `GET /auth/apps` lists the
   instance's apps with the caller's enablement and `PUT /auth/apps/:app` enables one; both take
   an interactive session (an API token gets `403 interactive_session_required`).
 
-`POST /sync/push` refuses a batch with an op whose app is not enabled for both with
-`403 {"code":"app_not_enabled","app":…,"scope":"instance"|"account"}`. Pull, the WebSocket
-backfill and the snapshot leave such ops out: the cursor walks past them, and a pull page is
-filled from later ops so a short page still means caught up. Hidden data is kept and comes back
-when the app is enabled again. Live WebSocket deliveries and the account export are not filtered
-yet: only todo exists, and every account has it. Before a second app ships, fan-out must skip
-members who lack the app.
+The release bundles `todo` and `journal` (Atlas Journal: `journal.entry`, `journal.preference`,
+every field encrypted). Journal's client is a separate app; this repository ships its manifest,
+the server rules and the client-core helpers.
+
+#### App-scoped sessions
+
+All of an account's apps share one partition and one sequence, but each client syncs only its
+own apps: a request names them in `x-atlas-sync-apps` (`apps.rs`, `SessionApps`), and a request
+without the header is a todo session, which every client predating the header is. A session's
+apps are its scope intersected with the apps enabled for the instance and the account.
+
+- Pull, the snapshot, the WebSocket backfill and live stream, and `GET /auth/export` serve only
+  the session's apps. Pull and the snapshot filter in SQL on the kinds of those apps. A pull that
+  is caught up answers the partition head as its cursor, read before the ops (every seq up to the
+  head is committed, see [One lock for sync writes](#one-lock-for-sync-writes)), so a Journal
+  client's cursor moves past todo's ops and the reverse.
+- The hub broadcasts each partition's live batch once; every socket narrows it to its session's
+  apps and keeps `from` and `cursor`, so a batch of another app's ops arrives as an empty message
+  that moves the cursor without a gap. The socket's scope is the one its ticket request named.
+- Push refuses an op outside the scope with 403 `app_not_enabled`, scope `session`; an app the
+  instance or account has off is scope `instance` or `account`.
+- An app named in the header must be enabled, or the request is 403: a cursor that walked past
+  the app's ops unseen would lose them for that client. A request without the header keeps the
+  older behaviour of hiding a switched-off todo silently. Hidden data is kept and comes back,
+  from the snapshot, once the app is enabled again.
+- A cursor belongs to the scope it was pulled under. A client changing its scope bootstraps from
+  the snapshot again.
+- Fan-out to a shared project's members skips members whose account lacks the op's app.
+- The scope needs no protocol bump: it is optional and defaults to todo. Clients detect it by the
+  `app_scoped_sync` capability.
+
+#### Journal is personal
+
+Journal v1 has no sharing. Push resolves fan-out through `may_fan_out` and the project matches in
+`sync/push.rs`, which list every `EntityKind` with no wildcard arm: journal kinds are owner-only,
+the server reads none of their fields (not even one named `project_id`), and they never reach
+another partition. A new kind fails to compile until it chooses.
+
+#### Enabling an app
+
+`enableApp` in `packages/client-core/src/rootKey.ts` generates the app's 32-byte key and X25519
+identity, wraps them under the root ([Account root key](#account-root-key)), stores them with
+`PUT /auth/app-keys/:app` and then enables the app with `PUT /auth/apps/:app`. The key is set once:
+a device that loses a race gets 409 `key_already_stored`, loads the stored row from
+`GET /auth/root-key` and opens it, so both devices end with one key. It needs the unlocked root:
+an account from before root keys migrates at its next password sign-in or unlock (`ensureRootKey`)
+and can enable apps after that. Both routes are interactive only.
 
 ### Discovery
 
-`GET /discovery` is public and reads no database:
+`GET /discovery` is public and reads no database (here with `ATLAS_APPS=todo,journal`):
 
 ```json
 {
@@ -111,8 +151,18 @@ members who lack the app.
   "version": "0.1.11",
   "protocol_version": 6,
   "min_protocol_version": 6,
-  "capabilities": ["api_tokens", "app_manifests", "account_apps", "root_key"],
-  "apps": [{ "id": "todo", "name": "Atlas Todo", "version": 1 }]
+  "capabilities": [
+    "api_tokens",
+    "app_manifests",
+    "account_apps",
+    "root_key",
+    "app_scoped_sync",
+    "app_scoped_api_tokens"
+  ],
+  "apps": [
+    { "id": "todo", "name": "Atlas Todo", "version": 1 },
+    { "id": "journal", "name": "Atlas Journal", "version": 1 }
+  ]
 }
 ```
 
@@ -411,12 +461,20 @@ usage in [integrations.md](./integrations.md)).
   - `InteractiveAuthUser` refuses a token session with 403 `interactive_session_required` on the
     account-critical routes: credentials, recovery, sessions, API tokens, account deletion,
     export, the signing-key upload, the account root key and app keys, and admin.
-  - A token wraps the todo key (the DEK) and the todo identity only, never the account root key
-    or another app's key ([Account root key](#account-root-key)).
+  - A token is scoped to apps (`api_tokens.apps`, `{todo}` for every token made before scopes
+    and whenever the client names none). It carries a copy of each of their keys: todo's as
+    before (`wrapped_dek`, `wrapped_private_key`, sent exactly when the token is for todo),
+    every other app's key and identity in `app_keys`, one entry per app with `wrapped_key` and
+    `wrapped_private_key` (associated data slots `app_key:<app>` and `app_private_key:<app>`,
+    `wrapAppKeysForApiToken`). Creating one needs the app enabled and keyed for the account.
+    It never carries the account root key.
+  - A token session syncs only its token's apps: a scope naming another app, or the implicit
+    todo scope of a token without todo, is 403 `app_not_enabled` with scope `token`. The session
+    response lists the token's `apps`. The app's settings screen still makes todo tokens only.
   - Sync, project keys, members and attachments accept token sessions.
   - An account holds at most 25 live tokens.
 - **Revoking.** Revoking a token, recovering the account or scheduling its deletion sets
-  `revoked_at` and nulls the wraps, so a token string that leaks afterwards opens nothing. A
+  `revoked_at` and nulls the wraps (`app_keys` too), so a token string that leaks afterwards opens nothing. A
   password change leaves tokens alone, since the DEK does not change.
 
 ### Where a web session is stored
@@ -909,7 +967,7 @@ loading (`session.web.ts`).
 ## What stays plaintext
 
 A field is encrypted unless its app manifest lists it in `plaintext_fields`
-(`manifests/todo.json`). Those are the ids the server needs for routing and access checks
+(`manifests/todo.json`; `manifests/journal.json` lists none). Those are the ids the server needs for routing and access checks
 (`project_id`, `task_id`, `assignee_id`, `actor_id`), the attachment blob hashes, and the
 already-encrypted attachment `wrapped_key` and `meta`. The client encrypts by this list, and the server only reads fields on it. See
 [SECURITY.md](../SECURITY.md#fields-that-stay-plaintext-and-why) for the table.

@@ -1884,7 +1884,9 @@ pub async fn revoke_other_devices(
 ///
 /// - `account`: the `/auth/me` profile plus the primary E2EE envelope (so an export can seed a
 ///   new device). Never the password hash, recovery-wrapped blobs or operational stamps.
-/// - `data`: the materialized entity state as snapshot-shaped ops ([`crate::sync::partition_ops`]).
+/// - `data`: the materialized entity state as snapshot-shaped ops ([`crate::sync::partition_ops`])
+///   of the requested apps (`x-atlas-sync-apps`, todo by default) that are enabled, and `apps`,
+///   that scope.
 pub async fn export(
     State(state): State<AppState>,
     AuthUserAllowScheduled(user): AuthUserAllowScheduled,

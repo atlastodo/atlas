@@ -97,7 +97,9 @@ This page lists what it protects.
 
 The list lives in the `plaintext_fields` of each kind in
 [`manifests/todo.json`](./manifests/todo.json), the todo app manifest that the server and the
-clients both bundle.
+clients both bundle. Atlas Journal's manifest ([`manifests/journal.json`](./manifests/journal.json))
+lists none: every journal field is encrypted, and journal data never leaves your own account's
+partition (journal has no sharing).
 The client encrypts by it, and the server checks that every field value it reads is on it.
 
 | Entity         | Plaintext fields                                          | Why                                                                          |
@@ -163,8 +165,10 @@ it never receives.
 - Someone who copied a token's wrapped keys and its secret before the revocation keeps what they
   decrypted, as with any device that had your data.
 - Treat a token like your password. See [docs/integrations.md](./docs/integrations.md).
-- A token opens the todo data only. It never carries the account root key or the key of any
-  other Atlas app, and token sessions are refused on every route that reads or writes them.
+- A token opens only the apps it was made for (todo unless you chose otherwise). It carries a
+  copy of those apps' keys and no other, never the account root key, and its sessions are refused
+  sync for any other app. Token sessions are refused on every route that reads or writes the root
+  or the app keys.
 
 ### Account root key
 
@@ -172,6 +176,13 @@ Your password and your recovery phrase each unlock one account root key, a rando
 server only ever stores wrapped. The root key in turn wraps one key per Atlas app; the todo app's
 key is the data key your account always had, so nothing was re-encrypted when the root key was
 introduced. Details in [docs/architecture.md](./docs/architecture.md#account-root-key).
+
+- Enabling another app (Atlas Journal) creates that app's key and X25519 identity on your device
+  and stores them wrapped under the root key. The todo key never wraps another app's key, so a
+  todo API token cannot open journal data.
+- Each app's client syncs only its own app's data (`x-atlas-sync-apps`). This limits what each
+  app holds on a device; it is not a boundary against the server, which stores every app's
+  ciphertext in one log per account.
 
 - Accounts created before the root key get one on their next sign-in or unlock, on the device.
   The recovery phrase is not needed for that: the device seals the root key to your phrase's

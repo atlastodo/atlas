@@ -166,3 +166,10 @@ token expires. The access token's `kind` claim marks it as an API-token session,
 id is the token's id. With the DEK the client opens the account's signing key and the shared
 projects' keys, just as a signed-in device does. See
 [architecture.md](./architecture.md#api-tokens) for the server side.
+
+A token is scoped to apps. The tokens the app makes are todo tokens, and their sessions sync todo
+only. A server with the `app_scoped_api_tokens` capability also accepts tokens for another app of
+the suite (Atlas Journal): the token then carries that app's key and identity in `app_keys`
+instead of, or next to, the DEK, the session response lists its `apps`, and the client names the
+app in the `x-atlas-sync-apps` header of its sync requests
+([sync-protocol.md](./sync-protocol.md#app-scope)).
