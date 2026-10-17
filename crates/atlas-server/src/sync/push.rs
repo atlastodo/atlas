@@ -21,7 +21,7 @@ use super::{
     cap_future_skew, entity_str, hlc_key, observe_client_ts, physical_now_ms, successor_hlc,
     take_sync_write_lock, HlcKey, SyncError, SyncResult, MAX_FUTURE_SKEW_MS,
 };
-use crate::apps::EnabledApps;
+use crate::apps::{RequestedApps, SessionApps};
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
 use crate::members::Role;
@@ -163,7 +163,8 @@ struct Links {
 impl Links {
     fn new(caller: Uuid, ops: &[Operation]) -> Self {
         let mut batch = HashMap::new();
-        for op in ops {
+        // Only kinds that can be shared link anything; an owner-only op's fields are its own.
+        for op in ops.iter().filter(|op| may_fan_out(op.entity)) {
             if let Change::Set { field, value } = &op.change {
                 let field = match field.as_str() {
                     "project_id" => "project_id",
@@ -276,6 +277,31 @@ struct Revocation {
     after: Hlc,
 }
 
+/// Whether ops of `kind` can reach another account's partition: only todo's project-scoped kinds,
+/// through a shared project. Every other kind stays in its owner's partition, whatever its fields
+/// say: the server neither reads their links nor fans them out. Exhaustive on purpose, so a new
+/// kind (another app's) cannot inherit todo's sharing by accident.
+fn may_fan_out(kind: EntityKind) -> bool {
+    match kind {
+        EntityKind::Task
+        | EntityKind::Project
+        | EntityKind::Section
+        | EntityKind::Comment
+        | EntityKind::Activity
+        | EntityKind::Attachment => true,
+        EntityKind::Label
+        | EntityKind::Preference
+        | EntityKind::SavedFilter
+        | EntityKind::Reminder
+        | EntityKind::ProjectMember
+        | EntityKind::FocusSession
+        | EntityKind::Habit
+        | EntityKind::HabitCheckin => false,
+        // Journal v1 is personal: owner-only, no sharing.
+        EntityKind::JournalEntry | EntityKind::JournalPreference => false,
+    }
+}
+
 async fn project_of(
     conn: &mut PgConnection,
     op: &Operation,
@@ -292,8 +318,17 @@ async fn project_of(
                 None => Ok(None),
             }
         }
-        // Private to their owner.
-        _ => Ok(None),
+        // Private to their owner ([`may_fan_out`]).
+        EntityKind::Label
+        | EntityKind::Preference
+        | EntityKind::SavedFilter
+        | EntityKind::Reminder
+        | EntityKind::ProjectMember
+        | EntityKind::FocusSession
+        | EntityKind::Habit
+        | EntityKind::HabitCheckin
+        | EntityKind::JournalEntry
+        | EntityKind::JournalPreference => Ok(None),
     }
 }
 
@@ -427,7 +462,17 @@ fn min_role_for_op(op: &Operation) -> Role {
             }
             Change::Set { .. } => Role::Editor,
         },
-        _ => Role::Editor,
+        // Never on a shared project ([`may_fan_out`]); the strictest answer if one were.
+        EntityKind::Label
+        | EntityKind::Preference
+        | EntityKind::SavedFilter
+        | EntityKind::Reminder
+        | EntityKind::ProjectMember
+        | EntityKind::FocusSession
+        | EntityKind::Habit
+        | EntityKind::HabitCheckin
+        | EntityKind::JournalEntry
+        | EntityKind::JournalPreference => Role::Owner,
     }
 }
 
@@ -436,12 +481,15 @@ fn min_role_for_op(op: &Operation) -> Role {
 pub(super) async fn push(
     State(state): State<AppState>,
     user: AuthUser,
+    requested: RequestedApps,
     Json(req): Json<PushRequest>,
 ) -> SyncResult<Json<PushResponse>> {
     let caller = user.user_id;
     let (ops, newest) = check_batch(caller, req.operations)?;
-    // Every op's app must be enabled for the instance and the account.
-    EnabledApps::load(&state, caller).await?.check_ops(&ops)?;
+    // Every op's app must be enabled for the instance and the account, and in the session's scope.
+    SessionApps::for_request(&state, &user, requested)
+        .await?
+        .check_ops(&ops)?;
 
     let mut tx = state.pool.begin().await?;
     // Serialize all sync writes (see [`SYNC_WRITE_LOCK`]).
@@ -449,7 +497,8 @@ pub(super) async fn push(
 
     // Authorize every op and resolve its fan-out before writing anything.
     let moves = project_moves(&ops);
-    let fan_out = authorize(&mut tx, caller, &ops, &moves).await?;
+    let mut fan_out = authorize(&mut tx, caller, &ops, &moves).await?;
+    drop_members_without_app(&mut tx, &ops, &mut fan_out.targets).await?;
     let tombstones = revoke_moved_tasks(&mut tx, &state, fan_out.revocations).await?;
     let (applied, batches) =
         apply_and_fan_out(&mut tx, caller, &ops, &fan_out.targets, &tombstones).await?;
@@ -568,6 +617,11 @@ async fn authorize(
     let mut revocations: Vec<Revocation> = Vec::new();
     let mut fan_targets: Vec<Vec<Uuid>> = Vec::with_capacity(ops.len());
     for (i, op) in ops.iter().enumerate() {
+        // Owner-only kinds: nothing to authorize against a project, and nobody else receives them.
+        if !may_fan_out(op.entity) {
+            fan_targets.push(Vec::new());
+            continue;
+        }
         let project = project_of(tx, op, &mut links).await?;
 
         // A task a move took away stays away (see `still_revoked`); its comments are kept.
@@ -650,6 +704,32 @@ async fn authorize(
         targets: fan_targets,
         revocations,
     })
+}
+
+/// Leave out of each op's fan-out the co-members whose account has not enabled the op's app:
+/// none of their sessions would serve it.
+async fn drop_members_without_app(
+    conn: &mut PgConnection,
+    ops: &[Operation],
+    targets: &mut [Vec<Uuid>],
+) -> AppResult<()> {
+    let mut members: Vec<Uuid> = targets.iter().flatten().copied().collect();
+    if members.is_empty() {
+        return Ok(());
+    }
+    members.sort_unstable();
+    members.dedup();
+    let rows: Vec<(Uuid, String)> =
+        sqlx::query_as("SELECT user_id, app FROM account_apps WHERE user_id = ANY($1)")
+            .bind(&members)
+            .fetch_all(conn)
+            .await?;
+    let enabled: HashSet<(Uuid, String)> = rows.into_iter().collect();
+    for (op, targets) in ops.iter().zip(targets.iter_mut()) {
+        let app = op.entity.app().to_owned();
+        targets.retain(|member| enabled.contains(&(*member, app.clone())));
+    }
+    Ok(())
 }
 
 /// Record each [`Revocation`] and build the tombstone its members receive: it beats the move

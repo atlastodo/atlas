@@ -4,9 +4,13 @@
 //! Each app is a first-party manifest compiled into the build (`manifests/<app>.json`, read by
 //! [`atlas_core::Registry`]). An instance offers the bundled apps `ATLAS_APPS` names
 //! ([`crate::config::Config::apps`]); an account uses the ones in its `account_apps` rows (todo
-//! for every account, added by a trigger when the user row is created). Sync push refuses an op
-//! whose kind belongs to an app not enabled for both, and pull, the socket backfill and the
-//! snapshot leave such ops out ([`EnabledApps`]).
+//! for every account, added by a trigger when the user row is created).
+//!
+//! Each sync session also names the apps it works with ([`SYNC_APPS_HEADER`], todo when absent):
+//! a Journal client syncs journal ops only, a Todo client todo ops only, though both share the
+//! account's one partition and cursor space. Push refuses an op outside the session's enabled
+//! scope, and pull, the snapshot, the socket (backfill and live) and the export leave such ops out
+//! ([`SessionApps`]).
 //!
 //! `GET /discovery` is public: it tells a client, before sign-in, which server version and sync
 //! protocol it is talking to, what it supports and which apps it offers.
@@ -14,7 +18,8 @@
 use std::collections::HashSet;
 
 use atlas_core::{Operation, Registry};
-use axum::extract::{Path, State};
+use axum::extract::{FromRequestParts, Path, State};
+use axum::http::request::Parts;
 use axum::routing::{get, put};
 use axum::{Json, Router};
 use serde::Serialize;
@@ -27,7 +32,14 @@ use crate::state::AppState;
 
 /// Features a client may check for in [`Discovery::capabilities`] before relying on them.
 /// Append a name when a feature lands; never remove one a released client may check for.
-pub const CAPABILITIES: &[&str] = &["api_tokens", "app_manifests", "account_apps", "root_key"];
+pub const CAPABILITIES: &[&str] = &[
+    "api_tokens",
+    "app_manifests",
+    "account_apps",
+    "root_key",
+    "app_scoped_sync",
+    "app_scoped_api_tokens",
+];
 
 /// Advertised next to [`CAPABILITIES`] when the instance has passkeys on (`WEBAUTHN_RP_ID`).
 pub const PASSKEYS_CAPABILITY: &str = "passkeys";
@@ -183,7 +195,58 @@ pub async fn enable_account_app(
         .ok_or(AppError::Internal)
 }
 
-/// The apps a user may sync: enabled for the instance and for the account.
+/// Header naming the apps a sync session works with, comma-separated (`x-atlas-sync-apps:
+/// journal`). Every `/sync/*` request and the account export read it. A request without it is a
+/// todo session ([`DEFAULT_SYNC_APPS`]), which every client predating app-scoped sync is.
+pub const SYNC_APPS_HEADER: &str = "x-atlas-sync-apps";
+
+/// The scope of a request that names none.
+pub const DEFAULT_SYNC_APPS: &[&str] = &["todo"];
+
+/// Parse a [`SYNC_APPS_HEADER`] value: bundled app ids, comma-separated, at least one; sorted and
+/// deduplicated. 400 for anything else.
+pub fn parse_sync_apps(raw: &str) -> AppResult<Vec<String>> {
+    let registry = Registry::bundled();
+    let mut apps: Vec<String> = Vec::new();
+    for id in raw.split(',').map(str::trim).filter(|id| !id.is_empty()) {
+        if registry.app(id).is_none() {
+            return Err(AppError::BadRequest(format!(
+                "{SYNC_APPS_HEADER} names an app this server does not bundle"
+            )));
+        }
+        if !apps.iter().any(|a| a == id) {
+            apps.push(id.to_owned());
+        }
+    }
+    if apps.is_empty() {
+        return Err(AppError::BadRequest(format!(
+            "{SYNC_APPS_HEADER} must name at least one app"
+        )));
+    }
+    apps.sort();
+    Ok(apps)
+}
+
+/// The apps a request asked to sync ([`SYNC_APPS_HEADER`]); `None` when it names none.
+#[derive(Debug, Clone, Default)]
+pub struct RequestedApps(pub Option<Vec<String>>);
+
+impl<S: Send + Sync> FromRequestParts<S> for RequestedApps {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let Some(value) = parts.headers.get(SYNC_APPS_HEADER) else {
+            return Ok(Self(None));
+        };
+        let raw = value
+            .to_str()
+            .map_err(|_| AppError::BadRequest(format!("{SYNC_APPS_HEADER} must be ASCII")))?;
+        Ok(Self(Some(parse_sync_apps(raw)?)))
+    }
+}
+
+/// The apps enabled for the instance and for one account.
+#[derive(Debug, Clone)]
 pub(crate) struct EnabledApps {
     instance: HashSet<String>,
     account: HashSet<String>,
@@ -202,30 +265,166 @@ impl EnabledApps {
         })
     }
 
-    /// Whether ops of the kind with this wire name may be synced. A kind no bundled manifest
-    /// lists is not.
+    fn allows_app(&self, app: &str) -> bool {
+        self.instance.contains(app) && self.account.contains(app)
+    }
+
+    /// 403 `app_not_enabled` naming where `app` is off.
+    fn check_app(&self, app: &str) -> AppResult<()> {
+        let scope = if !self.instance.contains(app) {
+            "instance"
+        } else if !self.account.contains(app) {
+            "account"
+        } else {
+            return Ok(());
+        };
+        Err(AppError::AppNotEnabled {
+            app: app.to_owned(),
+            scope,
+        })
+    }
+}
+
+/// What one sync session may read and write: the apps of its scope that the instance and the
+/// account have enabled. Pull, the snapshot, the socket (backfill and live) and the export serve
+/// only ops of those apps, walking the cursor past the rest; push refuses any other op.
+#[derive(Debug, Clone)]
+pub(crate) struct SessionApps {
+    scope: Vec<String>,
+    enabled: EnabledApps,
+}
+
+impl SessionApps {
+    /// Resolve a session's scope: the `requested` apps, or [`DEFAULT_SYNC_APPS`].
+    ///
+    /// - An API-token session (`token_apps`) may only name apps its token carries keys for:
+    ///   403 `app_not_enabled` with scope `token`, the implicit todo scope included.
+    /// - An app named explicitly must be enabled for the instance and the account (403 with
+    ///   scope `instance` or `account`): a cursor that walked past its ops unseen would lose them
+    ///   for that client. The implicit todo scope keeps hiding a disabled todo silently, as before
+    ///   app-scoped sync.
+    pub(crate) async fn resolve(
+        state: &AppState,
+        user: Uuid,
+        token_apps: Option<&[String]>,
+        requested: Option<Vec<String>>,
+    ) -> AppResult<Self> {
+        let explicit = requested.is_some();
+        let scope =
+            requested.unwrap_or_else(|| DEFAULT_SYNC_APPS.iter().map(|a| a.to_string()).collect());
+        if let Some(token_apps) = token_apps {
+            if let Some(app) = scope.iter().find(|a| !token_apps.contains(a)) {
+                return Err(AppError::AppNotEnabled {
+                    app: app.clone(),
+                    scope: "token",
+                });
+            }
+        }
+        let enabled = EnabledApps::load(state, user).await?;
+        if explicit {
+            for app in &scope {
+                enabled.check_app(app)?;
+            }
+        }
+        Ok(Self { scope, enabled })
+    }
+
+    /// [`Self::resolve`] for an authenticated request.
+    pub(crate) async fn for_request(
+        state: &AppState,
+        user: &crate::auth::AuthUser,
+        requested: RequestedApps,
+    ) -> AppResult<Self> {
+        Self::resolve(state, user.user_id, user.token_apps.as_deref(), requested.0).await
+    }
+
+    /// The apps this session syncs, enabled or not.
+    pub(crate) fn scope(&self) -> &[String] {
+        &self.scope
+    }
+
+    /// The wire names of every kind this session reads, for SQL filters.
+    pub(crate) fn kinds(&self) -> Vec<String> {
+        Registry::bundled()
+            .apps()
+            .iter()
+            .filter(|m| self.scope.contains(&m.app) && self.enabled.allows_app(&m.app))
+            .flat_map(|m| m.kinds.keys().cloned())
+            .collect()
+    }
+
+    /// Whether ops of the kind with this wire name reach this session. A kind no bundled manifest
+    /// lists does not.
     pub(crate) fn allows_kind(&self, kind: &str) -> bool {
         Registry::bundled()
             .app_of(kind)
-            .is_some_and(|m| self.instance.contains(&m.app) && self.account.contains(&m.app))
+            .is_some_and(|m| self.scope.contains(&m.app) && self.enabled.allows_app(&m.app))
     }
 
-    /// Refuse the first op whose app is not enabled, naming the app and where it is off.
+    /// Refuse the first op this session may not write: 403 `app_not_enabled` with scope
+    /// `instance` or `account` for an app switched off there, `session` for an enabled app
+    /// outside the session's scope.
     pub(crate) fn check_ops(&self, ops: &[Operation]) -> AppResult<()> {
         for op in ops {
             let app = op.entity.app();
-            let scope = if !self.instance.contains(app) {
-                "instance"
-            } else if !self.account.contains(app) {
-                "account"
-            } else {
-                continue;
-            };
-            return Err(AppError::AppNotEnabled {
-                app: app.to_owned(),
-                scope,
-            });
+            self.enabled.check_app(app)?;
+            if !self.scope.iter().any(|a| a == app) {
+                return Err(AppError::AppNotEnabled {
+                    app: app.to_owned(),
+                    scope: "session",
+                });
+            }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_scope_header_names_bundled_apps() {
+        assert_eq!(parse_sync_apps("journal").unwrap(), ["journal"]);
+        assert_eq!(
+            parse_sync_apps(" todo , journal,todo,").unwrap(),
+            ["journal", "todo"]
+        );
+        for bad in ["", " , ", "notes", "todo,Journal", "todo;journal"] {
+            assert!(parse_sync_apps(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    fn session(scope: &[&str], instance: &[&str], account: &[&str]) -> SessionApps {
+        let set = |apps: &[&str]| apps.iter().map(|a| a.to_string()).collect();
+        SessionApps {
+            scope: scope.iter().map(|a| a.to_string()).collect(),
+            enabled: EnabledApps {
+                instance: set(instance),
+                account: set(account),
+            },
+        }
+    }
+
+    #[test]
+    fn a_session_sees_and_writes_only_its_enabled_scope() {
+        let both = ["todo", "journal"];
+        let journal = session(&["journal"], &both, &both);
+        assert!(journal.allows_kind("journal.entry"));
+        assert!(!journal.allows_kind("task"));
+        assert!(!journal.allows_kind("no_such_kind"));
+        let mut kinds = journal.kinds();
+        kinds.sort();
+        assert_eq!(kinds, ["journal.entry", "journal.preference"]);
+
+        let todo = session(&["todo"], &both, &both);
+        assert!(todo.allows_kind("task") && todo.allows_kind("preference"));
+        assert!(!todo.allows_kind("journal.preference"));
+
+        let off = session(&["journal", "todo"], &both, &["todo"]);
+        assert!(off.allows_kind("task"));
+        assert!(!off.allows_kind("journal.entry"));
+        assert!(off.kinds().iter().all(|k| !k.starts_with("journal.")));
+        assert!(session(&["todo"], &[], &["todo"]).kinds().is_empty());
     }
 }

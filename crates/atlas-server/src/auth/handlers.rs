@@ -1888,6 +1888,7 @@ pub async fn revoke_other_devices(
 pub async fn export(
     State(state): State<AppState>,
     AuthUserAllowScheduled(user): AuthUserAllowScheduled,
+    requested: crate::apps::RequestedApps,
 ) -> AppResult<Response> {
     let row: UserRow = sqlx::query_as::<_, UserRow>(sqlx::AssertSqlSafe(format!(
         "SELECT {USER_COLUMNS} FROM users WHERE id = $1"
@@ -1897,7 +1898,10 @@ pub async fn export(
     .await?
     .ok_or(AppError::NotFound)?;
 
-    let operations = crate::sync::partition_ops(&state.pool, user.user_id).await?;
+    // The data of the apps the caller names (`x-atlas-sync-apps`, todo by default) that the
+    // instance and the account have enabled, like a sync session's.
+    let apps = crate::apps::SessionApps::for_request(&state, &user, requested).await?;
+    let operations = crate::sync::partition_ops(&state.pool, user.user_id, &apps.kinds()).await?;
     let app_keys = root_key::load_app_keys(&state.pool, user.user_id).await?;
 
     let body = Json(serde_json::json!({
@@ -1921,6 +1925,7 @@ pub async fn export(
             "app_keys": app_keys,
         },
         "data": {
+            "apps": apps.scope(),
             "operations": operations,
         },
     }));

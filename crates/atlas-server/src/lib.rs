@@ -342,13 +342,14 @@ fn cors_layer() -> CorsLayer {
 /// origin). Split out so it is testable without mutating process-global env.
 fn cors_layer_from(allowed: Option<String>) -> CorsLayer {
     // A wildcard allow-headers does not cover `Authorization` per the Fetch spec, so list it,
-    // `Content-Type` and the sync protocol header explicitly.
+    // `Content-Type` and the sync protocol and app-scope headers explicitly.
     let base = CorsLayer::new()
         .allow_methods(Any)
         .allow_headers([
             AUTHORIZATION,
             CONTENT_TYPE,
             HeaderName::from_static(sync::SYNC_PROTOCOL_HEADER),
+            HeaderName::from_static(apps::SYNC_APPS_HEADER),
         ])
         // Not CORS-safelisted; without it a cross-origin client cannot read a 429's back-off.
         .expose_headers([RETRY_AFTER]);
@@ -592,6 +593,7 @@ mod tests {
             .unwrap()
             .to_ascii_lowercase();
         assert!(allowed.contains(sync::SYNC_PROTOCOL_HEADER), "{allowed}");
+        assert!(allowed.contains(apps::SYNC_APPS_HEADER), "{allowed}");
     }
 
     #[tokio::test]
