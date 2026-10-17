@@ -51,6 +51,8 @@ fn config(apps: &[&str]) -> Config {
         max_blob_transfers: 16,
         static_dir: None,
         apps: apps.iter().map(|a| a.to_string()).collect(),
+        passkeys: None,
+        android_asset_links: None,
     }
 }
 
