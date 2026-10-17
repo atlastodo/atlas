@@ -35,7 +35,7 @@ pub fn admin_routes() -> Router<AppState> {
         )
 }
 
-// Field caps; the client truncates to the same limits (`@atlas/shared/bugReport`). Over-long
+// Field caps; the client truncates to the same limits (`@atlastodo/shared/bugReport`). Over-long
 // fields are truncated, not rejected, since a report that 400s is never seen. Only
 // structurally broken payloads are refused.
 const MAX_MESSAGE_LEN: usize = 2_000;

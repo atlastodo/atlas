@@ -7,7 +7,7 @@ import {
   generateApiToken,
   wrapKeysForApiToken,
   type ApiTokenView,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { useAuth } from "../../auth/AuthContext";
 import { useToast } from "../../data/ToastProvider";
 import { copySecret } from "../../lib/clipboard";

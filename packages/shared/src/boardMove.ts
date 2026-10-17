@@ -1,4 +1,4 @@
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { rankMoveWrites } from "./reorder";
 
 // A subtask carried with its parent keeps its own rank, so it has no `sort_order`.

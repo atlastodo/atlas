@@ -1,6 +1,6 @@
 import { renderHook, act } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { createTask, toTask } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { createTask, toTask } from "@atlastodo/shared";
 import { lastCopiedText, withApp } from "../testutil";
 import { useTaskClipboard } from "./useTaskClipboard";
 

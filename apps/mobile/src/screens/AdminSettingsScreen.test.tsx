@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react-native";
-import { LocalStore, type AdminInviteView, type ApiClient } from "@atlas/client-core";
+import { LocalStore, type AdminInviteView, type ApiClient } from "@atlastodo/client-core";
 import { AdminSettingsScreen } from "./AdminSettingsScreen";
 import { withApp, fakeAuth, lastCopiedText } from "../testutil";
 import { setServerUrlOverride } from "../auth/serverUrl";

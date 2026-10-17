@@ -61,7 +61,7 @@ import {
   type PasswordKdf,
   type RootKeyState,
   type TokenStore,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { createApiClient } from "../data/api";
 import { deleteLocalData } from "../data/localData";
 import {

@@ -10,7 +10,7 @@ import {
   wrapKeysForApiToken,
   type FetchLike,
   type WireOp,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 
 export const USER_ID = "01920000-0000-7000-8000-0000000000aa";
 

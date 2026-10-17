@@ -1,5 +1,5 @@
 import { fetch as expoFetch } from "expo/fetch";
-import type { FetchLike } from "@atlas/client-core";
+import type { FetchLike } from "@atlastodo/client-core";
 
 /**
  * The fetch for attachment blob bodies on Android and iOS: Expo's native one. React Native's

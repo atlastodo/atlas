@@ -1,11 +1,11 @@
 import * as SecureStore from "expo-secure-store";
-import { type Session, type TokenStore, sessionFromAuth } from "@atlas/client-core";
+import { type Session, type TokenStore, sessionFromAuth } from "@atlastodo/client-core";
 
 /**
  * Session persistence: tokens live in the device keychain (iOS Keychain / Android Keystore) via
  * expo-secure-store. There is no non-secret fallback: unencrypted token storage is worse than
  * signing in again, so a failed read means "no session" and a failed write is surfaced to the
- * caller. The {@link Session} shape comes from `@atlas/client-core`.
+ * caller. The {@link Session} shape comes from `@atlastodo/client-core`.
  */
 
 const KEY = "atlas.session";

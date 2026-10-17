@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
 import { fireEvent, render as render, screen, waitFor } from "@testing-library/react-native";
-import { ApiError, LocalStore, type ApiClient, type PasskeyProof } from "@atlas/client-core";
-import { PREFERENCES_ID } from "@atlas/shared";
+import { ApiError, LocalStore, type ApiClient, type PasskeyProof } from "@atlastodo/client-core";
+import { PREFERENCES_ID } from "@atlastodo/shared";
 import { fakeAuth, withApp } from "../testutil";
 import { settingsSections, type SettingsSectionId } from "../nav/settingsNav";
 import { relativeLabel, SettingsScreen } from "./SettingsScreen";

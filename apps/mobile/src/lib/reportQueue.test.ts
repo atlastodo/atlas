@@ -1,4 +1,4 @@
-import type { BugReportPayload } from "@atlas/client-core";
+import type { BugReportPayload } from "@atlastodo/client-core";
 import {
   __setQueueStorageForTests,
   enqueueReport,

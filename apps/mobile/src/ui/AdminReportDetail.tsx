@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { BugReportView } from "@atlas/client-core";
+import type { BugReportView } from "@atlastodo/client-core";
 import { useAuth } from "../auth/AuthContext";
 import { useFormat } from "../hooks/useFormat";
 import { copyText } from "../lib/clipboard";

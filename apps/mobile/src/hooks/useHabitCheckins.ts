@@ -1,5 +1,10 @@
 import { useCallback, useMemo } from "react";
-import { derivedUuidV2, toHabitCheckin, type CheckinState, type HabitCheckin } from "@atlas/shared";
+import {
+  derivedUuidV2,
+  toHabitCheckin,
+  type CheckinState,
+  type HabitCheckin,
+} from "@atlastodo/shared";
 import { useStore } from "../data/StoreProvider";
 
 /** The three states a day can be put into; `null` clears it back to "no data". */

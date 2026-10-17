@@ -1,9 +1,9 @@
 /**
  * Tailwind (v3, as NativeWind 4 requires) for the RN app.
  *
- * The `accent-*` colours resolve to CSS variables: the palette is owned by `@atlas/shared`'s
+ * The `accent-*` colours resolve to CSS variables: the palette is owned by `@atlastodo/shared`'s
  * ACCENTS table and applied at runtime by `ThemeProvider` through NativeWind's `vars()`. Only the
- * shade list is repeated here; it mirrors `AccentScale` in `@atlas/shared`, which has no 800.
+ * shade list is repeated here; it mirrors `AccentScale` in `@atlastodo/shared`, which has no 800.
  *
  * `darkMode: "class"` is required for the light/dark/system preference: NativeWind throws if the
  * colour scheme is set by hand under the default "media".

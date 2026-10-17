@@ -19,7 +19,7 @@ import {
   type Phase,
   type PomodoroConfig,
   type RunSnapshot,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { useFocusSessions } from "../hooks/useFocusSessions";
 import { usePomodoroConfig } from "../hooks/usePomodoroConfig";
 import { usePreferences } from "../hooks/usePreferences";

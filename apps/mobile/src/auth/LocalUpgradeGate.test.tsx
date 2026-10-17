@@ -1,6 +1,6 @@
 import { Text } from "react-native";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import type { Operation } from "@atlas/client-core";
+import type { Operation } from "@atlastodo/client-core";
 import { LocalUpgradeGate } from "./LocalUpgradeGate";
 import {
   discardLocalData,

@@ -13,7 +13,7 @@
       },
     },
     "apps/electron": {
-      "name": "@atlas/electron",
+      "name": "@atlastodo/electron",
       "version": "0.1.11-rc.1",
       "devDependencies": {
         "@types/node": "^26.6.5",
@@ -23,11 +23,11 @@
       },
     },
     "apps/mobile": {
-      "name": "@atlas/mobile",
+      "name": "@atlastodo/mobile",
       "version": "0.1.11-rc.1",
       "dependencies": {
-        "@atlas/client-core": "workspace:*",
-        "@atlas/shared": "workspace:*",
+        "@atlastodo/client-core": "workspace:*",
+        "@atlastodo/shared": "workspace:*",
         "@expo/metro-runtime": "~58.0.14",
         "@react-native-async-storage/async-storage": "2.2.0",
         "@react-native-community/datetimepicker": "9.2.1",
@@ -96,7 +96,7 @@
       },
     },
     "packages/client-core": {
-      "name": "@atlas/client-core",
+      "name": "@atlastodo/client-core",
       "version": "0.1.11-rc.1",
       "dependencies": {
         "@noble/ciphers": "^2.4.0",
@@ -112,11 +112,11 @@
       },
     },
     "packages/sdk": {
-      "name": "@atlas/sdk",
+      "name": "@atlastodo/sdk",
       "version": "0.1.11-rc.1",
       "dependencies": {
-        "@atlas/client-core": "workspace:*",
-        "@atlas/shared": "workspace:*",
+        "@atlastodo/client-core": "workspace:*",
+        "@atlastodo/shared": "workspace:*",
       },
       "devDependencies": {
         "@types/node": "^26.6.5",
@@ -125,10 +125,10 @@
       },
     },
     "packages/shared": {
-      "name": "@atlas/shared",
+      "name": "@atlastodo/shared",
       "version": "0.1.11-rc.1",
       "dependencies": {
-        "@atlas/client-core": "workspace:*",
+        "@atlastodo/client-core": "workspace:*",
         "@noble/hashes": "^2.4.0",
         "fflate": "^0.8.3",
       },
@@ -157,15 +157,15 @@
 
     "@asamuzakjp/css-color": ["@asamuzakjp/css-color@3.2.0", "", { "dependencies": { "@csstools/css-calc": "^2.1.3", "@csstools/css-color-parser": "^3.0.9", "@csstools/css-parser-algorithms": "^3.0.4", "@csstools/css-tokenizer": "^3.0.3", "lru-cache": "^10.4.3" } }, "sha512-K1A6z8tS3XsmCMM86xoWdn7Fkdn9m6RSVtocUrJYIwZnFVkng/PvkEoWtOWmP+Scc6saYWHWZYbndEEXxl24jw=="],
 
-    "@atlas/client-core": ["@atlas/client-core@workspace:packages/client-core"],
+    "@atlastodo/client-core": ["@atlastodo/client-core@workspace:packages/client-core"],
 
-    "@atlas/electron": ["@atlas/electron@workspace:apps/electron"],
+    "@atlastodo/electron": ["@atlastodo/electron@workspace:apps/electron"],
 
-    "@atlas/mobile": ["@atlas/mobile@workspace:apps/mobile"],
+    "@atlastodo/mobile": ["@atlastodo/mobile@workspace:apps/mobile"],
 
-    "@atlas/sdk": ["@atlas/sdk@workspace:packages/sdk"],
+    "@atlastodo/sdk": ["@atlastodo/sdk@workspace:packages/sdk"],
 
-    "@atlas/shared": ["@atlas/shared@workspace:packages/shared"],
+    "@atlastodo/shared": ["@atlastodo/shared@workspace:packages/shared"],
 
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
 

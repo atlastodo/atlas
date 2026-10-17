@@ -26,7 +26,7 @@ import {
   type AuthResponse,
   type AuthUser,
   type Session,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { AuthProvider, useAuth, type AuthContextValue } from "./AuthContext";
 import { AuthGate } from "./AuthGate";
 // The web build's Argon2id (WebAssembly), as the app registers it: client-core's pure-JS fallback

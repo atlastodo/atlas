@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import type { Label, Priority, Project, Section, Task } from "@atlas/client-core";
-import type { GroupBy } from "@atlas/shared";
+import type { Label, Priority, Project, Section, Task } from "@atlastodo/client-core";
+import type { GroupBy } from "@atlastodo/shared";
 import { useAuth } from "../auth/AuthContext";
 import { useLocalTasks } from "./useLocalTasks";
 import { useLabels } from "./useLabels";

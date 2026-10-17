@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import type { ReactNode } from "react";
-import type { SyncStatus } from "@atlas/client-core";
+import type { SyncStatus } from "@atlastodo/client-core";
 import { StoreContext, type SyncErrorInfo } from "../data/StoreProvider";
 import { SyncStatusBadge } from "./SyncStatusBadge";
 import { LocalModeContext } from "../auth/localMode";

@@ -1,4 +1,4 @@
-import { type Session, type TokenStore, sessionFromAuth } from "@atlas/client-core";
+import { type Session, type TokenStore, sessionFromAuth } from "@atlastodo/client-core";
 import {
   isPreferredSeal,
   openSessionKeys,

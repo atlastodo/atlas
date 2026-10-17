@@ -1,6 +1,6 @@
 import { act, fireEvent, renderHook, screen } from "@testing-library/react-native";
-import { LocalStore, type Operation } from "@atlas/client-core";
-import { allTasks, PREFERENCES_ID } from "@atlas/shared";
+import { LocalStore, type Operation } from "@atlastodo/client-core";
+import { allTasks, PREFERENCES_ID } from "@atlastodo/shared";
 import { withApp } from "../testutil";
 import { useLocalTasks } from "./useLocalTasks";
 import { useTaskListView } from "./useTaskListView";

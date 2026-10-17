@@ -1,6 +1,6 @@
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { resolveProjectColor } from "@atlas/shared";
+import { resolveProjectColor } from "@atlastodo/shared";
 import { HabitDetailScreen } from "../../../src/screens/HabitDetailScreen";
 import { HabitGroupDetailScreen } from "../../../src/screens/HabitGroupDetailScreen";
 import { useHabits } from "../../../src/hooks/useHabits";

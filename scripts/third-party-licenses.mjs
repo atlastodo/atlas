@@ -19,7 +19,13 @@ import fs from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-const WORKSPACES = ["apps/mobile", "apps/electron", "packages/shared", "packages/client-core"];
+const WORKSPACES = [
+  "apps/mobile",
+  "apps/electron",
+  "packages/shared",
+  "packages/client-core",
+  "packages/sdk",
+];
 
 // deny.toml's list, and the permissive licences the shipped JS tree adds (each checked by hand).
 const ALLOW = new Set([

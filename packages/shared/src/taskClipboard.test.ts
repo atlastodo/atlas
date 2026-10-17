@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { serializeTasksForClipboard } from "./taskClipboard";
 
 function makeTask(patch: Partial<Task>): Task {

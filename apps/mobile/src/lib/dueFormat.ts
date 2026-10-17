@@ -1,4 +1,4 @@
-import { isAllDayTask } from "@atlas/shared";
+import { isAllDayTask } from "@atlastodo/shared";
 
 /**
  * Default compact due format (device locale), the fallback when a screen passes no

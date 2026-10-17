@@ -8,7 +8,7 @@ import {
   type PasskeyAuthenticator,
   type PasskeyView,
   type Session,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { fakeAuth, withApp } from "../../testutil";
 import { PasskeysSection } from "./PasskeysSection";
 

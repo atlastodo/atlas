@@ -3,7 +3,7 @@ import {
   MemoryPersistence,
   type IndexedDbEvents,
   type Persistence,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { isElectron } from "../auth/serverUrl";
 import { closeAll, trackOpen } from "./openDatabases";
 

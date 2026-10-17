@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Modal, Pressable, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { Task } from "@atlas/client-core";
-import { filterActions, searchTasks, type TaskSearchHit } from "@atlas/shared";
+import type { Task } from "@atlastodo/client-core";
+import { filterActions, searchTasks, type TaskSearchHit } from "@atlastodo/shared";
 import { ThemeScope } from "../theme/ThemeProvider";
 import type { Command } from "../hooks/useCommands";
 import type { TaskSearchSource } from "../hooks/useTaskSearch";

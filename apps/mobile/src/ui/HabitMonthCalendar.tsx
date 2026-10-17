@@ -9,7 +9,7 @@ import {
   weekdayLabels,
   type CheckinState,
   type Habit,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { ChevronLeft, ChevronRight } from "./icons";
 import { haptics } from "../lib/haptics";
 

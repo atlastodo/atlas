@@ -1,5 +1,5 @@
 import { renderHook } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore } from "@atlastodo/client-core";
 import { withApp } from "../testutil";
 import { useCommands } from "./useCommands";
 

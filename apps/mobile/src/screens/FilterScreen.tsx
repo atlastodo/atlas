@@ -7,8 +7,8 @@ import {
   parse,
   resolveProjectColor,
   type EvalContext,
-} from "@atlas/shared";
-import type { Task } from "@atlas/client-core";
+} from "@atlastodo/shared";
+import type { Task } from "@atlastodo/client-core";
 import { useTaskListView } from "../hooks/useTaskListView";
 import { useProjects } from "../hooks/useProjects";
 import { useLabels } from "../hooks/useLabels";

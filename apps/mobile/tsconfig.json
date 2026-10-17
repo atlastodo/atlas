@@ -7,6 +7,9 @@
     "noUnusedParameters": true,
     "skipLibCheck": true,
     "noEmit": true,
+    // Expo's base condition plus the core packages' sources (their package.json `exports`): this
+    // workspace typechecks them unbuilt. A consumer of the published tarballs drops the second.
+    "customConditions": ["react-native", "@atlastodo/source"],
     // jest's globals (`describe`/`it`/`expect`/`jest`) are ambient, so the test files typecheck in
     // the same `bun run typecheck` pass as everything else -- there is no separate test tsconfig.
     "types": ["jest"]

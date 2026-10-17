@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore } from "@atlastodo/client-core";
 import { withApp } from "../testutil";
 import { HabitDetailScreen } from "./HabitDetailScreen";
 
-// Over a real in-memory `LocalStore`; the maths is tested in `@atlas/shared`.
+// Over a real in-memory `LocalStore`; the maths is tested in `@atlastodo/shared`.
 
 // 2026-06-17 is a Wednesday.
 const NOW = new Date(2026, 5, 17, 12, 0, 0).getTime();

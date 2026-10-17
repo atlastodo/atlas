@@ -21,7 +21,15 @@ devenv.local.yaml
 node_modules/
 dist/
 dist-desktop/
+dist-packages/
+dist-web/
 atlas-desktop-*.tar.gz
+atlas-todo-web-*.tar.gz
+# A core package's pack output (scripts/build-core-package.mjs): its tarball, the fixtures copied
+# from test-vectors/ and the copied licence. dist/ is covered above.
+atlastodo-*.tgz
+/packages/*/test-vectors/
+/packages/*/LICENSE
 # nix build outputs
 result
 result-*

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Text } from "react-native";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { Keyring, generateDek, type Session } from "@atlas/client-core";
+import { Keyring, generateDek, type Session } from "@atlastodo/client-core";
 import { fakeAuth } from "../testutil";
 import { AuthContext, type AuthContextValue } from "./AuthContext";
 import { AuthGate } from "./AuthGate";

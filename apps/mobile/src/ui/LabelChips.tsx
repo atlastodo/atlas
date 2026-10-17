@@ -1,5 +1,5 @@
 import { Text, View } from "react-native";
-import type { Label } from "@atlas/client-core";
+import type { Label } from "@atlastodo/client-core";
 
 /** Read-only label chips (a coloured dot + name). `resolve` maps a label id to its label; unknown ids (e.g. a deleted label) are skipped. */
 export function LabelChips({

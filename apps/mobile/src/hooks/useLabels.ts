@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
-import type { Label } from "@atlas/client-core";
-import { defaultColorForIndex, isTrashed, softDelete } from "@atlas/shared";
+import type { Label } from "@atlastodo/client-core";
+import { defaultColorForIndex, isTrashed, softDelete } from "@atlastodo/shared";
 import { useStore } from "../data/StoreProvider";
 import { useAuth } from "../auth/AuthContext";
 

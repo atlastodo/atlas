@@ -6,7 +6,7 @@
 import { act, render } from "@testing-library/react-native";
 import type { ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LocalStore, type Session } from "@atlas/client-core";
+import { LocalStore, type Session } from "@atlastodo/client-core";
 import i18n from "../i18n";
 import { fakeAuth, withApp } from "../testutil";
 import { FOCUS_PHASE_ID, cancelAllAppNotifications } from "../lib/notify";

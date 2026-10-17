@@ -1,7 +1,7 @@
 import { useRef, type ReactNode } from "react";
 import { View, type ViewInstance } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { useDragSource, useDropTarget } from "../hooks/useCardDnd";
 import { useCanHover } from "../hooks/useCanHover";
 import { GripVertical } from "./icons";

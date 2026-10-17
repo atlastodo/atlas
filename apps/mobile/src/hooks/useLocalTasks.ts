@@ -5,7 +5,7 @@ import {
   type CreateTaskInput,
   type SyncStatus,
   type Task,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import {
   allTasks as deriveAll,
   archivedTasks as deriveArchived,
@@ -26,7 +26,7 @@ import {
   type RecurEditScope,
   type TaskMove,
   type TaskProjectMove,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { useStore } from "../data/StoreProvider";
 import { AuthContext } from "../auth/AuthContext";
 import { usePreferences } from "./usePreferences";
@@ -49,7 +49,7 @@ const createdThisSession = new Set<string>();
  * against the in-memory store while the provider's `SyncClient` syncs in the background.
  *
  * The rules (what completing a recurring task means, which tasks a list may show) live in
- * `@atlas/shared`'s `taskOps`; this hook only subscribes, memoises and kicks a sync after a write.
+ * `@atlastodo/shared`'s `taskOps`; this hook only subscribes, memoises and kicks a sync after a write.
  *
  * @param actorId Current user id; when given, status/due/assignee changes record an `activity`
  *   entry attributed to them.

@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { defaultColorForIndex, isTrashed, softDelete } from "@atlas/shared";
+import { defaultColorForIndex, isTrashed, softDelete } from "@atlastodo/shared";
 import { useStore } from "../data/StoreProvider";
 
 /**

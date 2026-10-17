@@ -1,4 +1,4 @@
-import { rankMoveWrites, type RankWrite } from "@atlas/shared";
+import { rankMoveWrites, type RankWrite } from "@atlastodo/shared";
 
 /**
  * Cross-section drag maths for the project list view.

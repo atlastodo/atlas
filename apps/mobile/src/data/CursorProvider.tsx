@@ -8,13 +8,13 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import type { Task } from "@atlas/client-core";
-import { cursorStep } from "@atlas/shared";
+import type { Task } from "@atlastodo/client-core";
+import { cursorStep } from "@atlastodo/shared";
 import { useScreenFocused } from "./ScreenFocusContext";
 
 /**
  * The web keyboard cursor: a single "focused row" over the on-screen task list, driven by
- * j/k/o/c/x/t (see `@atlas/shared`'s `dispatchHotkey`). The hotkey listener lives at the app root
+ * j/k/o/c/x/t (see `@atlastodo/shared`'s `dispatchHotkey`). The hotkey listener lives at the app root
  * while lists live in screens, so the active list registers its rows and actions here. Inert on
  * native (no hardware keyboard).
  */

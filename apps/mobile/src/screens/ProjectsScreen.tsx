@@ -7,9 +7,9 @@ import {
   flattenProjectTree,
   projectDescendantIds,
   resolveProjectColor,
-} from "@atlas/shared";
-import type { FlatProjectRow } from "@atlas/shared";
-import type { Project } from "@atlas/client-core";
+} from "@atlastodo/shared";
+import type { FlatProjectRow } from "@atlastodo/shared";
+import type { Project } from "@atlastodo/client-core";
 import { useProjects } from "../hooks/useProjects";
 import { usePreferences } from "../hooks/usePreferences";
 import { useProjectMembers } from "../hooks/useProjectMembers";

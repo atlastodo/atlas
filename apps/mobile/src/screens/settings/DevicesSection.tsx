@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { SessionView } from "@atlas/client-core";
+import type { SessionView } from "@atlastodo/client-core";
 import { useAuth } from "../../auth/AuthContext";
 import { useToast } from "../../data/ToastProvider";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";

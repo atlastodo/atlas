@@ -100,7 +100,7 @@ jobs:
             # $rust so Prettier still lints them.
             echo "rust=$(has "$rust|^manifests/|^test-vectors/")"
             echo "lint_ts=$(lints)"
-            echo "test_ts=$(has "$shared|^apps/electron/")"
+            echo "test_ts=$(has "$shared|^apps/electron/|^scripts/(build|pack|smoke)-core-packages?\.")"
             echo "mobile=$(has "$shared|^apps/mobile/")"
             echo "deps=$(has "$deps")"
           } >>"$GITHUB_OUTPUT"
@@ -262,6 +262,11 @@ jobs:
       - name: electron
         working-directory: apps/electron
         run: bunx --bun vitest run
+      # The npm tarballs the release attaches, packed and installed as another repository would.
+      - name: Pack the core packages
+        run: |
+          scripts/pack-core-packages.sh "$RUNNER_TEMP/packages"
+          scripts/smoke-core-packages.sh "$RUNNER_TEMP/packages"
 
   test-mobile:
     name: Test (mobile)

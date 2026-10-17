@@ -6,7 +6,7 @@ import {
   timeZoneOptions,
   type DateFormatPref,
   type TimeFormatPref,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { usePreferences } from "../../hooks/usePreferences";
 import { deviceLanguage } from "../../i18n";
 import { ListPicker, type PickerOption } from "../../ui/ListPicker";

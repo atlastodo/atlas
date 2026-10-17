@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Modal, Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { ThemeScope } from "../theme/ThemeProvider";
-import { resolveTimeZone, shiftWallClockToZone } from "@atlas/shared";
+import { resolveTimeZone, shiftWallClockToZone } from "@atlastodo/shared";
 import { useAuth } from "../auth/AuthContext";
 import { usePreferences } from "../hooks/usePreferences";
 import { useLocalTasks } from "../hooks/useLocalTasks";

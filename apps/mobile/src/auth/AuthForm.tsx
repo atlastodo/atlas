@@ -16,7 +16,7 @@ import {
   RecoveryPhraseError,
   ServerIncompatibleError,
   apiErrorCode,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { CircleAlert, KeyRound } from "../ui/icons";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useAuth, type SignOutNotice } from "./AuthContext";

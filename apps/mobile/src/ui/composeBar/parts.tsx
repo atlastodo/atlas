@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
-import { PRIORITY_COLOR, type ChipKind } from "@atlas/shared";
-import type { Priority } from "@atlas/client-core";
+import { PRIORITY_COLOR, type ChipKind } from "@atlastodo/shared";
+import type { Priority } from "@atlastodo/client-core";
 import { CHIP_ICON, chipColors } from "../chips";
 import { Check, ChevronLeft, ChevronRight, X } from "../icons";
 

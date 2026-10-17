@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { createTask } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { createTask } from "@atlastodo/shared";
 import { withApp } from "../testutil";
 import { FilterScreen } from "./FilterScreen";
 

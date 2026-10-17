@@ -1,7 +1,7 @@
 /**
  * File I/O for Settings backup/restore on web: a browser download for export and a transient
  * `<input type=file>` for import. Native resolves `dataTransfer.ts` (expo-file-system + share
- * sheet); the serialization is the shared `@atlas/shared` helpers.
+ * sheet); the serialization is the shared `@atlastodo/shared` helpers.
  */
 
 /** Trigger a browser download of the bundle text. */

@@ -4,7 +4,13 @@ import { useColorScheme } from "nativewind";
 import { useTranslation } from "react-i18next";
 import { useKeepAwake } from "expo-keep-awake";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ACCENTS, formatClock, formatDuration, phaseDurationMs, startOfDay } from "@atlas/shared";
+import {
+  ACCENTS,
+  formatClock,
+  formatDuration,
+  phaseDurationMs,
+  startOfDay,
+} from "@atlastodo/shared";
 import { useFocus } from "../data/FocusProvider";
 import { useFocusSessions } from "../hooks/useFocusSessions";
 import { useLocalTasks } from "../hooks/useLocalTasks";

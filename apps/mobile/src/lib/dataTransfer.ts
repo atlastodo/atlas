@@ -4,7 +4,7 @@ import { File, Paths } from "expo-file-system";
 
 /**
  * Platform file I/O for the Settings backup/restore feature. The serialization is the pure, shared
- * `@atlas/shared` `exportData`/`importBundle`; only this glue differs by platform. Native writes the
+ * `@atlastodo/shared` `exportData`/`importBundle`; only this glue differs by platform. Native writes the
  * bundle to a cache file and hands it to the OS share sheet, and reads an imported file the user picks.
  * The RN-web build resolves `dataTransfer.web.ts` (a browser download + a file input) instead.
  */

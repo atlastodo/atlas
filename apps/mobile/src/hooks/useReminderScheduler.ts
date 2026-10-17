@@ -6,7 +6,7 @@ import {
   reminderBody,
   reminderTitle,
   splitDueReminders,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import {
   bookedNotificationIds,
   clearLaunchReminderResponse,
@@ -31,7 +31,7 @@ const WEB_INTERVAL_MS = 30_000;
  * permission, which it only reads (prompting belongs to explicit UI). Mount once at the app root.
  *
  * - Native: future reminders are handed to the OS as scheduled local notifications (no FCM or
- *   server push, so the app stays self-hostable), reconciled through `@atlas/shared`'s
+ *   server push, so the app stays self-hostable), reconciled through `@atlastodo/shared`'s
  *   `reconcileNotifications` against a ref of what is scheduled. Switching reminders off cancels
  *   everything booked; a sign-out cancels app-wide and a run in flight then books nothing. Banners
  *   carry Complete / Snooze buttons, whose presses this hook handles.

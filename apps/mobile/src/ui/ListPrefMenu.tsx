@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { BottomSheet } from "./BottomSheet";
-import { GROUP_BYS, SORT_BYS, type GroupBy, type SortBy } from "@atlas/shared";
+import { GROUP_BYS, SORT_BYS, type GroupBy, type SortBy } from "@atlastodo/shared";
 import type { ListPref } from "../hooks/usePreferences";
 import {
   ArrowDownAZ,

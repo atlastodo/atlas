@@ -1,4 +1,4 @@
-import { base64ToBytes, bytesToBase64 } from "@atlas/client-core";
+import { base64ToBytes, bytesToBase64 } from "@atlastodo/client-core";
 
 /**
  * Storage for the unwrapped keys a web session keeps across reloads (imported only by

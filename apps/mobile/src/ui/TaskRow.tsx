@@ -19,14 +19,14 @@ import {
   type TextInputInstance,
 } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { Label, Task } from "@atlas/client-core";
+import type { Label, Task } from "@atlastodo/client-core";
 import {
   PRIORITY_COLOR,
   isOverdue,
   resolveTaskSwipe,
   type AvatarColor,
   type TaskSwipeAction,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import {
   Bell,
   CalendarClock,

@@ -1,4 +1,4 @@
-import type { Section, Task } from "@atlas/client-core";
+import type { Section, Task } from "@atlastodo/client-core";
 import { pushOpenTaskCopies, type EntityWrite } from "./duplicateProject";
 
 export interface DuplicateSectionPlan {

@@ -6,8 +6,8 @@ import { Platform } from "react-native";
 (Platform as { OS: string }).OS = "web";
 
 import { act, renderHook, waitFor } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { PREFERENCES_ID, createTask, makeInstant } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { PREFERENCES_ID, createTask, makeInstant } from "@atlastodo/shared";
 import { withApp } from "../testutil";
 import { useReminderScheduler } from "./useReminderScheduler";
 

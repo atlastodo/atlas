@@ -188,7 +188,7 @@ services:
 
 ## Scripts in TypeScript or Rust
 
-`packages/sdk` (`@atlas/sdk`) is the same client as a TypeScript library: `AtlasClient.connect`,
+`packages/sdk` (`@atlastodo/sdk`) is the same client as a TypeScript library: `AtlasClient.connect`,
 then `tasks()`, `createTask()`, `completeTask()`, `changes()` and so on. The CLI is built on
 `crates/atlas-client`, the same client in Rust (`AtlasClient::connect`), which reimplements the
 app's encryption, sync and task rules; the fixtures in `test-vectors/` hold the two at parity.

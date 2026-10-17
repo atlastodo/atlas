@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { apiErrorCode, type PasskeyProof, type PasskeyView } from "@atlas/client-core";
+import { apiErrorCode, type PasskeyProof, type PasskeyView } from "@atlastodo/client-core";
 import { useAuth } from "../../auth/AuthContext";
 import { describePasskeyError } from "../../auth/passkeyErrors";
 import { serverOffersPasskeys } from "../../auth/serverCompat";

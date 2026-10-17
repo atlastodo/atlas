@@ -1,4 +1,4 @@
-import type { ScheduleIO } from "@atlas/shared";
+import type { ScheduleIO } from "@atlastodo/shared";
 import type { NotifyPermission, ReminderResponse } from "./reminderActions";
 
 /**

@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore } from "@atlastodo/client-core";
 import { withApp } from "../testutil";
 import { HabitsScreen } from "./HabitsScreen";
 
-// Over a real in-memory `LocalStore`; schedule/streak maths is tested in `@atlas/shared`. `now` is fixed.
+// Over a real in-memory `LocalStore`; schedule/streak maths is tested in `@atlastodo/shared`. `now` is fixed.
 
 // A fixed midday instant so "today" is stable regardless of when the test runs.
 // 2026-06-17 is a Wednesday.

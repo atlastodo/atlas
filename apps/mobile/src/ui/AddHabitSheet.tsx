@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { HabitGoalKind, HabitKind } from "@atlas/shared";
+import type { HabitGoalKind, HabitKind } from "@atlastodo/shared";
 import { BottomSheet } from "./BottomSheet";
 import {
   DISABLED_BUTTON_CLASS,

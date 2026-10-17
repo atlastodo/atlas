@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { useTranslation } from "react-i18next";
-import { hasWrappedKeys } from "@atlas/client-core";
+import { hasWrappedKeys } from "@atlastodo/client-core";
 import { CircleAlert, KeyRound } from "../ui/icons";
 import { useAuth } from "./AuthContext";
 import { useSignOut } from "./useSignOut";

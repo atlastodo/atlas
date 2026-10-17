@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { PREFERENCES_ID, createTask } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { PREFERENCES_ID, createTask } from "@atlastodo/shared";
 import { withApp } from "../testutil";
 import { CalendarScreen } from "./CalendarScreen";
 
-// Over a real in-memory `LocalStore`; layout maths is tested in `@atlas/shared`.
+// Over a real in-memory `LocalStore`; layout maths is tested in `@atlastodo/shared`.
 
 function storeWithTask(title: string) {
   const store = new LocalStore("test");

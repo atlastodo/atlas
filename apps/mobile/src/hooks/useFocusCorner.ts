@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { DEFAULT_FOCUS_CORNER, isFocusCorner, type FocusCorner } from "@atlas/shared";
+import { DEFAULT_FOCUS_CORNER, isFocusCorner, type FocusCorner } from "@atlastodo/shared";
 
 /**
  * Which corner the floating focus bar is parked in: device-local, not synced. Where the bar is out

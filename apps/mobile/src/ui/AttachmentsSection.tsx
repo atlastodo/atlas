@@ -10,7 +10,7 @@ import {
   unwrapAekAny,
   type AttachmentUploadState,
   type Task,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import * as DocumentPicker from "expo-document-picker";
 import type { DocumentPickerAsset } from "expo-document-picker";
 import { useAuth } from "../auth/AuthContext";

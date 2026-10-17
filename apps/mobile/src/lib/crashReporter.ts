@@ -15,15 +15,15 @@ import {
   createBreadcrumbTrail,
   emptyDiagnostics,
   type BreadcrumbTrail,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import type {
   ApiClient,
   BreadcrumbCode,
   BugReportDiagnostics,
   BugReportKind,
   BugReportPayload,
-} from "@atlas/client-core";
-import { ApiError } from "@atlas/client-core";
+} from "@atlastodo/client-core";
+import { ApiError } from "@atlastodo/client-core";
 import { enqueueReport, readQueue, removeReport } from "./reportQueue";
 import { clearFatalSync, peekFatalSync, saveFatalSync } from "./crashSlot";
 

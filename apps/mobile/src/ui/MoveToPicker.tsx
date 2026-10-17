@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { Project, Section } from "@atlas/client-core";
-import { DEFAULT_FOLDER_ICON, flattenProjectTree, resolveProjectColor } from "@atlas/shared";
+import type { Project, Section } from "@atlastodo/client-core";
+import { DEFAULT_FOLDER_ICON, flattenProjectTree, resolveProjectColor } from "@atlastodo/shared";
 import { BottomSheet } from "./BottomSheet";
 import { SheetScrollView } from "./SheetScroll";
 import { Check, ChevronLeft, ChevronRight, Inbox, X } from "./icons";

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { PRIORITY_COLOR, quickScheduleOptions, type QuickScheduleOption } from "@atlas/shared";
-import type { Priority } from "@atlas/client-core";
+import { PRIORITY_COLOR, quickScheduleOptions, type QuickScheduleOption } from "@atlastodo/shared";
+import type { Priority } from "@atlastodo/client-core";
 import {
   Copy,
   CalendarDays,

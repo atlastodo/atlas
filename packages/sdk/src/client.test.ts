@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { type FetchLike } from "@atlas/client-core";
-import { createTask as appCreateTask, projectCreateFields } from "@atlas/shared";
+import { type FetchLike } from "@atlastodo/client-core";
+import { createTask as appCreateTask, projectCreateFields } from "@atlastodo/shared";
 import { AtlasClient, AtlasError } from "./client";
 import { parseDue } from "./dates";
 import { FakeServer, USER_ID } from "./testing";

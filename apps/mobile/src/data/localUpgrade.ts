@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LocalStore, type EntityKind, type Operation } from "@atlas/client-core";
+import { LocalStore, type EntityKind, type Operation } from "@atlastodo/client-core";
 import { LOCAL_SCOPE } from "../auth/localMode";
 import { createPersistence } from "./persistence";
 import { deleteLocalData } from "./localData";

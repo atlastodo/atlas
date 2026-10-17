@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { quickScheduleOptions } from "@atlas/shared";
+import { quickScheduleOptions } from "@atlastodo/shared";
 import { QuickRescheduleSheet } from "./QuickRescheduleSheet";
 
 /**
  * The sheet's net-new logic is the choice-to-instant mapping; the swipe *gesture* that opens it and
- * its rules live in `@atlas/shared/swipe` (tested there, without a touchscreen). So these assert
+ * its rules live in `@atlastodo/shared/swipe` (tested there, without a touchscreen). So these assert
  * the sheet maps a choice to the right instant and closes, not the swipe.
  */
 

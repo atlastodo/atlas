@@ -1,4 +1,4 @@
-import type { Project, ProjectKind, ProjectView } from "@atlas/client-core";
+import type { Project, ProjectKind, ProjectView } from "@atlastodo/client-core";
 
 /**
  * Map a store entity to a typed {@link Project} and build the fields written on creation, like

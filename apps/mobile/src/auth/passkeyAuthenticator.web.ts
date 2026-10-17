@@ -9,7 +9,7 @@ import {
   type PasskeyPrfInputs,
   type PasskeyRegistrationResponse,
   type PasskeyRequestOptions,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 
 import { NoPasskeyError } from "./passkeyJson";
 

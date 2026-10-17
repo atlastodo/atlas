@@ -1,4 +1,4 @@
-import { addDays, endOfDay, makeInstant, resolveTimeZone } from "@atlas/shared";
+import { addDays, endOfDay, makeInstant, resolveTimeZone } from "@atlastodo/shared";
 import { AtlasError } from "./client";
 
 /**

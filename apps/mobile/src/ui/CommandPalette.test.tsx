@@ -1,11 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import type { Command } from "../hooks/useCommands";
 import type { TaskSearchSource } from "../hooks/useTaskSearch";
 import { CommandPalette } from "./CommandPalette";
 
 /**
- * Presentational: the fuzzy ranking is `@atlas/shared`'s `filterActions` and the task matching is
+ * Presentational: the fuzzy ranking is `@atlastodo/shared`'s `filterActions` and the task matching is
  * its `searchTasks` (both tested there); these assert the palette filters as you type, falls through
  * to the task-results section when no destination matches, and hands the chosen row back -- the
  * navigation step is the container's, not this component's.

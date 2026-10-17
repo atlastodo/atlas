@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { TextInput } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { PomodoroConfig } from "@atlas/shared";
+import type { PomodoroConfig } from "@atlastodo/shared";
 import { usePreferences } from "../../hooks/usePreferences";
 import { usePomodoroConfig } from "../../hooks/usePomodoroConfig";
 import { Row, Section } from "../../ui/Section";

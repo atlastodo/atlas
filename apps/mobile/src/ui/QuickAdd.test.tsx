@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore } from "@atlastodo/client-core";
 import {
   PREFERENCES_ID,
   createTask,
@@ -7,13 +7,13 @@ import {
   reminderFireAt,
   toReminder,
   toTask,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { withApp } from "../testutil";
 import { QuickAdd } from "./QuickAdd";
 
 /**
  * `now` is injected everywhere so "tomorrow" is a fixed instant rather than whatever the clock says
- * when CI runs. The parsing itself is `@atlas/shared`'s and tested there; these assert the wiring --
+ * when CI runs. The parsing itself is `@atlastodo/shared`'s and tested there; these assert the wiring --
  * that what the parser understood is what actually gets created.
  */
 const NOW = Date.parse("2026-07-17T12:00:00Z"); // a Friday

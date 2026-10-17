@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import type { FuzzyItem } from "@atlas/shared";
+import type { FuzzyItem } from "@atlastodo/shared";
 import { DRAWER_EXTRA, FEATURE_VIEWS, NAV, viewPath } from "../nav/navModel";
 import { useFeature } from "./useFeature";
 import { useHabits } from "./useHabits";
@@ -12,7 +12,7 @@ import { useSavedFilters } from "./useSavedFilters";
  * command per project, folder, habit and saved filter.
  *
  * A command carries an `href` (an expo-router path), never a closure, which keeps `router` out of
- * screens and hooks. `label` and optional `keywords` feed `@atlas/shared`'s `filterActions` ranking.
+ * screens and hooks. `label` and optional `keywords` feed `@atlastodo/shared`'s `filterActions` ranking.
  */
 export interface Command extends FuzzyItem {
   id: string;

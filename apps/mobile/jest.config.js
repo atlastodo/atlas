@@ -44,9 +44,15 @@ module.exports = {
     ...expoPreset.transform,
   },
   moduleNameMapper: {
-    // The workspace packages are raw TS source, as Metro and tsc see them.
-    "^@atlas/shared$": path.resolve(__dirname, "../../packages/shared/src/index.ts"),
-    "^@atlas/client-core$": path.resolve(__dirname, "../../packages/client-core/src/index.ts"),
+    // The workspace packages are raw TS source, as Metro and tsc see them (their `@atlastodo/source`
+    // export condition). The fixtures a package tarball ships under test-vectors/ are the
+    // repository's test-vectors/ here, which a pack copies them from.
+    "^@atlastodo/shared$": path.resolve(__dirname, "../../packages/shared/src/index.ts"),
+    "^@atlastodo/client-core$": path.resolve(__dirname, "../../packages/client-core/src/index.ts"),
+    "^@atlastodo/(client-core|shared|sdk)/test-vectors/(.*)$": path.resolve(
+      __dirname,
+      "../../test-vectors/$2",
+    ),
     // Babel injects `@babel/runtime` helpers relative to the file, and `packages/shared/` cannot
     // reach the app's copy under the isolated linker.
     "^@babel/runtime/(.*)$": path.resolve(__dirname, "node_modules/@babel/runtime/$1"),

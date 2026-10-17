@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import type { AdminUserView } from "@atlas/client-core";
+import type { AdminUserView } from "@atlastodo/client-core";
 import { useFormat } from "../hooks/useFormat";
 import { BottomSheet } from "./BottomSheet";
 import { SheetScrollView } from "./SheetScroll";

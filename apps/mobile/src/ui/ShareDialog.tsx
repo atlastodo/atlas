@@ -25,7 +25,7 @@ import {
   type IdentityObservation,
   type MemberRole,
   type MemberView,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { useAuth } from "../auth/AuthContext";
 import { useStore } from "../data/StoreProvider";
 import {

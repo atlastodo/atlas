@@ -13,7 +13,7 @@ import {
   todoistToBundle,
   type TicktickWarningCode,
   type TodoistWarningCode,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { useAuth } from "../../auth/AuthContext";
 import { useStore } from "../../data/StoreProvider";
 import { useToast } from "../../data/ToastProvider";

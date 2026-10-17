@@ -1,9 +1,9 @@
-import { ApiClient, type ApiClientOptions } from "@atlas/client-core";
+import { ApiClient, type ApiClientOptions } from "@atlastodo/client-core";
 import { loadServerUrl } from "../auth/serverUrl";
 import { blobFetch } from "../lib/blobFetch";
 
 /**
- * Build the app's `ApiClient` from `@atlas/client-core`. This adds resolving the user's server URL
+ * Build the app's `ApiClient` from `@atlastodo/client-core`. This adds resolving the user's server URL
  * first (the client binds its base URL at construction) and the platform's fetch for attachment
  * blobs (`blobFetch`: Expo's native fetch on Android and iOS, the default in a browser).
  *

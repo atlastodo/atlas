@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { Habit } from "@atlas/shared";
+import type { Habit } from "@atlastodo/shared";
 import { BottomSheet } from "./BottomSheet";
 import { SheetScrollView } from "./SheetScroll";
 import { Check } from "./icons";

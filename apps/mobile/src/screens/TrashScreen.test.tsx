@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { TRASH_RETENTION_MS, createTask, toTask } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { TRASH_RETENTION_MS, createTask, toTask } from "@atlastodo/shared";
 import { withApp } from "../testutil";
 import { TrashScreen } from "./TrashScreen";
 
-// Over a real in-memory `LocalStore`; trash rules are tested in `@atlas/shared`.
+// Over a real in-memory `LocalStore`; trash rules are tested in `@atlastodo/shared`.
 
 const DAY = 86_400_000;
 

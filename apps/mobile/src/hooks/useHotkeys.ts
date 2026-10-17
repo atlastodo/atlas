@@ -1,4 +1,4 @@
-import type { HotkeyHandlers } from "@atlas/shared";
+import type { HotkeyHandlers } from "@atlastodo/shared";
 
 /**
  * Keyboard shortcuts: a native no-op, since a phone or tablet has no hardware keyboard driving

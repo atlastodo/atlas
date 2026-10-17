@@ -6,8 +6,8 @@ import { Platform } from "react-native";
 (Platform as { OS: string }).OS = "web";
 
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore, type Task } from "@atlas/client-core";
-import { createTask, visibleTasks } from "@atlas/shared";
+import { LocalStore, type Task } from "@atlastodo/client-core";
+import { createTask, visibleTasks } from "@atlastodo/shared";
 import { withApp } from "../testutil";
 import { PermissionExplainerHost } from "./PermissionExplainerHost";
 import { ReminderSection } from "./ReminderSection";

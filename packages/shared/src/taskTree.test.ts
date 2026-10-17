@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import {
   buildTaskTree,
   flattenTree,

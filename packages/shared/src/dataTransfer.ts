@@ -1,4 +1,4 @@
-import { KEY_TRUST_ID, type EntityKind, type LocalStore } from "@atlas/client-core";
+import { KEY_TRUST_ID, type EntityKind, type LocalStore } from "@atlastodo/client-core";
 
 // Excludes `project_member` (the server rejects client pushes) and `activity` (a read-only audit log).
 export const PORTABLE_KINDS: EntityKind[] = [

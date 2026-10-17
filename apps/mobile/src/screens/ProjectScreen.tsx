@@ -9,8 +9,8 @@ import {
   resolveProjectColor,
   sortTasks,
   toProject,
-} from "@atlas/shared";
-import type { Task } from "@atlas/client-core";
+} from "@atlastodo/shared";
+import type { Task } from "@atlastodo/client-core";
 import { useStore } from "../data/StoreProvider";
 import { useAuth } from "../auth/AuthContext";
 import { useTaskListView } from "../hooks/useTaskListView";

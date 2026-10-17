@@ -3,7 +3,7 @@
  * the sweep issue the real tombstone (`store.remove`). A trashed container's children are hidden
  * by a read-time cascade and hard-purged with it.
  */
-import { isEncryptedEnvelope, type EntityKind, type LocalStore } from "@atlas/client-core";
+import { isEncryptedEnvelope, type EntityKind, type LocalStore } from "@atlastodo/client-core";
 
 export const TRASH_KINDS: EntityKind[] = [
   "task",

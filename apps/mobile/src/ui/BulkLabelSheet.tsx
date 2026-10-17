@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { BottomSheet } from "./BottomSheet";
 import { LabelPicker } from "./LabelPicker";
 import { Tag, Trash2, X } from "./icons";

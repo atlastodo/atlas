@@ -1,13 +1,13 @@
 import { useEffect } from "react";
 import { Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { HOTKEY_BINDINGS, HOTKEY_GROUPS, type HotkeyGroup } from "@atlas/shared";
+import { HOTKEY_BINDINGS, HOTKEY_GROUPS, type HotkeyGroup } from "@atlastodo/shared";
 import { ThemeScope } from "../theme/ThemeProvider";
 import { SheetHeader } from "./BottomSheet";
 import { ELEVATED_SURFACE_CLASS, SCRIM_CLASS } from "./useSheetDismiss";
 
 /**
- * The keyboard-shortcuts help, rendered from `@atlas/shared`'s `HOTKEY_BINDINGS` (the table
+ * The keyboard-shortcuts help, rendered from `@atlastodo/shared`'s `HOTKEY_BINDINGS` (the table
  * `dispatchHotkey` fires). `ShortcutsModal` is the `?` overlay (web/desktop), `ShortcutsTable` the
  * bare cards About embeds.
  */

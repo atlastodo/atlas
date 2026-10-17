@@ -15,14 +15,14 @@ import Animated from "react-native-reanimated";
 import { useTranslation } from "react-i18next";
 import { useSheetScroll } from "./TaskDetailWebFrame";
 import DateTimePicker, { type DateTimePickerEvent } from "../ui/DateTimePicker";
-import type { CreateTaskInput, Priority, Task } from "@atlas/client-core";
+import type { CreateTaskInput, Priority, Task } from "@atlastodo/client-core";
 import {
   DEFAULT_DUE_HOUR,
   DEFAULT_DUE_MINUTE,
   endOfDay,
   isAllDayTask,
   type RecurEditScope,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { RecurrenceEditor } from "../ui/RecurrenceEditor";
 import { RecurringEditModal } from "../ui/RecurringEditModal";
 import { LabelPicker } from "../ui/LabelPicker";

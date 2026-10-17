@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
-import { dispatchHotkey, type HotkeyHandlers } from "@atlas/shared";
+import { dispatchHotkey, type HotkeyHandlers } from "@atlastodo/shared";
 import { isModalOpen } from "../lib/modalOpen";
 
 /**
  * Keyboard shortcuts on web: one `window` `keydown` listener that routes each event through
- * `@atlas/shared`'s pure {@link dispatchHotkey}, which owns the binding table and its typing/modifier
+ * `@atlastodo/shared`'s pure {@link dispatchHotkey}, which owns the binding table and its typing/modifier
  * guards. Native uses the no-op `useHotkeys.ts`.
  *
  * Handlers are read through a ref, so the listener subscribes once and callers can pass fresh

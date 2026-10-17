@@ -1,10 +1,10 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import { getLocales } from "expo-localization";
-import { LANGUAGES, resources } from "@atlas/shared";
+import { LANGUAGES, resources } from "@atlastodo/shared";
 
 /**
- * i18next setup. The catalogs and the offered language list come from `@atlas/shared`. The initial
+ * i18next setup. The catalogs and the offered language list come from `@atlastodo/shared`. The initial
  * language is the device's (via expo-localization), and the synced `language` preference then
  * takes over through {@link useI18nLanguage}.
  *

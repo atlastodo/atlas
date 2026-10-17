@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { BugReportSummary } from "@atlas/client-core";
+import type { BugReportSummary } from "@atlastodo/client-core";
 import { useAuth } from "../auth/AuthContext";
 import { useLatestRequest } from "./useLatestRequest";
 

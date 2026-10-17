@@ -22,7 +22,7 @@ import {
   type KeyScope,
   type Keyring,
   type LocalStore,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { useAuth } from "../auth/AuthContext";
 import { loadProjectKeys } from "../hooks/useProjectKeyMaintenance";
 import { useStore } from "./StoreProvider";

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, act } from "@testing-library/react-native";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { createRef } from "react";
 import { Platform } from "react-native";
 import { TaskRow, type TaskRowHandle } from "./TaskRow";

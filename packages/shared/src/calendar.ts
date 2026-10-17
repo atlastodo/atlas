@@ -1,4 +1,4 @@
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { addDays, makeInstant, startOfDay, zonedParts } from "./zonedTime";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;

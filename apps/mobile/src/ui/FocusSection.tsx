@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { Task } from "@atlas/client-core";
-import { formatDuration } from "@atlas/shared";
+import type { Task } from "@atlastodo/client-core";
+import { formatDuration } from "@atlastodo/shared";
 import { useFocus } from "../data/FocusProvider";
 import { useFocusSessions } from "../hooks/useFocusSessions";
 import { usePreferences } from "../hooks/usePreferences";

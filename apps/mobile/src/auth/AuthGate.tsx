@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Keyring, Session } from "@atlas/client-core";
+import type { Keyring, Session } from "@atlastodo/client-core";
 import { useAuth } from "./AuthContext";
 import { LoginScreen } from "./LoginScreen";
 import { LocalUpgradeGate } from "./LocalUpgradeGate";

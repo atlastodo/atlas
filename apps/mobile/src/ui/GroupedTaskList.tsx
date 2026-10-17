@@ -11,7 +11,7 @@ import {
 import ReorderableList from "react-native-reorderable-list";
 import { scheduleOnRN } from "react-native-worklets";
 import { useTranslation } from "react-i18next";
-import type { CreateTaskInput, Priority, Task } from "@atlas/client-core";
+import type { CreateTaskInput, Priority, Task } from "@atlastodo/client-core";
 import {
   avatarColorFor,
   indentTarget,
@@ -26,7 +26,7 @@ import {
   type ListTaskRow,
   type RankWrite,
   type SortBy,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { useAuth } from "../auth/AuthContext";
 import { useSelection } from "../data/SelectionProvider";
 import { useRegisterSelectionActions } from "../data/SelectionActionsProvider";
@@ -70,7 +70,7 @@ import { LIST_WIDTH_STYLE } from "./listWidth";
  * The list surface every smart view is built on: grouping, sorting, multi-select and the empty
  * state, over a `SectionList`.
  *
- * Grouping and nesting come from `@atlas/shared`'s `taskListSections`, which also widens each group
+ * Grouping and nesting come from `@atlastodo/shared`'s `taskListSections`, which also widens each group
  * with context parents and open subtasks the view's filter left out. Group titles are resolved by
  * the caller (`groupTitle`).
  *

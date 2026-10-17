@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { BugReportBreadcrumb } from "@atlas/client-core";
+import type { BugReportBreadcrumb } from "@atlastodo/client-core";
 import {
   buildBugReport,
   createBreadcrumbTrail,

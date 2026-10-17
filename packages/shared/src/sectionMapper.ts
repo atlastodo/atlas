@@ -1,4 +1,4 @@
-import type { Section } from "@atlas/client-core";
+import type { Section } from "@atlastodo/client-core";
 
 /**
  * Map a generic local-store entity to a typed {@link Section} (a Kanban column within a project),

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { AdminAuditEntry, AdminInviteView } from "@atlas/client-core";
+import type { AdminAuditEntry, AdminInviteView } from "@atlastodo/client-core";
 import { useAdminSettings } from "../hooks/useAdminSettings";
 import { useAdminInvites } from "../hooks/useAdminInvites";
 import { useAdminAudit } from "../hooks/useAdminAudit";

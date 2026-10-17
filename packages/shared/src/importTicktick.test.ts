@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore } from "@atlastodo/client-core";
 import { importBundle } from "./dataTransfer";
 import {
   parseCsvRows,

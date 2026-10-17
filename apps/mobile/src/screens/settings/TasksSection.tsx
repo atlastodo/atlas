@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 import { useTranslation } from "react-i18next";
-import { SMART_VIEWS, type SmartView, type TaskSwipeAction } from "@atlas/shared";
+import { SMART_VIEWS, type SmartView, type TaskSwipeAction } from "@atlastodo/shared";
 import { usePreferences } from "../../hooks/usePreferences";
 import { ListPicker, type PickerOption } from "../../ui/ListPicker";
 import { Section } from "../../ui/Section";

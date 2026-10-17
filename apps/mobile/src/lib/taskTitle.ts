@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 
 /**
  * The title to show for a task. A task this device cannot decrypt has a placeholder "" title, which

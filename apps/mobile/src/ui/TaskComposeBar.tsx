@@ -10,8 +10,8 @@ import {
   makeFormatters,
   makeInstant,
   zonedParts,
-} from "@atlas/shared";
-import type { Priority } from "@atlas/client-core";
+} from "@atlastodo/shared";
+import type { Priority } from "@atlastodo/client-core";
 import type { DateTimePickerEvent } from "./DateTimePicker";
 import type { ComposeDraft, ComposeValue } from "../lib/composeDraft";
 import { ComposeSheet } from "./composeBar/ComposeSheet";

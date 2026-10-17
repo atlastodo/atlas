@@ -1,12 +1,12 @@
 import { IDBFactory } from "fake-indexeddb";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore } from "@atlastodo/client-core";
 import { createPersistence, deleteDatabase } from "./persistence.web";
 
 /**
  * The RN-web durable-persistence seam. Metro resolves `persistence.web.ts` for the browser;
  * jest resolves the base `.ts`, so this names the web file directly to test the browser variant.
  *
- * The durable backend itself ({@link IndexedDbPersistence}) is proven by `@atlas/client-core`'s
+ * The durable backend itself ({@link IndexedDbPersistence}) is proven by `@atlastodo/client-core`'s
  * backend-agnostic conformance battery; this covers the *seam*: it selects IndexedDB when the browser
  * provides it (durable across a reload) and degrades to an in-memory store when it does not.
  */

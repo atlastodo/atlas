@@ -1,6 +1,6 @@
 import { IDBFactory } from "fake-indexeddb";
 import { waitFor } from "@testing-library/react-native";
-import { type Session } from "@atlas/client-core";
+import { type Session } from "@atlastodo/client-core";
 import {
   dropSession,
   readSession,

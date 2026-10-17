@@ -1,10 +1,10 @@
 import { render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { PREFERENCES_ID, createTask } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { PREFERENCES_ID, createTask } from "@atlastodo/shared";
 import { withApp } from "../testutil";
 import { StatsScreen } from "./StatsScreen";
 
-/** The screen surfaces the headline metrics and the breakdowns; the aggregation maths is `@atlas/shared`'s `stats.ts`. */
+/** The screen surfaces the headline metrics and the breakdowns; the aggregation maths is `@atlastodo/shared`'s `stats.ts`. */
 
 const NOW = new Date(2026, 5, 17, 12, 0, 0).getTime();
 const HABIT = "11111111-1111-4111-8111-111111111111";

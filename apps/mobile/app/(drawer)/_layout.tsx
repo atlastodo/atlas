@@ -12,7 +12,7 @@ import {
   projectDescendantIds,
   purge,
   resolveProjectColor,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { DRAWER_EXTRA, FEATURE_VIEWS, NAV, PRIMARY_TABS, viewPath } from "../../src/nav/navModel";
 import type { SmartView } from "../../src/nav/navModel";
 import {

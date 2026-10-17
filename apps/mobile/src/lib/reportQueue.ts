@@ -5,7 +5,7 @@
  */
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { BugReportPayload } from "@atlas/client-core";
+import type { BugReportPayload } from "@atlastodo/client-core";
 
 const KEY = "atlas.reportQueue";
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ActivityIndicator, Modal, Pressable, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { RecoveryPhraseError, apiErrorCode } from "@atlas/client-core";
+import { RecoveryPhraseError, apiErrorCode } from "@atlastodo/client-core";
 import { ThemeScope } from "../theme/ThemeProvider";
 import { CircleAlert, KeyRound } from "../ui/icons";
 import { useAuth } from "./AuthContext";

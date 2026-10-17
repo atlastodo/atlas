@@ -1,6 +1,6 @@
 import { Keyboard } from "react-native";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react-native";
-import { LocalStore, type ApiClient, type BugReportPayload } from "@atlas/client-core";
+import { LocalStore, type ApiClient, type BugReportPayload } from "@atlastodo/client-core";
 import { ReportProblemSheet } from "./ReportProblemSheet";
 import { withApp, fakeAuth } from "../testutil";
 import {

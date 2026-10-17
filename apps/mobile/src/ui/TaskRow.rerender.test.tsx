@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { PREFERENCES_ID, createTask } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { PREFERENCES_ID, createTask } from "@atlastodo/shared";
 import i18n from "../i18n";
 import { withApp } from "../testutil";
 import { useSelection, type SelectionApi } from "../data/SelectionProvider";

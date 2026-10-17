@@ -3,7 +3,7 @@ import {
   PasskeyCancelledError,
   PasskeyPrfUnsupportedError,
   apiErrorCode,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { NoPasskeyError } from "./passkeyJson";
 import { PasskeysUnavailableError } from "./serverCompat";
 

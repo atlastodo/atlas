@@ -1,11 +1,11 @@
 import * as Sharing from "expo-sharing";
 import { Directory, File, FileMode, Paths } from "expo-file-system";
 import type { DocumentPickerAsset } from "expo-document-picker";
-import type { AttachmentSource } from "@atlas/client-core";
+import type { AttachmentSource } from "@atlastodo/client-core";
 
 /**
  * Native file I/O for task attachments (web resolves `attachmentFiles.web.ts`). The pipeline itself
- * is in `@atlas/client-core`; only this glue touches the disk and the OS share sheet.
+ * is in `@atlastodo/client-core`; only this glue touches the disk and the OS share sheet.
  *
  * A picked file is read in ranges while it is encrypted, so it is never whole in memory; a
  * decrypted file is written straight to a cache file for open-in.
