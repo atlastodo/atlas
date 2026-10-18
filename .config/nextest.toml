@@ -36,6 +36,7 @@ package(atlas-server) & (
         | test(=the_object_store_backend_keeps_the_blob_store_guarantees)
         | test(=deleting_a_task_revokes_and_frees_its_attachments)
         | test(=a_forged_reference_grants_neither_access_nor_gc_protection)
+        | test(=a_repeat_upload_restarts_the_grace_clock)
     ))
     | (binary(=sync_share) & (
         test(=a_task_moved_out_stays_gone_once_retention_purged_its_tombstone)
