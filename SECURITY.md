@@ -4,7 +4,7 @@
 
 Please report vulnerabilities privately, not in a public issue or pull request.
 
-[Open a private advisory](https://github.com/atlastodo/atlas-todo/security/advisories/new) through
+[Open a private advisory](https://github.com/atlastodo/atlas/security/advisories/new) through
 GitHub's private vulnerability reporting.
 
 Include a description, the affected version or commit, and steps or a proof of concept. Once a fix
@@ -37,11 +37,16 @@ commit:
 
 ```sh
 gh attestation verify atlas-todo-X.Y.Z.apk --repo atlastodo/atlas-todo
-gh attestation verify oci://ghcr.io/atlastodo/atlas-todo:X.Y.Z --repo atlastodo/atlas-todo
+gh attestation verify oci://ghcr.io/atlastodo/atlas:X.Y.Z --repo atlastodo/atlas
 ```
 
 The attestation is on the GitHub Container Registry image; the Docker Hub mirror is the same
-image but carries none. Each release also lists `SHA256SUMS.txt`, which the desktop app checks before it installs an
+image but carries none. This repository was `atlastodo/atlas-todo` until it was renamed to
+`atlastodo/atlas`, and the app files (APK, AAB, desktop tarball) are moving to a new
+`atlastodo/atlas-todo` app repository, hence the two `--repo` values above. `--repo` names the
+repository that built the file: anything released before the rename verifies with
+`atlastodo/atlas-todo`, and an app file this repository released after it with `atlastodo/atlas`.
+Each release also lists `SHA256SUMS.txt`, which the desktop app checks before it installs an
 update, and the image carries an SBOM. Releases before 0.1.10 have no attestations.
 
 ## Scope

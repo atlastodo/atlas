@@ -3,13 +3,13 @@
   "private": true,
   "version": "0.1.11-rc.5",
   "license": "AGPL-3.0-only",
-  "homepage": "https://github.com/atlastodo/atlas-todo",
+  "homepage": "https://github.com/atlastodo/atlas",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/atlastodo/atlas-todo.git"
+    "url": "git+https://github.com/atlastodo/atlas.git"
   },
   "bugs": {
-    "url": "https://github.com/atlastodo/atlas-todo/issues"
+    "url": "https://github.com/atlastodo/atlas/issues"
   },
   "workspaces": [
     "apps/*",

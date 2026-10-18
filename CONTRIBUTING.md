@@ -11,7 +11,7 @@ receives releases. See [Branches and releases](#branches-and-releases).
 For anything larger than a small fix, open an issue first so we can agree on the approach before
 you write code; a draft pull request early on is welcome too. A feature PR without an agreed
 issue may be closed with a pointer here. Questions and ideas that are not bugs go to
-[Discussions](https://github.com/atlastodo/atlas-todo/discussions). Everyone taking part follows
+[Discussions](https://github.com/atlastodo/atlas/discussions). Everyone taking part follows
 the [Code of Conduct](./CODE_OF_CONDUCT.md).
 
 The project has one maintainer, who decides what is merged. Issues and pull requests are triaged
@@ -33,8 +33,8 @@ so please don't start on them without asking:
 
 ## Good first contributions
 
-- Issues labelled [`good first issue`](https://github.com/atlastodo/atlas-todo/labels/good%20first%20issue)
-  are small and self-contained; [`help wanted`](https://github.com/atlastodo/atlas-todo/labels/help%20wanted)
+- Issues labelled [`good first issue`](https://github.com/atlastodo/atlas/labels/good%20first%20issue)
+  are small and self-contained; [`help wanted`](https://github.com/atlastodo/atlas/labels/help%20wanted)
   ones are bigger.
 - Translations: improving a catalog, or adding a language
   ([Adding or changing UI text](#adding-or-changing-ui-text)), needs no Rust and little setup.
@@ -49,9 +49,9 @@ The environment is defined with [devenv](https://devenv.sh) (Nix). It pins Rust,
 Bun 1.4.2, PostgreSQL, sqlx-cli and the other tools.
 
 ```sh
-git clone https://github.com/<you>/atlas-todo.git
-cd atlas-todo
-git remote add upstream https://github.com/atlastodo/atlas-todo.git
+git clone https://github.com/<you>/atlas.git
+cd atlas
+git remote add upstream https://github.com/atlastodo/atlas.git
 git fetch upstream
 git switch -c my-change upstream/dev   # branch from dev: PRs target it
 cp .env.example .env   # set JWT_SECRET (openssl rand -hex 32)

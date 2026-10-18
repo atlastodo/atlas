@@ -1,10 +1,10 @@
 # Atlas Todo
 
-[![CI](https://github.com/atlastodo/atlas-todo/actions/workflows/ci.yml/badge.svg)](https://github.com/atlastodo/atlas-todo/actions/workflows/ci.yml)
+[![CI](https://github.com/atlastodo/atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/atlastodo/atlas/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/atlastodo/atlas-todo)](https://github.com/atlastodo/atlas-todo/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/atlastodo/atlas)](https://github.com/atlastodo/atlas/releases/latest)
 ![Status: pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange.svg)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/atlastodo/atlas-todo/badge)](https://scorecard.dev/viewer/?uri=github.com/atlastodo/atlas-todo)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/atlastodo/atlas/badge)](https://scorecard.dev/viewer/?uri=github.com/atlastodo/atlas)
 
 Atlas Todo is a self-hostable, end-to-end-encrypted to-do app. Your tasks, notes and attachments
 are encrypted on your device, and the server you run (Rust + PostgreSQL) stores and
@@ -19,7 +19,7 @@ share encrypted projects with other people on your server.
 
 Try it at [app.atlastodo.dev](https://app.atlastodo.dev) (a test server that may be reset), or
 [self-host it](#self-hosting) with Docker. Website: [atlastodo.dev](https://atlastodo.dev). Questions
-and ideas go to [Discussions](https://github.com/atlastodo/atlas-todo/discussions); see
+and ideas go to [Discussions](https://github.com/atlastodo/atlas/discussions); see
 [Getting help](#getting-help).
 
 <p>
@@ -128,11 +128,11 @@ hierarchy, [docs/sync-protocol.md](./docs/sync-protocol.md) the wire format, and
 ## Self-hosting
 
 You need Docker with Compose v2.24 or later. On NixOS, the repository flake has a
-`services.atlas-todo` module instead; see [NixOS](./docs/self-hosting.md#nixos).
+`services.atlas` module instead; see [NixOS](./docs/self-hosting.md#nixos).
 
 ```sh
-git clone https://github.com/atlastodo/atlas-todo.git
-cd atlas-todo
+git clone https://github.com/atlastodo/atlas.git
+cd atlas
 cp .env.example .env
 # Edit .env and set:
 #   POSTGRES_PASSWORD   e.g. the output of: openssl rand -hex 24
@@ -170,7 +170,7 @@ Google Play only opens the app to the public after a closed test, so testers are
    the Google account you use on your phone.
 2. Opt in at [play.google.com/apps/testing/dev.sejder.atlastodo](https://play.google.com/apps/testing/dev.sejder.atlastodo)
    and install Atlas Todo from Google Play.
-3. Report bugs in [Issues](https://github.com/atlastodo/atlas-todo/issues).
+3. Report bugs in [Issues](https://github.com/atlastodo/atlas/issues).
 
 The test builds sign in to the test server at [app.atlastodo.dev](https://app.atlastodo.dev),
 which may be reset; see the [privacy notice](https://atlastodo.dev/privacy.html).
@@ -196,8 +196,8 @@ change the _Server URL_ field on the sign-in screen.
 
 ## Getting help
 
-- Questions, self-hosting help and ideas: [Discussions](https://github.com/atlastodo/atlas-todo/discussions).
-- Bugs and concrete feature requests: [Issues](https://github.com/atlastodo/atlas-todo/issues/new/choose).
+- Questions, self-hosting help and ideas: [Discussions](https://github.com/atlastodo/atlas/discussions).
+- Bugs and concrete feature requests: [Issues](https://github.com/atlastodo/atlas/issues/new/choose).
 - Vulnerabilities: privately, as [SECURITY.md](./SECURITY.md) describes, never in a public issue.
 - Accessibility problems: [ACCESSIBILITY.md](./ACCESSIBILITY.md) has what is known and how to report.
 

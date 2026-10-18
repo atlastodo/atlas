@@ -43,7 +43,7 @@ ARG PUBLIC_API_URL=/api
 ENV EXPO_PUBLIC_API_URL=$PUBLIC_API_URL
 # The About screen's source link: the AGPL offer of the source to every user of the web app. A
 # build of modified code should point it at that code (the release workflow passes its own repo).
-ARG REPO_URL=https://github.com/atlastodo/atlas-todo
+ARG REPO_URL=https://github.com/atlastodo/atlas
 ENV EXPO_PUBLIC_REPO_URL=$REPO_URL
 ENV CI=1 EXPO_NO_TELEMETRY=1
 RUN cd apps/mobile && bunx expo export --platform web && node scripts/postexport-favicon.mjs \

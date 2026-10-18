@@ -13,8 +13,22 @@ This repository is going to become two:
   web app tarball. It consumes the core JS packages as pinned versions, and the core server image
   pulls a pinned build of its web app.
 
-Nothing here has been flipped yet. This page is the inventory of every reference to the repository
-name, what each one becomes, and the runbook for doing the split.
+This page is the inventory of every reference to the repository name, what each one becomes, and
+the runbook for doing the split.
+
+## Progress
+
+| Step                                                  | State                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Decisions 1–3 (Docker Hub name, NixOS names, version) | **Decided**: Docker Hub moves to `atlastodo/atlas` with the old names as aliases; `services.atlas` with `services.atlas-todo` renamed from; core keeps the current version line. See [Decisions](#decisions-for-the-repository-owner).                                                                                                                         |
+| 1. Stable release before the split                    | to do                                                                                                                                                                                                                                                                                                                                                          |
+| 2.1–2.3 Rename, `IMAGE_ALIASES`, GHCR package access  | to do by the owner on GitHub: rename, then set `DOCKERHUB_IMAGE=atlastodo/atlas` and `IMAGE_ALIASES=ghcr.io/atlastodo/atlas-todo docker.io/atlastodo/atlas-todo`                                                                                                                                                                                               |
+| 2.4 Core rows of the inventory                        | **done**: every **core** row, plus the core copy of the **split** rows outside `apps/`. The `services.atlas` NixOS rename landed with it (`nixosModules.atlas`/`server`, the old option and module as deprecated aliases, checked by `server-module-rename-eval`), and `docs/self-hosting.md` has the [Image renamed](./self-hosting.md#image-renamed) notice. |
+| 3. App repository from the filtered history           | to do                                                                                                                                                                                                                                                                                                                                                          |
+| 4. App on pinned core packages                        | to do                                                                                                                                                                                                                                                                                                                                                          |
+| 5. First app release                                  | to do                                                                                                                                                                                                                                                                                                                                                          |
+| 6. Pin the web build in core, remove the app          | to do. Also then: the core half of `apps/mobile/RELEASE.md` → `docs/releasing.md` with core URLs (left alone so far: it lives under `apps/`).                                                                                                                                                                                                                  |
+| 7. Deprecation period                                 | to do: announce the new names in the release notes; unset `IMAGE_ALIASES` after two stable releases; drop the NixOS aliases after that.                                                                                                                                                                                                                        |
 
 ## What is already in place
 
@@ -41,7 +55,10 @@ configs alias their siblings. The app repo drops all four (see step 4 of the run
 ## Reference inventory
 
 Every literal `atlastodo/atlas-todo` outside `RELEASE_NOTES.md` (which is history and stays as
-is) and this page, 104 in 42 files at the time of writing. **core** means the reference moves to
+is) and this page: 104 in 42 files when this was written, 49 in 24 after step 2.4 (the app rows,
+the app parts of the split rows, and the notes that name the old repository on purpose: the
+image alias, pre-rename attestations, the rename notice). The `n` column is the count before
+step 2.4. **core** means the reference moves to
 `atlastodo/atlas` (it lives in, or describes, the core repo); **app** means it stays
 `atlastodo/atlas-todo` (the app repo inherits the name); **split** means the file goes to both
 repos and each copy keeps its own repo name. Re-run
@@ -50,38 +67,38 @@ classified here first.
 
 ### Runtime and build references
 
-| File                                               | n   | Class | Change                                                                                                                                                                               |
-| -------------------------------------------------- | --- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `apps/electron/src/updater.ts`                     | 1   | app   | `DEFAULT_REPO` stays `atlastodo/atlas-todo`: installed desktops query the app repo's `releases/latest`, which must keep the `atlas-desktop-X.Y.Z.tar.gz` asset and `SHA256SUMS.txt`. |
-| `apps/mobile/src/ui/UpdateBanner.test.tsx`         | 1   | app   | none (fixture URL).                                                                                                                                                                  |
-| `apps/mobile/src/ui/DesktopUpdateSection.test.tsx` | 1   | app   | none (fixture URL).                                                                                                                                                                  |
-| `apps/mobile/src/screens/AboutScreen.test.tsx`     | 2   | app   | none (fixture URL). The About screen's own links come from `EXPO_PUBLIC_REPO_URL`, which the workflows derive from `github.repository`.                                              |
-| `apps/electron/package.json`                       | 2   | app   | none.                                                                                                                                                                                |
-| `apps/mobile/package.json`                         | 1   | app   | none.                                                                                                                                                                                |
-| `apps/electron/README.md`                          | 2   | app   | none: the desktop flake input (`git+https://github.com/atlastodo/atlas-todo.git`, `releases/latest/download/atlas-desktop-latest.tar.gz`) keeps working once the app repo releases.  |
-| `nix/packages/atlas-desktop.nix`                   | 1   | app   | moves to the app repo unchanged.                                                                                                                                                     |
-| `nix/packages/web-dist.nix`                        | 1   | app   | moves to the app repo (the source build of the web app); core keeps only `web-dist-pinned.nix`.                                                                                      |
-| `nix/packages/web-dist-pinned.nix`                 | 1   | app   | `homepage` names the app the asset comes from: keep. File stays in core.                                                                                                             |
-| `scripts/web-release-tarball.sh`                   | 1   | app   | moves to the app repo (default `EXPO_PUBLIC_REPO_URL`).                                                                                                                              |
-| `scripts/pin-app-web.mjs`                          | 2   | app   | stays in core; its default `--repo` is the app repo: keep.                                                                                                                           |
-| `docker/Dockerfile`                                | 1   | core  | `ARG REPO_URL` default → `https://github.com/atlastodo/atlas`. After the split the source stage goes (see runbook), and with it `REPO_URL`.                                          |
-| `docker/docker-compose.yml`                        | 1   | core  | `ATLAS_IMAGE` default → `ghcr.io/atlastodo/atlas:latest`.                                                                                                                            |
-| `.env.example`                                     | 1   | core  | the `ATLAS_IMAGE` example → `ghcr.io/atlastodo/atlas:latest`.                                                                                                                        |
-| `nix/server-module.nix`                            | 1   | core  | `documentation` → `https://github.com/atlastodo/atlas`.                                                                                                                              |
-| `nix/packages/atlas-server.nix`                    | 1   | core  | `homepage` → core.                                                                                                                                                                   |
-| `Cargo.toml`                                       | 2   | core  | `repository`, `homepage` → core.                                                                                                                                                     |
-| `packages/client-core/package.json`                | 3   | core  | `homepage`, `repository.url`, `bugs.url` → core. **`repository.url` must match the publishing repo or npm refuses the provenance**: change it before the first core release.         |
-| `packages/shared/package.json`                     | 3   | core  | as above.                                                                                                                                                                            |
-| `packages/sdk/package.json`                        | 3   | core  | as above.                                                                                                                                                                            |
-| `package.json` (root)                              | 3   | split | core copy → core; the app repo's root `package.json` keeps `atlas-todo`.                                                                                                             |
-| `scripts/release-notes.sh`                         | 1   | split | the compare link: each copy names its own repo.                                                                                                                                      |
+| File                                               | n   | Class | Change                                                                                                                                                                                 |
+| -------------------------------------------------- | --- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/electron/src/updater.ts`                     | 1   | app   | `DEFAULT_REPO` stays `atlastodo/atlas-todo`: installed desktops query the app repo's `releases/latest`, which must keep the `atlas-desktop-X.Y.Z.tar.gz` asset and `SHA256SUMS.txt`.   |
+| `apps/mobile/src/ui/UpdateBanner.test.tsx`         | 1   | app   | none (fixture URL).                                                                                                                                                                    |
+| `apps/mobile/src/ui/DesktopUpdateSection.test.tsx` | 1   | app   | none (fixture URL).                                                                                                                                                                    |
+| `apps/mobile/src/screens/AboutScreen.test.tsx`     | 2   | app   | none (fixture URL). The About screen's own links come from `EXPO_PUBLIC_REPO_URL`, which the workflows derive from `github.repository`.                                                |
+| `apps/electron/package.json`                       | 2   | app   | none.                                                                                                                                                                                  |
+| `apps/mobile/package.json`                         | 1   | app   | none.                                                                                                                                                                                  |
+| `apps/electron/README.md`                          | 2   | app   | none: the desktop flake input (`git+https://github.com/atlastodo/atlas-todo.git`, `releases/latest/download/atlas-desktop-latest.tar.gz`) keeps working once the app repo releases.    |
+| `nix/packages/atlas-desktop.nix`                   | 1   | app   | moves to the app repo unchanged.                                                                                                                                                       |
+| `nix/packages/web-dist.nix`                        | 1   | app   | moves to the app repo (the source build of the web app); core keeps only `web-dist-pinned.nix`.                                                                                        |
+| `nix/packages/web-dist-pinned.nix`                 | 1   | app   | `homepage` names the app the asset comes from: keep. File stays in core.                                                                                                               |
+| `scripts/web-release-tarball.sh`                   | 1   | app   | moves to the app repo (default `EXPO_PUBLIC_REPO_URL`).                                                                                                                                |
+| `scripts/pin-app-web.mjs`                          | 2   | app   | stays in core; its default `--repo` is the app repo: keep.                                                                                                                             |
+| `docker/Dockerfile`                                | 1   | core  | **Done.** `ARG REPO_URL` default → `https://github.com/atlastodo/atlas`. After the split the source stage goes (see runbook), and with it `REPO_URL`.                                  |
+| `docker/docker-compose.yml`                        | 1   | core  | **Done.** `ATLAS_IMAGE` default → `ghcr.io/atlastodo/atlas:latest`.                                                                                                                    |
+| `.env.example`                                     | 1   | core  | **Done.** the `ATLAS_IMAGE` example → `ghcr.io/atlastodo/atlas:latest`.                                                                                                                |
+| `nix/server-module.nix`                            | 1   | core  | **Done.** `documentation` → `https://github.com/atlastodo/atlas`.                                                                                                                      |
+| `nix/packages/atlas-server.nix`                    | 1   | core  | **Done.** `homepage` → core.                                                                                                                                                           |
+| `Cargo.toml`                                       | 2   | core  | **Done.** `repository`, `homepage` → core.                                                                                                                                             |
+| `packages/client-core/package.json`                | 3   | core  | **Done.** `homepage`, `repository.url`, `bugs.url` → core. **`repository.url` must match the publishing repo or npm refuses the provenance**: change it before the first core release. |
+| `packages/shared/package.json`                     | 3   | core  | **Done.** as above.                                                                                                                                                                    |
+| `packages/sdk/package.json`                        | 3   | core  | **Done.** as above.                                                                                                                                                                    |
+| `package.json` (root)                              | 3   | split | **Core copy done.** core copy → core; the app repo's root `package.json` keeps `atlas-todo`.                                                                                           |
+| `scripts/release-notes.sh`                         | 1   | split | **Core copy done.** the compare link: each copy names its own repo.                                                                                                                    |
 
 ### Workflows
 
-| File                            | n   | Class | Change                                                                                                                                                                                                                                                   |
-| ------------------------------- | --- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/docker.yml`  | 4   | core  | comments only (the image and attestation examples) → `ghcr.io/atlastodo/atlas`, `--repo atlastodo/atlas`; the alias example keeps `ghcr.io/atlastodo/atlas-todo`. The image name itself is `ghcr.io/${{ github.repository }}` and flips with the rename. |
-| `.github/workflows/release.yml` | 1   | split | the attestation comment: each copy its own repo.                                                                                                                                                                                                         |
+| File                            | n   | Class | Change                                                                                                                                                                                                                                                             |
+| ------------------------------- | --- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `.github/workflows/docker.yml`  | 4   | core  | **Done.** comments only (the image and attestation examples) → `ghcr.io/atlastodo/atlas`, `--repo atlastodo/atlas`; the alias example keeps `ghcr.io/atlastodo/atlas-todo`. The image name itself is `ghcr.io/${{ github.repository }}` and flips with the rename. |
+| `.github/workflows/release.yml` | 1   | split | **Core copy done.** the attestation comment: each copy its own repo.                                                                                                                                                                                               |
 
 The workflows otherwise derive the repository from `github.repository` (GHCR image name, OCI
 `source`/`documentation` labels, `REPO_URL`, `EXPO_PUBLIC_REPO_URL`, `GH_REPO`): those follow the
@@ -89,31 +106,34 @@ rename by themselves and need no edit.
 
 ### Documentation and community files
 
-| File                                       | n   | Class | Change                                                                                                                                                                                                                        |
-| ------------------------------------------ | --- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs/self-hosting.md`                     | 8   | core  | clone URL, image names (`ghcr.io/atlastodo/atlas`, Docker Hub name per the decision below), flake input `github:atlastodo/atlas`, `REPO_URL` default.                                                                         |
-| `docs/integrations.md`                     | 5   | core  | CLI download base and attestation `--repo` → core; the package tarball URLs → core.                                                                                                                                           |
-| `apps/mobile/RELEASE.md`                   | 5   | split | the app repo keeps it (app releases); the core-release parts (image, packages, CLI, `NPM_TOKEN`, `DOCKERHUB_*`, `IMAGE_ALIASES`) move to a new `docs/releasing.md` in core, URLs → core. The package pin example → core URLs. |
-| `SECURITY.md`                              | 3   | split | advisory link per repo; attestation examples: APK → app, image → core.                                                                                                                                                        |
-| `README.md`                                | 9   | split | core gets a server/CLI/packages README; the app keeps the app README (badges, clone, APK link, discussions).                                                                                                                  |
-| `CONTRIBUTING.md`                          | 4   | split | each copy its own repo (discussions, labels, `upstream` remote).                                                                                                                                                              |
-| `ROADMAP.md`                               | 1   | split | discussions link per repo, or keep one roadmap in core and link it from the app.                                                                                                                                              |
-| `CODE_OF_CONDUCT.md`                       | 1   | split | reporting form per repo.                                                                                                                                                                                                      |
-| `ACCESSIBILITY.md`                         | 1   | app   | moves to the app repo (it is about the UI); core links to it.                                                                                                                                                                 |
-| `.github/ISSUE_TEMPLATE/accessibility.yml` | 1   | app   | moves to the app repo.                                                                                                                                                                                                        |
-| `.github/ISSUE_TEMPLATE/bug_report.yml`    | 1   | split | SECURITY link per repo.                                                                                                                                                                                                       |
-| `.github/ISSUE_TEMPLATE/config.yml`        | 2   | split | per repo.                                                                                                                                                                                                                     |
-| `.github/PULL_REQUEST_TEMPLATE.md`         | 1   | split | the app copy keeps the accessibility line; core drops it.                                                                                                                                                                     |
-| `.github/SUPPORT.md`                       | 3   | split | per repo (server questions → core discussions, app ones → app).                                                                                                                                                               |
-| `site/index.html`                          | 5   | app   | the landing page and its "latest release" button stay with the app repo.                                                                                                                                                      |
-| `site/privacy.html`                        | 5   | app   | the Play listing's privacy policy: app. Its "self-hosting" and SECURITY links may point to core.                                                                                                                              |
-| `site/delete-account.html`                 | 3   | app   | the Play listing's account-deletion page: app.                                                                                                                                                                                |
+| File                                       | n   | Class | Change                                                                                                                                                                                                                           |
+| ------------------------------------------ | --- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/self-hosting.md`                     | 8   | core  | **Done**, plus the "Image renamed" notice and the `services.atlas` module. Clone URL, image names (`ghcr.io/atlastodo/atlas`, Docker Hub name per the decision below), flake input `github:atlastodo/atlas`, `REPO_URL` default. |
+| `docs/integrations.md`                     | 5   | core  | **Done.** CLI download base and attestation `--repo` → core; the package tarball URLs → core.                                                                                                                                    |
+| `apps/mobile/RELEASE.md`                   | 5   | split | the app repo keeps it (app releases); the core-release parts (image, packages, CLI, `NPM_TOKEN`, `DOCKERHUB_*`, `IMAGE_ALIASES`) move to a new `docs/releasing.md` in core, URLs → core. The package pin example → core URLs.    |
+| `SECURITY.md`                              | 3   | split | **Core copy done** (with a note on pre-rename attestations). Advisory link per repo; attestation examples: APK → app, image → core.                                                                                              |
+| `README.md`                                | 9   | split | **Core copy links done** (badges, clone, Discussions, Issues → core; the APK link stays app). Remaining: core gets a server/CLI/packages README; the app keeps the app README (badges, clone, APK link, discussions).            |
+| `CONTRIBUTING.md`                          | 4   | split | **Core copy done.** each copy its own repo (discussions, labels, `upstream` remote).                                                                                                                                             |
+| `ROADMAP.md`                               | 1   | split | **Core copy done.** discussions link per repo, or keep one roadmap in core and link it from the app.                                                                                                                             |
+| `CODE_OF_CONDUCT.md`                       | 1   | split | **Core copy done.** reporting form per repo.                                                                                                                                                                                     |
+| `ACCESSIBILITY.md`                         | 1   | app   | moves to the app repo (it is about the UI); core links to it.                                                                                                                                                                    |
+| `.github/ISSUE_TEMPLATE/accessibility.yml` | 1   | app   | moves to the app repo.                                                                                                                                                                                                           |
+| `.github/ISSUE_TEMPLATE/bug_report.yml`    | 1   | split | **Core copy done.** SECURITY link per repo.                                                                                                                                                                                      |
+| `.github/ISSUE_TEMPLATE/config.yml`        | 2   | split | **Core copy done.** per repo.                                                                                                                                                                                                    |
+| `.github/PULL_REQUEST_TEMPLATE.md`         | 1   | split | the app copy keeps the accessibility line; core drops it.                                                                                                                                                                        |
+| `.github/SUPPORT.md`                       | 3   | split | **Core copy done.** per repo (server questions → core discussions, app ones → app).                                                                                                                                              |
+| `site/index.html`                          | 5   | app   | the landing page and its "latest release" button stay with the app repo.                                                                                                                                                         |
+| `site/privacy.html`                        | 5   | app   | the Play listing's privacy policy: app. Its "self-hosting" and SECURITY links may point to core.                                                                                                                                 |
+| `site/delete-account.html`                 | 3   | app   | the Play listing's account-deletion page: app.                                                                                                                                                                                   |
 
-Names that contain `atlas-todo` but are not the repository (the NixOS option
-`services.atlas-todo`, `nixosModules.atlas-todo`, the compose project `atlas-todo`, the systemd unit,
-`/var/lib/atlas-todo`, `/usr/share/doc/atlas-todo/`, the `app://atlas-todo` origin, the
-`atlas-todo-X.Y.Z.apk` asset names) are product names, not repository references. Keep them: renaming
-any of them breaks existing deployments. See the decisions below for the NixOS ones.
+Names that contain `atlas-todo` but are not the repository (the compose project `atlas-todo`, the
+systemd unit and system user the NixOS module creates, `/var/lib/atlas-todo`, the module's default
+`atlas-todo` database, `/usr/share/doc/atlas-todo/`, the `app://atlas-todo` origin, the
+`atlas-todo-X.Y.Z.apk` asset names) are product names, not repository references. Keep them:
+renaming any of them breaks existing deployments. The NixOS option and module names are the
+exception (decision 2): `services.atlas` and `nixosModules.atlas`/`server` are the names now, and
+`services.atlas-todo` (`mkRenamedOptionModule`, a warning) and `nixosModules.atlas-todo` (a
+warning) stay as deprecated aliases, checked by the flake's `server-module-rename-eval`.
 
 ## Where workflows, secrets and variables go
 
@@ -126,9 +146,9 @@ any of them breaks existing deployments. See the decisions below for the NixOS o
 | `dependabot.yml`, `dependabot-bun-nix.yml`, `pr-base.yml`, `scorecard.yml`                                                                                      | yes (Cargo, Bun, Docker, Actions)                                                            | yes (Bun, Actions)                                                                                         |
 | `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` (`release` environment) | remove after the first app release                                                           | **move** (re-create in the app repo's `release` environment)                                               |
 | `ATLAS_APP_ID`, `ATLAS_EAS_PROJECT_ID`, `PLAY_STORE_TRACK`, `PLAY_STORE_PRERELEASE_TRACK`, `EXPO_PUBLIC_API_URL` (variables)                                    | remove                                                                                       | **move**                                                                                                   |
-| `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (secrets), `DOCKERHUB_IMAGE` (variable)                                                                                 | keep                                                                                         | no                                                                                                         |
+| `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (secrets), `DOCKERHUB_IMAGE` (variable)                                                                                 | keep (`DOCKERHUB_IMAGE=atlastodo/atlas`)                                                     | no                                                                                                         |
 | `NPM_TOKEN`                                                                                                                                                     | keep                                                                                         | no (the app publishes nothing to npm)                                                                      |
-| `IMAGE_ALIASES`                                                                                                                                                 | set to `ghcr.io/atlastodo/atlas-todo` for the deprecation period                             | no                                                                                                         |
+| `IMAGE_ALIASES`                                                                                                                                                 | `ghcr.io/atlastodo/atlas-todo docker.io/atlastodo/atlas-todo` for the deprecation period     | no                                                                                                         |
 | Rulesets ("main: PRs only", `v*` tag protection), `release` environment limited to `v*` tags, the `dev` branch                                                  | keep                                                                                         | re-create                                                                                                  |
 | GitHub Pages / `site/` deployment, the EAS project link, the Play Console listing                                                                               | no                                                                                           | yes                                                                                                        |
 
@@ -152,8 +172,8 @@ any of them breaks existing deployments. See the decisions below for the NixOS o
    `atlastodo/atlas-todo` exists again**. Step 3 creates one, so every old URL then resolves to
    the app repo. That is what the desktop updater and the desktop flake input want; it is wrong
    for server users, hence the alias and notices below.
-2. Set the `IMAGE_ALIASES` variable to `ghcr.io/atlastodo/atlas-todo` (add
-   `docker.io/atlastodo/atlas-todo` too if `DOCKERHUB_IMAGE` moves to `atlastodo/atlas`). The next
+2. Set `DOCKERHUB_IMAGE` to `atlastodo/atlas` and the `IMAGE_ALIASES` variable to
+   `ghcr.io/atlastodo/atlas-todo docker.io/atlastodo/atlas-todo` (decision 1). The next
    image push then goes to `ghcr.io/atlastodo/atlas` (a new GHCR package, created private: make it
    public under Package settings) and to the old name.
 3. In the old package's settings (`ghcr.io/atlastodo/atlas-todo` → Manage Actions access), make
@@ -161,7 +181,9 @@ any of them breaks existing deployments. See the decisions below for the NixOS o
    repository by id, so it usually survives the rename; verify before the first push.
 4. Edit the **core** rows of the inventory: the image defaults, `Cargo.toml`, the packages'
    `homepage`/`repository`/`bugs` (required before the next npm publish with provenance), the
-   docs. Commit on `dev`.
+   docs. Commit on `dev`. **Done** (`chore/core-rename`), with the NixOS rename. Merge it right
+   after the rename: its compose default and docs name `ghcr.io/atlastodo/atlas`, which exists
+   from the first image push after 2.1–2.2 (the `dev` image push of the merge itself).
 
 ### 3. Create the app repository from this history
 
@@ -247,18 +269,24 @@ In core, on `dev`:
   repos' release notes and in `docs/self-hosting.md`, then unset it. Pulls of the old name keep
   the last pushed tags forever; only new tags stop.
 - Server Nix users have `github:atlastodo/atlas-todo` as an input, which after step 3 is the app
-  repo: tell them to switch to `github:atlastodo/atlas`. Optionally, the app repo's flake can
-  re-export `nixosModules.server` from a core input for one release with a deprecation warning.
+  repo: tell them to switch to `github:atlastodo/atlas` (`docs/self-hosting.md`, Image renamed,
+  says so) and to `services.atlas`. Optionally, the app repo's flake can re-export
+  `nixosModules.server` from a core input for one release with a deprecation warning. After the
+  deprecation period, drop the `services.atlas-todo` rename and `nixosModules.atlas-todo` (and
+  the `server-module-rename-eval` check) from core.
 
 ## Decisions for the repository owner
 
-1. **Docker Hub name**: keep `DOCKERHUB_IMAGE=atlastodo/atlas-todo` (no change for Docker Hub
-   users) or move to `atlastodo/atlas` with `docker.io/atlastodo/atlas-todo` in `IMAGE_ALIASES`.
-2. **NixOS option names**: keep `services.atlas-todo` / `nixosModules.atlas-todo` (no breakage)
-   or add `services.atlas` with `mkRenamedOptionModule` from the old name.
-3. **Version lines**: whether the app keeps the shared version line (the app's first release
-   must exceed the last monorepo versionCode either way) and whether core keeps lockstep with
-   the app (it no longer needs to; the core packages, server and CLI stay lockstep with each other).
+1. **Docker Hub name** (decided): `DOCKERHUB_IMAGE=atlastodo/atlas`, with
+   `ghcr.io/atlastodo/atlas-todo docker.io/atlastodo/atlas-todo` in `IMAGE_ALIASES`, so the old
+   names keep getting the same tags for the deprecation period.
+2. **NixOS option names** (decided, done): `services.atlas`, exported as `nixosModules.atlas` and
+   `nixosModules.server`; `services.atlas-todo` forwards to it through `mkRenamedOptionModule`
+   (a warning) and `nixosModules.atlas-todo` is a deprecated alias (a warning). The unit, user,
+   data directory and database keep their `atlas-todo` names. The VM test uses the new name.
+3. **Version lines** (decided for core): core keeps the current version line. Still open: whether
+   the app keeps the shared version line (its first release must exceed the last monorepo
+   versionCode either way).
 4. **Old releases**: the existing `v*` releases (with APKs and desktop tarballs) stay with the
    renamed core repo. Decide whether to leave them there, or re-upload the last one to the app
    repo so `releases/latest` there has something on day one.

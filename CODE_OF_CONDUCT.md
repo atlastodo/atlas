@@ -49,7 +49,7 @@ Instances of abusive, harassing, or otherwise unacceptable behavior may be repor
 the maintainer, who reads every report:
 
 - through the repository's
-  [private reporting form](https://github.com/atlastodo/atlas-todo/security/advisories/new) (say
+  [private reporting form](https://github.com/atlastodo/atlas/security/advisories/new) (say
   it is a conduct report; it is not published), or
 - with GitHub's "Report content" option on the comment, issue or discussion, as a report to
   the repository admins. To report the maintainer, choose "Report to GitHub support" there.
