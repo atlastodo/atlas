@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { LocalStore, type Task } from "@atlas/client-core";
+import { LocalStore, type Task } from "@atlastodo/client-core";
 import { parseQuickAdd } from "./quickAddParse";
 import { evaluate, parse } from "./filterQuery";
 import { allTasks, createTask, softDeleteTask, toggleTask, updateTask } from "./taskOps";

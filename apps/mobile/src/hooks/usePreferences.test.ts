@@ -1,6 +1,6 @@
 import { renderHook, act } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { PREFERENCES_ID } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { PREFERENCES_ID } from "@atlastodo/shared";
 import { withApp } from "../testutil";
 import { usePreferences } from "./usePreferences";
 

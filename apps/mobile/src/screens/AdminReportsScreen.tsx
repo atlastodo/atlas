@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { FlatList, Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { BugReportSummary } from "@atlas/client-core";
+import type { BugReportSummary } from "@atlastodo/client-core";
 import { useAdminReports, type ReportFilter } from "../hooks/useAdminReports";
 import { useFormat } from "../hooks/useFormat";
 import { useToast } from "../data/ToastProvider";

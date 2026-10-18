@@ -34,7 +34,7 @@ echo ">> 1. Exporting mobile web bundle..."
 (cd "$ROOT/apps/mobile" && rm -rf .expo dist && bunx expo export --platform web --clear && node scripts/postexport-favicon.mjs)
 
 # 2. Compile Electron TypeScript (from clean, so nothing stale rides into the package)
-echo ">> 2. Compiling @atlas/electron..."
+echo ">> 2. Compiling @atlastodo/electron..."
 (cd "$ROOT/apps/electron" && rm -rf dist && bun run build)
 
 # 3. Assemble distribution directory

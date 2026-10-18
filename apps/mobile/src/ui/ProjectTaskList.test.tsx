@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore, type Section, type Task } from "@atlas/client-core";
-import { allTasks, createTask } from "@atlas/shared";
+import { LocalStore, type Section, type Task } from "@atlastodo/client-core";
+import { allTasks, createTask } from "@atlastodo/shared";
 import { withApp } from "../testutil";
 import { useCursor, type CursorContextValue } from "../data/CursorProvider";
 import { ProjectScreen } from "../screens/ProjectScreen";

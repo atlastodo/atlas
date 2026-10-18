@@ -22,8 +22,8 @@ import {
   openTasks,
   rankBetween,
   type BoardMoveWrite,
-} from "@atlas/shared";
-import type { CreateTaskInput, Label, Section, Task } from "@atlas/client-core";
+} from "@atlastodo/shared";
+import type { CreateTaskInput, Label, Section, Task } from "@atlastodo/client-core";
 import { useSections } from "../hooks/useSections";
 import { useTaskListView } from "../hooks/useTaskListView";
 import { useDragLift, useDragSource, useDropTarget } from "../hooks/useCardDnd";

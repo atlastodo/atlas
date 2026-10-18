@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import type { Task } from "@atlas/client-core";
-import { endOfDay, upcomingTasks } from "@atlas/shared";
+import type { Task } from "@atlastodo/client-core";
+import { endOfDay, upcomingTasks } from "@atlastodo/shared";
 import { useTaskListView } from "../hooks/useTaskListView";
 import { CalendarDays } from "../ui/icons";
 import { QuickAddTaskList } from "./ViewTaskList";

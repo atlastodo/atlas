@@ -1,4 +1,4 @@
-import type { Persistence } from "@atlas/client-core";
+import type { Persistence } from "@atlastodo/client-core";
 
 /** The databases open per user, so deleting one can close them first. */
 const openByUser = new Map<string, Set<Persistence>>();

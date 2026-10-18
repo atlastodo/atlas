@@ -1,11 +1,11 @@
 import { renderHook, act } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore } from "@atlastodo/client-core";
 import { withApp } from "../testutil";
 import { useProjects } from "./useProjects";
 
 /**
  * Over a real `LocalStore`. The rules themselves (the tree, the cycle guard, the ancestor cascade)
- * are `@atlas/shared`'s and tested there; what matters here is the wiring -- that the hook writes
+ * are `@atlastodo/shared`'s and tested there; what matters here is the wiring -- that the hook writes
  * the field names the web also reads, and that folders never leak into the `projects` list every
  * other screen consumes.
  */

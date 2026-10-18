@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { AdminInviteView } from "@atlas/client-core";
+import type { AdminInviteView } from "@atlastodo/client-core";
 import { useAuth } from "../auth/AuthContext";
 import { useAdminResource } from "./useAdminResource";
 

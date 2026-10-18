@@ -3,7 +3,7 @@ import {
   type CreateTaskInput,
   type Priority,
   type Task,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 
 /**
  * Map a store entity (untyped field bag) to a typed {@link Task} with defaults for absent fields;

@@ -27,7 +27,7 @@ import {
   type SmartView,
   type ThemePref,
   type TimeFormatPref,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { useStore } from "../data/StoreProvider";
 import { usePreferences } from "../hooks/usePreferences";
 import { useOnboarding } from "../data/OnboardingContext";

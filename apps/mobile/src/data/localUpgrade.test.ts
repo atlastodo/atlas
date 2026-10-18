@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LocalStore, MemoryPersistence } from "@atlas/client-core";
-import { PREFERENCES_ID } from "@atlas/shared";
+import { LocalStore, MemoryPersistence } from "@atlastodo/client-core";
+import { PREFERENCES_ID } from "@atlastodo/shared";
 import {
   markLocalDataUsed,
   moveLocalDataInto,

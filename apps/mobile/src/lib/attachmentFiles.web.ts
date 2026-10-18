@@ -1,5 +1,5 @@
 import type { DocumentPickerAsset } from "expo-document-picker";
-import { blobSource, bytesSource, type AttachmentSource } from "@atlas/client-core";
+import { blobSource, bytesSource, type AttachmentSource } from "@atlastodo/client-core";
 
 /** Web file I/O for task attachments: a browser download stands in for the share sheet. Native resolves `attachmentFiles.ts`. */
 

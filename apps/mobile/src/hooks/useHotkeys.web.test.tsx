@@ -3,12 +3,12 @@
  */
 import { render } from "@testing-library/react-native";
 import { View } from "react-native";
-import type { HotkeyHandlers } from "@atlas/shared";
+import type { HotkeyHandlers } from "@atlastodo/shared";
 import { useHotkeys } from "./useHotkeys.web";
 
 /**
  * The web keyboard layer. jsdom gives real `window`/`KeyboardEvent`, so this drives the DOM
- * wiring end-to-end (the binding decisions themselves are proven in `@atlas/shared`'s `hotkeys.test`).
+ * wiring end-to-end (the binding decisions themselves are proven in `@atlastodo/shared`'s `hotkeys.test`).
  */
 function Harness({ handlers }: { handlers: HotkeyHandlers }) {
   useHotkeys(handlers);

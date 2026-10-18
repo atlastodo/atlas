@@ -1,4 +1,4 @@
-import type { SyncStatus } from "@atlas/client-core";
+import type { SyncStatus } from "@atlastodo/client-core";
 
 /** How the last sync error is classified, for distinguishing "server down" from "server said no". */
 /** `"storage"`: the server answered, but this device could not save what it received. */

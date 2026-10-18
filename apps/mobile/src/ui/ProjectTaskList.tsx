@@ -3,7 +3,7 @@ import { FlatList, Keyboard, Platform, Pressable, Text, TextInput, View } from "
 import { useTranslation } from "react-i18next";
 import ReorderableList, { type ReorderableListReorderEvent } from "react-native-reorderable-list";
 import { scheduleOnRN } from "react-native-worklets";
-import type { CreateTaskInput, Priority, Section, Task } from "@atlas/client-core";
+import type { CreateTaskInput, Priority, Section, Task } from "@atlastodo/client-core";
 import {
   flattenTree,
   indentTarget,
@@ -16,7 +16,7 @@ import {
   wouldCycle,
   type FlatTaskRow,
   type RankWrite,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { useSelection } from "../data/SelectionProvider";
 import { useSelectionSource } from "../hooks/useSelectionSource";
 import { useOutsidePressExit } from "../hooks/useOutsidePressExit";

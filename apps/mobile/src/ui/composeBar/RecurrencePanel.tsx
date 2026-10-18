@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { parseRule, ruleToString, type Rule } from "@atlas/shared";
+import { parseRule, ruleToString, type Rule } from "@atlastodo/shared";
 import { RecurrenceEditor } from "../RecurrenceEditor";
 import { Calendar, CalendarDays, Check, Repeat, X } from "../icons";
 import { Panel, PanelButton, SheetOption } from "./parts";

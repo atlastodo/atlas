@@ -1,4 +1,4 @@
-import type { Priority, Task } from "@atlas/client-core";
+import type { Priority, Task } from "@atlastodo/client-core";
 import { isOverdue } from "./smartLists";
 import { dayOffset } from "./zonedTime";
 import { zonedParts } from "./zonedTime";

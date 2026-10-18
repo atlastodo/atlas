@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { Priority } from "@atlas/client-core";
+import type { Priority } from "@atlastodo/client-core";
 import { Flagged, Panel, SheetOption } from "./parts";
 
 const PRIORITIES: Priority[] = [1, 2, 3, 4];

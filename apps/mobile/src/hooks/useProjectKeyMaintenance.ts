@@ -20,7 +20,7 @@ import {
   type Keyring,
   type LocalStore,
   type RotationTransport,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { useAuth } from "../auth/AuthContext";
 import { useStore } from "../data/StoreProvider";
 

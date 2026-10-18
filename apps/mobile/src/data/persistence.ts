@@ -4,7 +4,7 @@ import {
   SqlitePersistence,
   type IndexedDbEvents,
   type Persistence,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { closeAll, trackOpen } from "./openDatabases";
 
 /**

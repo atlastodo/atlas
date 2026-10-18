@@ -3,7 +3,7 @@ import {
   type CreateTaskInput,
   type LocalStore,
   type Task,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { taskCreateFields, toTask } from "./taskMapper";
 import { advanceSeries, anchorMonthDay } from "./recurrence";
 import { writeActivity } from "./activity";

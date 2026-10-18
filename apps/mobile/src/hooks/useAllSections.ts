@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import type { Section } from "@atlas/client-core";
-import { isTrashed, toSection } from "@atlas/shared";
+import type { Section } from "@atlastodo/client-core";
+import { isTrashed, toSection } from "@atlastodo/shared";
 import { useStore } from "../data/StoreProvider";
 
 export interface UseAllSections {

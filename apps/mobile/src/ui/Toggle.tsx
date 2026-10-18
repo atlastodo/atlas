@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Platform, Pressable, Text, View, type ViewStyle } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import { ACCENTS } from "@atlas/shared";
+import { ACCENTS } from "@atlastodo/shared";
 import { usePreferences } from "../hooks/usePreferences";
 import { haptics } from "../lib/haptics";
 

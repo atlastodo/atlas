@@ -2,7 +2,7 @@ import {
   assertServerCompatible,
   type ApiClient,
   type ServerRequirements,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 
 /**
  * What this app needs from a server, checked against `GET /discovery` before signing in or up.

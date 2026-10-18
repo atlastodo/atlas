@@ -11,7 +11,7 @@ import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
 import Animated, { runOnJS } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
-import { formatClock } from "@atlas/shared";
+import { formatClock } from "@atlastodo/shared";
 import { BOTTOM_CHROME_GAP, useBottomChrome } from "../data/BottomChromeContext";
 import { useFocus } from "../data/FocusProvider";
 import { useIsWide } from "../hooks/useIsWide";

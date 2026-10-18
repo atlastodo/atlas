@@ -1,6 +1,6 @@
 import { CalendarDays, Flag, Hash, Repeat, Tag } from "./icons";
 import type { LucideIcon } from "./icons";
-import type { ChipKind } from "@atlas/shared";
+import type { ChipKind } from "@atlastodo/shared";
 
 /**
  * The look of a task-detail chip, shared by `QuickAdd`'s preview and `TaskComposeBar`'s chips. Its

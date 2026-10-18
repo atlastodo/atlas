@@ -7,7 +7,7 @@
  *
  * Only the Argon2 build of hash-wasm is imported: its package entry carries every algorithm.
  */
-import { setArgon2idProvider } from "@atlas/client-core";
+import { setArgon2idProvider } from "@atlastodo/client-core";
 import { argon2id } from "hash-wasm/dist/argon2.umd.min.js";
 
 export function registerArgon2id(): void {

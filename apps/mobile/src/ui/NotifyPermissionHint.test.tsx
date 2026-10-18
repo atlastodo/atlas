@@ -1,6 +1,6 @@
 import { Linking } from "react-native";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore } from "@atlastodo/client-core";
 import { withApp } from "../testutil";
 import { OnboardingProvider } from "../data/OnboardingContext";
 import { NotifyPermissionHint } from "./NotifyPermissionHint";

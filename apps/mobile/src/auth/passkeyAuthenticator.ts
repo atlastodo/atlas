@@ -4,7 +4,7 @@ import {
   type PasskeyAssertionResponse,
   type PasskeyAuthenticator,
   type PasskeyRegistrationResponse,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { Passkeys } from "../../modules/atlas-passkeys";
 import { NoPasskeyError, prfOutputOf } from "./passkeyJson";
 

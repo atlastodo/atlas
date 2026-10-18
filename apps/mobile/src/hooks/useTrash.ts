@@ -7,7 +7,7 @@ import {
   type EntityKind,
   type Keyring,
   type LocalStore,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import {
   listTrash,
   purge,
@@ -15,14 +15,14 @@ import {
   restoreFromTrash,
   sweepExpiredTrash,
   type TrashItem,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { useAuth } from "../auth/AuthContext";
 import { useStore } from "../data/StoreProvider";
 import { useFirstSyncDone } from "./useFirstSyncDone";
 
 /**
  * Recently Deleted / Trash. The rules (soft-delete vs tombstone, the 30-day window, the container
- * cascade) live in `@atlas/shared`'s `trash.ts`; this hook is only the React wiring.
+ * cascade) live in `@atlastodo/shared`'s `trash.ts`; this hook is only the React wiring.
  */
 
 export interface UseTrash {

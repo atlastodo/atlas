@@ -1,0 +1,4 @@
+{
+  "//": "Pinned app web builds the server image (docker/Dockerfile via docker.yml) and the flake's web-dist serve instead of building the app here. A pin is { \"version\": \"X.Y.Z\", \"url\": \"https://.../atlas-todo-web-X.Y.Z.tar.gz\", \"sha256\": \"<64 hex>\" }; null builds apps/mobile from source. Set one with scripts/pin-app-web.mjs. See docs/repo-split.md.",
+  "todo": null
+}

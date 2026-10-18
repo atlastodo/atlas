@@ -25,11 +25,11 @@
     url = "https://registry.npmjs.org/@asamuzakjp/css-color/-/css-color-3.2.0.tgz";
     hash = "sha512-K1A6z8tS3XsmCMM86xoWdn7Fkdn9m6RSVtocUrJYIwZnFVkng/PvkEoWtOWmP+Scc6saYWHWZYbndEEXxl24jw==";
   };
-  "@atlas/client-core" = copyPathToStore ../packages/client-core;
-  "@atlas/electron" = copyPathToStore ../apps/electron;
-  "@atlas/mobile" = copyPathToStore ../apps/mobile;
-  "@atlas/sdk" = copyPathToStore ../packages/sdk;
-  "@atlas/shared" = copyPathToStore ../packages/shared;
+  "@atlastodo/client-core" = copyPathToStore ../packages/client-core;
+  "@atlastodo/electron" = copyPathToStore ../apps/electron;
+  "@atlastodo/mobile" = copyPathToStore ../apps/mobile;
+  "@atlastodo/sdk" = copyPathToStore ../packages/sdk;
+  "@atlastodo/shared" = copyPathToStore ../packages/shared;
   "@babel/code-frame@7.29.7" = fetchurl {
     url = "https://registry.npmjs.org/@babel/code-frame/-/code-frame-7.29.7.tgz";
     hash = "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==";

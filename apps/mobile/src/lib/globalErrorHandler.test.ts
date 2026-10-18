@@ -1,4 +1,4 @@
-import type { ApiClient, BugReportPayload } from "@atlas/client-core";
+import type { ApiClient, BugReportPayload } from "@atlastodo/client-core";
 import {
   __resetReporterForTests,
   configureReporter,

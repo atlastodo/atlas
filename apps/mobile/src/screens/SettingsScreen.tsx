@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View, type ScrollViewInstance } from "react-native";
 import { useTranslation } from "react-i18next";
-import { isAdmin } from "@atlas/client-core";
+import { isAdmin } from "@atlastodo/client-core";
 import { useAuth } from "../auth/AuthContext";
 import { useStore } from "../data/StoreProvider";
 import { useIsWide } from "../hooks/useIsWide";

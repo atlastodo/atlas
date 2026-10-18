@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import type { Project, ProjectView } from "@atlas/client-core";
+import type { Project, ProjectView } from "@atlastodo/client-core";
 import {
   DEFAULT_FOLDER_ICON,
   DEFAULT_PROJECT_ICON,
@@ -15,7 +15,7 @@ import {
   toProject,
   toSection,
   toTask,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { useStore } from "../data/StoreProvider";
 
 /**
@@ -25,7 +25,7 @@ import { useStore } from "../data/StoreProvider";
  * `projects` is real projects only; folders come back separately, because only a project gets a
  * board/list. Trashed projects are filtered out, and so is anything behind an archived or trashed
  * folder at any depth; the tasks follow via the read-time cascade in `taskOps`. The tree rules
- * live in `@atlas/shared`'s `projectTree`.
+ * live in `@atlastodo/shared`'s `projectTree`.
  */
 
 export interface UseProjects {

@@ -10,7 +10,7 @@
  */
 import { TurboModuleRegistry } from "react-native";
 import Constants, { ExecutionEnvironment } from "expo-constants";
-import { setPbkdf2Provider } from "@atlas/client-core";
+import { setPbkdf2Provider } from "@atlastodo/client-core";
 
 export function registerNativePbkdf2(): void {
   // Expo Go (or any build without the QuickBase64 TurboModule) cannot load react-native-quick-crypto,

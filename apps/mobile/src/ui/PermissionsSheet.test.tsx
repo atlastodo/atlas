@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { PREFERENCES_ID } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { PREFERENCES_ID } from "@atlastodo/shared";
 import { withApp } from "../testutil";
 import { openPermissionsSheet, PERMISSIONS_SHEET_SEEN_KEY } from "../lib/permissionsSheet";
 import { PermissionsSheetHost } from "./PermissionsSheet";

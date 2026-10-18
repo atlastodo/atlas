@@ -1,4 +1,4 @@
-import type { FetchLike } from "@atlas/client-core";
+import type { FetchLike } from "@atlastodo/client-core";
 
 /**
  * The browser's own fetch already streams a `Blob` request body and a response body, so blob

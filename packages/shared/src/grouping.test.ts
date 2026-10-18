@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { completedBucket, groupTasks, sortTasks, type GroupContext } from "./grouping";
 
 // Fixed reference: 2026-07-15 12:00 UTC (a Wednesday).

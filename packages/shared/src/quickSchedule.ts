@@ -1,4 +1,4 @@
-// Import from the source module, not the barrel: "@atlas/shared" here forms a require cycle (index
+// Import from the source module, not the barrel: "@atlastodo/shared" here forms a require cycle (index
 // -> quickSchedule -> index) that warns and risks uninitialized values.
 import { addDays, endOfDay, zonedParts } from "./zonedTime";
 

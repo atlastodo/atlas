@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { isTrashed, softDelete } from "@atlas/shared";
+import { isTrashed, softDelete } from "@atlastodo/shared";
 import {
   BlobIntegrityError,
   decryptMeta,
@@ -12,7 +12,7 @@ import {
   type Keyring,
   type PersistedAttachmentUpload,
   type Task,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { useAuth } from "../auth/AuthContext";
 import { useStore } from "../data/StoreProvider";
 

@@ -1,31 +1,58 @@
 {
-  "name": "@atlas/sdk",
+  "name": "@atlastodo/sdk",
   "version": "0.1.11-rc.1",
-  "private": true,
+  "description": "Headless Atlas client for integrations: signs in with a personal API token and syncs an account's tasks into memory",
   "license": "AGPL-3.0-only",
+  "homepage": "https://github.com/atlastodo/atlas-todo/tree/main/packages/sdk",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/atlastodo/atlas-todo.git",
     "directory": "packages/sdk"
   },
+  "bugs": {
+    "url": "https://github.com/atlastodo/atlas-todo/issues"
+  },
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./testing": "./src/testing.ts"
+    ".": {
+      "@atlastodo/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "@atlastodo/source": "./src/testing.ts",
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
+    "./test-vectors/*": "./test-vectors/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "test-vectors"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "atlas": {
+    "testVectors": [
+      "parse_due_vectors.json"
+    ]
   },
   "scripts": {
+    "build": "bun ../../scripts/build-core-package.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@atlastodo/client-core": "workspace:*",
+    "@atlastodo/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
-  },
-  "dependencies": {
-    "@atlas/client-core": "workspace:*",
-    "@atlas/shared": "workspace:*"
   }
 }

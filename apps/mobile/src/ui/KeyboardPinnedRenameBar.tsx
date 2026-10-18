@@ -3,8 +3,8 @@ import { Keyboard, Platform, Pressable, StyleSheet, Text, View } from "react-nat
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
-import type { Task } from "@atlas/client-core";
-import { PRIORITY_COLOR } from "@atlas/shared";
+import type { Task } from "@atlastodo/client-core";
+import { PRIORITY_COLOR } from "@atlastodo/shared";
 import { useIsWide } from "../hooks/useIsWide";
 import { Calendar, Check, FileText, Flag, Folder } from "./icons";
 import { useMotion } from "../lib/motion";

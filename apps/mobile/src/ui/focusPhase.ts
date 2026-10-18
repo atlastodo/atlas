@@ -1,4 +1,4 @@
-import type { Phase } from "@atlas/shared";
+import type { Phase } from "@atlastodo/shared";
 import { Coffee, Timer, type LucideIcon } from "./icons";
 
 /** Phase presentation the focus bar and the focus screen must agree on, kept out of both so neither imports the other. */

@@ -1,7 +1,12 @@
 import { useContext, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { batchLinksOf, resolveScope, type EntityKind, type LocalStore } from "@atlas/client-core";
+import {
+  batchLinksOf,
+  resolveScope,
+  type EntityKind,
+  type LocalStore,
+} from "@atlastodo/client-core";
 import { AuthContext } from "../auth/AuthContext";
 import { useStore } from "../data/StoreProvider";
 import { useOnline } from "../hooks/useOnline";

@@ -18,7 +18,7 @@ import {
   type Priority,
   type Project,
   type Task,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import {
   allTasks,
   createTask,
@@ -30,7 +30,7 @@ import {
   toTask,
   toggleTask,
   updateTask,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 
 /**
  * A headless Atlas client for integrations, signed in with a personal API token.
@@ -38,7 +38,7 @@ import {
  * `connect` opens a session with the token, unwraps the account keys the token carries, and pulls
  * the account into memory, decrypting it on this machine: the server only ever sees ciphertext.
  * Reads are then local; every write is pushed before its promise resolves. Task rules (recurring
- * completion, soft deletes, locked tasks) are the app's own, from `@atlas/shared`.
+ * completion, soft deletes, locked tasks) are the app's own, from `@atlastodo/shared`.
  */
 
 export interface ConnectOptions {

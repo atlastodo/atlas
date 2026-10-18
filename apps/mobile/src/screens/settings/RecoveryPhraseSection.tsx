@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { apiErrorCode } from "@atlas/client-core";
+import { apiErrorCode } from "@atlastodo/client-core";
 import { useAuth } from "../../auth/AuthContext";
 import { RecoveryPhraseModal } from "../../auth/RecoveryPhraseModal";
 import { useIsWide } from "../../hooks/useIsWide";

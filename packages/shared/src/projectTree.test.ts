@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Project } from "@atlas/client-core";
+import type { Project } from "@atlastodo/client-core";
 import {
   buildProjectTree,
   flattenProjectTree,

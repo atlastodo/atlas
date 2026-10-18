@@ -300,11 +300,17 @@ under the prefix is the same as the directory layout under `BLOB_DIR`, so for ex
 
 Only for `docker compose up -d --build` or `docker build`:
 
-| Argument         | Default                                   | Notes                                                                                                                                             |
-| ---------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PUBLIC_API_URL` | `/api`                                    | API URL baked into the web app. `/api` means the same origin.                                                                                     |
-| `REPO_URL`       | `https://github.com/atlastodo/atlas-todo` | The source link on the web app's About screen. If you run modified code, point it at that code: the AGPL asks you to offer your users its source. |
-| `BUN_VERSION`    | `1.4.2`                                   | Bun used to build the web app.                                                                                                                    |
+| Argument          | Default                                   | Notes                                                                                                                                             |
+| ----------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PUBLIC_API_URL`  | `/api`                                    | API URL baked into the web app. `/api` means the same origin.                                                                                     |
+| `REPO_URL`        | `https://github.com/atlastodo/atlas-todo` | The source link on the web app's About screen. If you run modified code, point it at that code: the AGPL asks you to offer your users its source. |
+| `BUN_VERSION`     | `1.4.2`                                   | Bun used to build the web app.                                                                                                                    |
+| `TODO_WEB_FROM`   | `source`                                  | `source` builds the web app from `apps/mobile`; `release` uses a released web build instead (the next two), and skips the source build.           |
+| `TODO_WEB_URL`    | none                                      | With `release`: the `atlas-todo-web-X.Y.Z.tar.gz` asset of a release.                                                                             |
+| `TODO_WEB_SHA256` | none                                      | With `release`: that file's SHA-256 (its `.sha256` asset); the build fails on a mismatch. The PUBLIC_API_URL and REPO_URL arguments do not apply. |
+
+Release images pin the web build in `apps.lock.json` when it has a `todo` entry (see
+[repo-split.md](./repo-split.md)); while it is `null` they build it from source.
 
 ## Reverse proxy
 

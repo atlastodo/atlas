@@ -1,4 +1,4 @@
-import { rankBetween, type HabitListRow } from "@atlas/shared";
+import { rankBetween, type HabitListRow } from "@atlastodo/shared";
 
 /**
  * Where a dragged habit landed in the two-level list.

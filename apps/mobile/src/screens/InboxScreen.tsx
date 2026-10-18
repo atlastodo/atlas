@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import type { Task } from "@atlas/client-core";
-import { inboxTasks } from "@atlas/shared";
+import type { Task } from "@atlastodo/client-core";
+import { inboxTasks } from "@atlastodo/shared";
 import { useTaskListView } from "../hooks/useTaskListView";
 import { Inbox } from "../ui/icons";
 import { QuickAddTaskList } from "./ViewTaskList";

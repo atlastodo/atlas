@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore } from "@atlastodo/client-core";
 import { withApp } from "../testutil";
 import { CloseToTrayRow } from "./CloseToTrayRow";
 

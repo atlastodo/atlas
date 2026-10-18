@@ -2,7 +2,7 @@ import {
   decodeBase64Url,
   type PasskeyAssertionResponse,
   type PasskeyRegistrationResponse,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 
 /** The device holds no passkey for this site (or account). */
 export class NoPasskeyError extends Error {

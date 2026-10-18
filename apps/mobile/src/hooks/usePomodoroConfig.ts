@@ -1,5 +1,9 @@
 import { useCallback, useMemo } from "react";
-import { DEFAULT_POMODORO, PREFERENCES_ID as PREF_ID, type PomodoroConfig } from "@atlas/shared";
+import {
+  DEFAULT_POMODORO,
+  PREFERENCES_ID as PREF_ID,
+  type PomodoroConfig,
+} from "@atlastodo/shared";
 import { useStore } from "../data/StoreProvider";
 
 export interface UsePomodoroConfig {

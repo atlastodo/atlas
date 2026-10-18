@@ -1,5 +1,5 @@
-import type { Task } from "@atlas/client-core";
-import type { Reminder } from "@atlas/shared";
+import type { Task } from "@atlastodo/client-core";
+import type { Reminder } from "@atlastodo/shared";
 import {
   REMINDER_COMPLETE_ACTION,
   REMINDER_SNOOZE_ACTION,

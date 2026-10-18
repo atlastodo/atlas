@@ -8,8 +8,8 @@ import {
   type ApiClient,
   type ApiTokenView,
   type CreateApiTokenPayload,
-} from "@atlas/client-core";
-import type { Session } from "@atlas/client-core";
+} from "@atlastodo/client-core";
+import type { Session } from "@atlastodo/client-core";
 import { fakeAuth, lastCopiedText, withApp } from "../../testutil";
 import { ApiTokensSection } from "./ApiTokensSection";
 

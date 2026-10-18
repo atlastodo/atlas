@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { weekdayLabels, type HabitGoalKind } from "@atlas/shared";
+import { weekdayLabels, type HabitGoalKind } from "@atlastodo/shared";
 import { Segmented } from "./Segmented";
 import { Minus, Plus } from "./icons";
 import { haptics } from "../lib/haptics";

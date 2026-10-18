@@ -1,4 +1,9 @@
-import { ApiError, NetworkError, type ApiClient, type BugReportPayload } from "@atlas/client-core";
+import {
+  ApiError,
+  NetworkError,
+  type ApiClient,
+  type BugReportPayload,
+} from "@atlastodo/client-core";
 import {
   __resetReporterForTests,
   captureError,

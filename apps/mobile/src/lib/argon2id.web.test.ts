@@ -5,7 +5,7 @@
  * file directly; importing it registers it, as the app's entry does.
  */
 import { argon2id } from "hash-wasm/dist/argon2.umd.min.js";
-import { bytesToHex, deriveAuthAndMekAsync, kdfFromWire } from "@atlas/client-core";
+import { bytesToHex, deriveAuthAndMekAsync, kdfFromWire } from "@atlastodo/client-core";
 import "./argon2id.web";
 
 interface Vectors {
@@ -29,7 +29,7 @@ interface Vectors {
   }[];
 }
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const vectors = require("../../../../test-vectors/password_kdf_vectors.json") as Vectors;
+const vectors = require("@atlastodo/client-core/test-vectors/password_kdf_vectors.json") as Vectors;
 
 describe("Argon2id on the web", () => {
   it.each(vectors.argon2id.map((v) => [v.name, v] as const))("reproduces %s", async (_, v) => {

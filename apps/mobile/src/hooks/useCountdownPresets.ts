@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { PREFERENCES_ID as PREF_ID, type CountdownPresetId } from "@atlas/shared";
+import { PREFERENCES_ID as PREF_ID, type CountdownPresetId } from "@atlastodo/shared";
 import { useStore } from "../data/StoreProvider";
 
 const PRESETS_FIELD = "default_countdowns";

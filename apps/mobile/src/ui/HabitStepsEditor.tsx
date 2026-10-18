@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { MAX_STEPS } from "@atlas/shared";
+import { MAX_STEPS } from "@atlastodo/shared";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { ChevronDown, ChevronUp, EllipsisVertical, Plus, Trash2 } from "./icons";
 import type { MenuPos } from "../hooks/useContextMenu";

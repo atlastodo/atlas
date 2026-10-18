@@ -1,5 +1,5 @@
 import { useCallback, useContext, useMemo } from "react";
-import { rescopeNeeded, rescopeSection, type Section } from "@atlas/client-core";
+import { rescopeNeeded, rescopeSection, type Section } from "@atlastodo/client-core";
 import {
   isTrashed,
   moveSectionToProject as moveSectionToProjectOp,
@@ -11,7 +11,7 @@ import {
   softDelete,
   toSection,
   toTask,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { useStore } from "../data/StoreProvider";
 import { AuthContext } from "../auth/AuthContext";
 

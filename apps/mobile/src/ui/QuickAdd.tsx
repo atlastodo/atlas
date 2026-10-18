@@ -11,8 +11,8 @@ import {
   type ViewInstance,
 } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { CreateTaskInput } from "@atlas/client-core";
-import { parseQuickAdd } from "@atlas/shared";
+import type { CreateTaskInput } from "@atlastodo/client-core";
+import { parseQuickAdd } from "@atlastodo/shared";
 import { ArrowUp, Check, Hash, Plus, Tag } from "./icons";
 import { chipColors } from "./chips";
 import { TaskComposeBar } from "./TaskComposeBar";
@@ -26,7 +26,7 @@ import { haptics } from "../lib/haptics";
 /**
  * Quick-add with natural-language parsing: type a title carrying dates, `#project`, `@label`,
  * `p1..p4` or a recurrence phrase and a chip row previews what will be set. Parsing is
- * `@atlas/shared`'s `parseQuickAdd`.
+ * `@atlastodo/shared`'s `parseQuickAdd`.
  *
  * A task created here that is all-day gets an implicit 09:00 reminder
  * (`useQuickAddMorningReminder`, gated on the reminders master toggle); no other creation path does.

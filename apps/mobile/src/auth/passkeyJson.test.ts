@@ -1,4 +1,4 @@
-import { bytesToBase64Url, randomBytes } from "@atlas/client-core";
+import { bytesToBase64Url, randomBytes } from "@atlastodo/client-core";
 import { prfOutputOf } from "./passkeyJson";
 
 describe("prfOutputOf", () => {

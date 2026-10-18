@@ -1,5 +1,5 @@
 /**
- * `@atlas/client-core`: shared TypeScript for every Atlas Todo client (HLC, LWW, ops, local store,
+ * `@atlastodo/client-core`: shared TypeScript for every Atlas Todo client (HLC, LWW, ops, local store,
  * sync client). The HLC must stay in parity with `crates/atlas-core`.
  */
 

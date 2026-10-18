@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { FlatList, Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { ApiError } from "@atlas/client-core";
-import { DEFAULT_FOLDER_ICON, resolveProjectColor } from "@atlas/shared";
+import { ApiError } from "@atlastodo/client-core";
+import { DEFAULT_FOLDER_ICON, resolveProjectColor } from "@atlastodo/shared";
 import { useNotifications, type InviteNotification } from "../data/NotificationsProvider";
 import { useToast } from "../data/ToastProvider";
 import { Bell, Check, Lock, X } from "../ui/icons";

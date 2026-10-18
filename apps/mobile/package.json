@@ -1,5 +1,5 @@
 {
-  "name": "@atlas/mobile",
+  "name": "@atlastodo/mobile",
   "version": "0.1.11-rc.1",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -27,8 +27,8 @@
     "clean": "rm -f build-*.apk build-*.aab && rm -rf .expo dist && (rm -rf android/app/build android/build 2>/dev/null || true)"
   },
   "dependencies": {
-    "@atlas/client-core": "workspace:*",
-    "@atlas/shared": "workspace:*",
+    "@atlastodo/client-core": "workspace:*",
+    "@atlastodo/shared": "workspace:*",
     "@expo/metro-runtime": "~58.0.14",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "9.2.1",

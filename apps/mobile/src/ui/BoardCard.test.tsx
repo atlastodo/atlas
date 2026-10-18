@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { BoardCard } from "./BoardCard";
 
 const NOW = Date.parse("2026-09-23T12:00:00Z");

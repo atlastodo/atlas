@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore } from "@atlastodo/client-core";
 import {
   allTasks,
   archivedTasks,

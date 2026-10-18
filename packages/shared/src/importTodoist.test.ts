@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { strToU8, zipSync } from "fflate";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore } from "@atlastodo/client-core";
 import { importBundle } from "./dataTransfer";
 import {
   parseTodoistDate,

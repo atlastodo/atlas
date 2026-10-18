@@ -379,8 +379,8 @@ in
       i=0; while [ "$i" -lt 120 ]; do (exec 3<>"/dev/tcp/localhost/$api_port") 2>/dev/null && { exec 3>&- 2>/dev/null || true; break; }; sleep 1; i=$((i + 1)); done
     fi
 
-    # 4. Build @atlas/electron
-    echo ">> Building @atlas/electron..."
+    # 4. Build @atlastodo/electron
+    echo ">> Building @atlastodo/electron..."
     (cd apps/electron && bun run build)
 
     # 5. Start Metro web dev server in background if not already running on :8081
@@ -403,7 +403,7 @@ in
     set -euo pipefail
     echo ">> Exporting web bundle..."
     (cd apps/mobile && bun run export:web)
-    echo ">> Building @atlas/electron..."
+    echo ">> Building @atlastodo/electron..."
     (cd apps/electron && bun run build)
     echo ">> Starting Atlas Todo desktop..."
     # devenv's LD_LIBRARY_PATH points Electron at libraries built against another glibc.
@@ -427,6 +427,23 @@ in
     set -euo pipefail
     cd "$DEVENV_ROOT"
     nix run --inputs-from . bun2nix -- -c ../ -o nix/bun.nix
+  '';
+
+  # The core packages' npm tarballs (atlastodo-<pkg>-X.Y.Z.tgz) in dist-packages/, as the release
+  # attaches them; `packages:pack <dir>` writes them elsewhere.
+  scripts."packages:pack".exec = ''
+    set -euo pipefail
+    cd "$DEVENV_ROOT"
+    scripts/pack-core-packages.sh "$@"
+  '';
+
+  # The web app as the release's atlas-todo-web-X.Y.Z.tar.gz (+ .sha256) in dist-web/, the asset a
+  # pinned server image or flake downloads (apps.lock.json); `web:release-tarball <dir>` writes it
+  # elsewhere.
+  scripts."web:release-tarball".exec = ''
+    set -euo pipefail
+    cd "$DEVENV_ROOT"
+    scripts/web-release-tarball.sh "$@"
   '';
 
   # Android Emulator workflow scripts

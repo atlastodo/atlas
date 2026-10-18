@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { createTask, endOfDay } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { createTask, endOfDay } from "@atlastodo/shared";
 import { laterToday, withApp } from "../testutil";
 import { TodayScreen } from "./TodayScreen";
 
-// Over a real in-memory `LocalStore`; the overdue/today split is tested in `@atlas/shared`.
+// Over a real in-memory `LocalStore`; the overdue/today split is tested in `@atlastodo/shared`.
 
 const DAY = 86_400_000;
 

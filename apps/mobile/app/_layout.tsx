@@ -58,7 +58,7 @@ import { AuthGate } from "../src/auth/AuthGate";
 import { LOCAL_SCOPE, LocalModeProvider } from "../src/auth/localMode";
 import { RecoveryPhraseModal } from "../src/auth/RecoveryPhraseModal";
 import { withAccent, headerThemeOptions, isDark, sceneBackground } from "../src/theme/navTheme";
-import { DEFAULT_ACCENT } from "@atlas/shared";
+import { DEFAULT_ACCENT } from "@atlastodo/shared";
 import { useI18nLanguage } from "../src/hooks/useI18nLanguage";
 import { useHapticsPref } from "../src/hooks/useHapticsPref";
 import { useTrashSweep } from "../src/hooks/useTrash";

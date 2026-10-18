@@ -1,4 +1,4 @@
-import { resources } from "@atlas/shared";
+import { resources } from "@atlastodo/shared";
 
 // Node's fs/path through jest's `requireActual`: the app's own types carry no Node declarations.
 const { readdirSync, readFileSync } = jest.requireActual<{

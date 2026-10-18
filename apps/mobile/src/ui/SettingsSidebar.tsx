@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { isAdmin } from "@atlas/client-core";
+import { isAdmin } from "@atlastodo/client-core";
 import { useAuth } from "../auth/AuthContext";
 import { useStoreOptional } from "../data/StoreProvider";
 import {

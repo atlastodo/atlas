@@ -18,7 +18,7 @@ import type {
   BugReportDiagnostics,
   BugReportKind,
   BugReportPayload,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 
 // Mirrors the server's caps.
 export const REPORT_LIMITS = {

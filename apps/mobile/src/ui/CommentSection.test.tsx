@@ -1,11 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore, type Task } from "@atlas/client-core";
-import { isTrashed, toComment, writeActivity } from "@atlas/shared";
+import { LocalStore, type Task } from "@atlastodo/client-core";
+import { isTrashed, toComment, writeActivity } from "@atlastodo/shared";
 import { fakeAuth, withApp } from "../testutil";
 import { CommentSection } from "./CommentSection";
 
 /**
- * Over a real in-memory `LocalStore`. The comment/activity mapping is `@atlas/shared`; these assert
+ * Over a real in-memory `LocalStore`. The comment/activity mapping is `@atlastodo/shared`; these assert
  * the section posts and removes `comment` entities and renders a merged, time-ordered feed of
  * comments and activity.
  */

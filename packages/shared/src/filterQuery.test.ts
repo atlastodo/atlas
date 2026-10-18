@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { evaluate, parse, type EvalContext, type FilterNode } from "./filterQuery";
 
 const NOW = new Date(2026, 6, 15, 9).getTime(); // 2026-07-15 09:00 local

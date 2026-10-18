@@ -8,7 +8,7 @@
  * or a newer KDF costs one extra derivation, never a wrong-password failure.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { kdfFromWire, kdfToWire, type PasswordKdf } from "@atlas/client-core";
+import { kdfFromWire, kdfToWire, type PasswordKdf } from "@atlastodo/client-core";
 
 const KEY = "atlas.saltCache.v1";
 

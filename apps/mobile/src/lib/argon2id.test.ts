@@ -1,4 +1,4 @@
-import { bytesToHex, deriveAuthAndMekAsync, kdfFromWire } from "@atlas/client-core";
+import { bytesToHex, deriveAuthAndMekAsync, kdfFromWire } from "@atlastodo/client-core";
 // Registers at import, as the app's entry does (over the double below).
 import "./argon2id";
 
@@ -38,7 +38,7 @@ jest.mock("../../modules/atlas-argon2", () => ({
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const vectors = require("../../../../test-vectors/password_kdf_vectors.json") as {
+const vectors = require("@atlastodo/client-core/test-vectors/password_kdf_vectors.json") as {
   derivations: {
     name: string;
     password: string;

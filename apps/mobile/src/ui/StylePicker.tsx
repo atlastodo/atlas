@@ -1,5 +1,5 @@
 import { Pressable, Text, View } from "react-native";
-import { PROJECT_COLORS, PROJECT_ICON_NAMES } from "@atlas/shared";
+import { PROJECT_COLORS, PROJECT_ICON_NAMES } from "@atlastodo/shared";
 import { PROJECT_ICONS } from "./projectIcons";
 import { Check } from "./icons";
 

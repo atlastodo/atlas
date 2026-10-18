@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react-native";
-import { LocalStore, type AdminUserView, type ApiClient } from "@atlas/client-core";
+import { LocalStore, type AdminUserView, type ApiClient } from "@atlastodo/client-core";
 import { AdminUsersScreen } from "./AdminUsersScreen";
 import { withApp, fakeAuth } from "../testutil";
 

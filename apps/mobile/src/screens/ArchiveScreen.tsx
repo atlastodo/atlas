@@ -1,6 +1,6 @@
 import { ScrollView, Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { useAuth } from "../auth/AuthContext";
 import { useLocalTasks } from "../hooks/useLocalTasks";
 import { useProjects } from "../hooks/useProjects";

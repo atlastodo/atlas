@@ -13,6 +13,8 @@ export default defineConfig(
       "apps/mobile/ios/**",
       "apps/android/**",
       "dist-desktop/**",
+      "dist-packages/**",
+      "dist-web/**",
       "target/**",
       ".claude/**",
       // The jest cache CI keeps inside the checkout.

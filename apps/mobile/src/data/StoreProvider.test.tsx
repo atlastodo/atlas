@@ -7,7 +7,7 @@ import {
   type ApiClient,
   type Keyring,
   type Persistence,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { StoreProvider, useStore } from "./StoreProvider";
 import { migrationKeys } from "./localData";
 import { quarantineKey } from "./quarantineLog";

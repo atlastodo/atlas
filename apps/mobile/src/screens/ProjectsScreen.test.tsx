@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from "react";
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { PREFERENCES_ID, toProject } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { PREFERENCES_ID, toProject } from "@atlastodo/shared";
 import { withApp } from "../testutil";
 import { ProjectsScreen } from "./ProjectsScreen";
 
@@ -16,7 +16,7 @@ function WithHeader({ onCreated }: { onCreated?: (id: string) => void }) {
   );
 }
 
-// Over a real in-memory `LocalStore`; project rules live in `useProjects` + `@atlas/shared`.
+// Over a real in-memory `LocalStore`; project rules live in `useProjects` + `@atlastodo/shared`.
 
 const projects = (s: LocalStore) =>
   s

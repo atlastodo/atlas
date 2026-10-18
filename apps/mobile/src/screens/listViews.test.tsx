@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { PREFERENCES_ID, createTask, toTask } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { PREFERENCES_ID, createTask, toTask } from "@atlastodo/shared";
 import { fakeAuth, laterToday, withApp } from "../testutil";
 import { InboxScreen } from "./InboxScreen";
 import { AllTasksScreen } from "./AllTasksScreen";

@@ -23,7 +23,7 @@ import {
 } from "expo-notifications/build/NotificationsEmitter";
 import { AppState, Platform } from "react-native";
 import i18n from "../i18n";
-import type { ScheduleIO } from "@atlas/shared";
+import type { ScheduleIO } from "@atlastodo/shared";
 import { ExactAlarm } from "../../modules/atlas-exact-alarm";
 import {
   REMINDER_CATEGORY_ID,
@@ -255,7 +255,7 @@ export async function cancelScheduled(id: string): Promise<void> {
   }
 }
 
-/** The id prefix of habit nudges (`habitReminderId` in `@atlas/shared`). */
+/** The id prefix of habit nudges (`habitReminderId` in `@atlastodo/shared`). */
 const HABIT_ID_PREFIX = "habit:";
 
 /** Which of this app's schedulers booked a pending notification, or null for anything else. */
@@ -332,7 +332,7 @@ export async function cancelAllAppNotifications(): Promise<void> {
 }
 
 /**
- * The {@link ScheduleIO} sink for `reconcileNotifications` (`@atlas/shared`). The reconciler is
+ * The {@link ScheduleIO} sink for `reconcileNotifications` (`@atlastodo/shared`). The reconciler is
  * sync and the expo API async, so calls are not awaited; both operations are idempotent.
  */
 export const scheduleIO: ScheduleIO = {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { FlatList, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { AdminUserView } from "@atlas/client-core";
+import type { AdminUserView } from "@atlastodo/client-core";
 import { useAdminUsers } from "../hooks/useAdminUsers";
 import { useAuth } from "../auth/AuthContext";
 import { useFormat } from "../hooks/useFormat";

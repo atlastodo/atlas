@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
 import { act, renderHook } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { TRASH_RETENTION_MS } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { TRASH_RETENTION_MS } from "@atlastodo/shared";
 import { StoreContext } from "../data/StoreProvider";
 import { useTrashSweep } from "./useTrash";
 

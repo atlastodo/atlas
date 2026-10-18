@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import { View } from "react-native";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { LocalStore, type ApiClient } from "@atlas/client-core";
+import { LocalStore, type ApiClient } from "@atlastodo/client-core";
 import { fakeAuth, withApp } from "../testutil";
 import { SettingsSidebar } from "../ui/SettingsSidebar";
 import SettingsRoute from "../../app/(drawer)/settings";

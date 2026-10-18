@@ -33,7 +33,7 @@ import {
   type Operation,
   type Persistence,
   type SyncStatus,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import type { SyncErrorKind } from "../lib/syncStatus";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { CIPHERTEXT_AS_BLOB, createPersistence } from "./persistence";

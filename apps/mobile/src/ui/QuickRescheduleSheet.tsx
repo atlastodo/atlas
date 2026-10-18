@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { quickScheduleOptions, type QuickScheduleOption } from "@atlas/shared";
+import { quickScheduleOptions, type QuickScheduleOption } from "@atlastodo/shared";
 import { BottomSheet } from "./BottomSheet";
 import { haptics } from "../lib/haptics";
 

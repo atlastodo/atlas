@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
-import type { Task } from "@atlas/client-core";
-import { endOfDay, planDayItems, planDayUpcoming, type PlanDayItem } from "@atlas/shared";
+import type { Task } from "@atlastodo/client-core";
+import { endOfDay, planDayItems, planDayUpcoming, type PlanDayItem } from "@atlastodo/shared";
 import { PlanDaySheet } from "./PlanDaySheet";
 
 /**

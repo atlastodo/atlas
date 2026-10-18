@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import { ShortcutsModal } from "./ShortcutsHelp";
 
-/** The modal's ways out; the table is data-driven from `@atlas/shared`'s `HOTKEY_BINDINGS`. */
+/** The modal's ways out; the table is data-driven from `@atlastodo/shared`'s `HOTKEY_BINDINGS`. */
 
 describe("ShortcutsHelp", () => {
   it("renders nothing when closed", async () => {

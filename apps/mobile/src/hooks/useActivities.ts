@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { toActivity, type Activity } from "@atlas/shared";
+import { toActivity, type Activity } from "@atlastodo/shared";
 import { useStore } from "../data/StoreProvider";
 
 /** Read-only view of `activity` entities, written by `useLocalTasks` on key task changes (status/due/assignee). */

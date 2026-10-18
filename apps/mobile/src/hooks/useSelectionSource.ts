@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { useSelection } from "../data/SelectionProvider";
 import { useScreenFocused } from "../data/ScreenFocusContext";
 

@@ -22,7 +22,7 @@ import {
   toastReducer,
   type Toast,
   type ToastAction,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useIsWide } from "../hooks/useIsWide";
 import { X } from "../ui/icons";
@@ -30,7 +30,7 @@ import { useMotion } from "../lib/motion";
 import { useStoreOptional } from "./StoreProvider";
 
 /**
- * In-app toast layer over the pure `toastReducer`/`TOAST_TTL_MS` from `@atlas/shared`. Toasts
+ * In-app toast layer over the pure `toastReducer`/`TOAST_TTL_MS` from `@atlastodo/shared`. Toasts
  * appear bottom-centre, auto-dismiss after {@link TOAST_TTL_MS}, and can carry an Undo action.
  * Mounted around the navigator so any screen can `useToast().show(...)`.
  */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Project, Section, Task } from "@atlas/client-core";
+import type { Project, Section, Task } from "@atlastodo/client-core";
 import { planProjectDuplicate } from "./duplicateProject";
 
 function project(over: Partial<Project> = {}): Project {

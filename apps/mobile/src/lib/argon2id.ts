@@ -7,7 +7,7 @@
  *
  * The web build resolves `argon2id.web.ts` instead.
  */
-import { bytesToHex, hexToBytes, setArgon2idProvider } from "@atlas/client-core";
+import { bytesToHex, hexToBytes, setArgon2idProvider } from "@atlastodo/client-core";
 import { Argon2 } from "../../modules/atlas-argon2";
 
 export function registerArgon2id(): void {

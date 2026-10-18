@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { apiErrorCode } from "@atlas/client-core";
+import { apiErrorCode } from "@atlastodo/client-core";
 import { useAuth } from "../../auth/AuthContext";
 import { useToast } from "../../data/ToastProvider";
 import { useIsWide } from "../../hooks/useIsWide";
@@ -15,7 +15,7 @@ const MIN_PASSWORD_LEN = 8;
 
 /**
  * Change password. For an E2EE account the key material is re-wrapped under the new password in
- * `@atlas/client-core` (`buildE2eePasswordChange`); the server verifies the current credential and
+ * `@atlastodo/client-core` (`buildE2eePasswordChange`); the server verifies the current credential and
  * swaps hash and wrapped keys atomically. Inline validation covers the length floor and confirm match.
  */
 export function SecuritySection() {

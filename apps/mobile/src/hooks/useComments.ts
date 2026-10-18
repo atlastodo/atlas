@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { isTaskLocked, isTrashed, softDelete, toComment, type Comment } from "@atlas/shared";
+import { isTaskLocked, isTrashed, softDelete, toComment, type Comment } from "@atlastodo/shared";
 import { useStore } from "../data/StoreProvider";
 
 /**

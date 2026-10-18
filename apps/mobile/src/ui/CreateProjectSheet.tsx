@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { ProjectView } from "@atlas/client-core";
+import type { ProjectView } from "@atlastodo/client-core";
 import {
   DEFAULT_FOLDER_ICON,
   DEFAULT_PROJECT_ICON,
   defaultColorForIndex,
   flattenProjectTree,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { useProjects } from "../hooks/useProjects";
 import { useCancelOnEscape } from "../hooks/useCancelOnEscape";
 import { haptics } from "../lib/haptics";

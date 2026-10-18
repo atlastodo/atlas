@@ -35,8 +35,8 @@ import {
   weekdayLabels,
   zonedParts,
   type DayCell,
-} from "@atlas/shared";
-import type { Task } from "@atlas/client-core";
+} from "@atlastodo/shared";
+import type { Task } from "@atlastodo/client-core";
 import { useLocalTasks } from "../hooks/useLocalTasks";
 import { usePreferences } from "../hooks/usePreferences";
 import { useFormat } from "../hooks/useFormat";

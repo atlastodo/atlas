@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 
 /**
  * Wrap a task row so it can be dropped onto another row to nest it. A native no-op passthrough:

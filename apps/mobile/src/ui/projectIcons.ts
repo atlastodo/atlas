@@ -1,5 +1,5 @@
 /**
- * Project icons for the phone. Icon names are canonical in `@atlas/shared` (`PROJECT_ICON_NAMES`);
+ * Project icons for the phone. Icon names are canonical in `@atlastodo/shared` (`PROJECT_ICON_NAMES`);
  * this maps each to its lucide-react-native component, deep-imported and run through NativeWind's
  * `cssInterop` like `ui/icons.ts`. Keys match the shared names even where lucide 1.x renamed the
  * icon (`home` is `house`, `book` is `book-open`).
@@ -7,7 +7,7 @@
 
 import { cssInterop } from "nativewind";
 import type { LucideIcon } from "lucide-react-native";
-import { PROJECT_ICON_NAMES } from "@atlas/shared";
+import { PROJECT_ICON_NAMES } from "@atlastodo/shared";
 
 import Hash from "lucide-react-native/icons/hash";
 import ListFilter from "lucide-react-native/icons/list-filter";

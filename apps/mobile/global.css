@@ -2,7 +2,7 @@
  * NativeWind entry stylesheet (referenced by metro.config.js via withNativeWind).
  *
  * Intentionally just the Tailwind layers: the `--accent-*` variables these utilities read are set
- * at runtime by `ThemeProvider` from `@atlas/shared`'s ACCENTS, so the palette is never duplicated
+ * at runtime by `ThemeProvider` from `@atlastodo/shared`'s ACCENTS, so the palette is never duplicated
  * here.
  */
 

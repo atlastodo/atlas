@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { makeFormatters, resolveLocale, type Formatters } from "@atlas/shared";
+import { makeFormatters, resolveLocale, type Formatters } from "@atlastodo/shared";
 import { usePreferences } from "./usePreferences";
 
 /**

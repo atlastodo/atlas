@@ -1,7 +1,7 @@
 import { act, render } from "@testing-library/react-native";
 import { useEffect, useRef } from "react";
 import { Text } from "react-native";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import {
   CursorProvider,
   useCursor,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { quickScheduleOptions } from "./quickSchedule";
-import { endOfDay, addDays, dayOffset } from "@atlas/shared";
+import { endOfDay, addDays, dayOffset } from "@atlastodo/shared";
 
 const TZ = "UTC";
 // 2026-07-07T08:30:00Z; a fixed early-morning instant.

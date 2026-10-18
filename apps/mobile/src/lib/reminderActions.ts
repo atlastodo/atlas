@@ -1,5 +1,5 @@
-import type { Task } from "@atlas/client-core";
-import type { Reminder } from "@atlas/shared";
+import type { Task } from "@atlastodo/client-core";
+import type { Reminder } from "@atlastodo/shared";
 
 /**
  * Interactive reminder notifications, shared by `lib/notify.ts` and `lib/notify.web.ts`. On native a

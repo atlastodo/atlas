@@ -16,7 +16,7 @@ import {
   type ApiClient,
   type MissingProjectKey,
   type SealedKey,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { fakeAuth, withApp } from "../testutil";
 import {
   memberKeyChanges,

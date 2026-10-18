@@ -3,8 +3,8 @@
  * calls); the plain `scheduleIO` sink is where the habit nudges land.
  */
 import { act, renderHook, waitFor } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { PREFERENCES_ID } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { PREFERENCES_ID } from "@atlastodo/shared";
 import i18n from "../i18n";
 import { withApp } from "../testutil";
 import { useHabitReminderScheduler } from "./useHabitReminderScheduler";

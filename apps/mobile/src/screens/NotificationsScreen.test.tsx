@@ -11,7 +11,7 @@ import {
   type ApiClient,
   type InviteView,
   type ProjectKeysResponse,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { fakeAuth, withApp } from "../testutil";
 import { NotificationsProvider, useInviteToasts } from "../data/NotificationsProvider";
 import { NotificationsScreen } from "./NotificationsScreen";

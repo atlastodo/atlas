@@ -6,7 +6,7 @@ import {
   LEGACY_DISCOVERY,
   RecoveryPhraseError,
   ServerIncompatibleError,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { fakeAuth } from "../testutil";
 import { AuthContext, type AuthContextValue } from "./AuthContext";
 import { LoginScreen } from "./LoginScreen";

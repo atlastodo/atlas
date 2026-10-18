@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { AdminAuditEntry } from "@atlas/client-core";
+import type { AdminAuditEntry } from "@atlastodo/client-core";
 import { useAuth } from "../auth/AuthContext";
 import { useAdminResource } from "./useAdminResource";
 

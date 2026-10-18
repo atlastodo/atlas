@@ -8,7 +8,7 @@ import {
   generateUserKeypair,
   type ApiClient,
   type SyncStatus,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import { AuthContext } from "../auth/AuthContext";
 import type { Session } from "../auth/session";
 import { StoreContext, type StoreContextValue } from "../data/StoreProvider";

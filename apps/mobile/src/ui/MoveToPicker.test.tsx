@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import type { Project, Section } from "@atlas/client-core";
+import type { Project, Section } from "@atlastodo/client-core";
 import { MoveToPicker } from "./MoveToPicker";
 
 describe("MoveToPicker", () => {

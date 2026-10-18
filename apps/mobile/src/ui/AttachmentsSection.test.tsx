@@ -17,7 +17,7 @@ import {
   type AttachmentCiphertext,
   type BlobTransport,
   type Task,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 import * as DocumentPicker from "expo-document-picker";
 import { fakeAuth, withApp } from "../testutil";
 import { AttachmentsSection } from "./AttachmentsSection";

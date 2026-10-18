@@ -1,4 +1,4 @@
-import type { EntityKind, Project, Section, Task } from "@atlas/client-core";
+import type { EntityKind, Project, Section, Task } from "@atlastodo/client-core";
 
 export interface EntityWrite {
   kind: EntityKind;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import {
   adoptBooked,
   futureReminders,

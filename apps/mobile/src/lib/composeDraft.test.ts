@@ -1,4 +1,4 @@
-import { parseQuickAdd, type QuickAddResult } from "@atlas/shared";
+import { parseQuickAdd, type QuickAddResult } from "@atlastodo/shared";
 import { composeInput, composeValue, mergeDraft, type ComposeDraft } from "./composeDraft";
 
 /**

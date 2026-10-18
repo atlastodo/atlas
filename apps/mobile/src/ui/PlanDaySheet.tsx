@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import {
   dayOffset,
   endOfDay,
@@ -10,7 +10,7 @@ import {
   type PlanDayDecision,
   type PlanDayItem,
   type PlanDayWrite,
-} from "@atlas/shared";
+} from "@atlastodo/shared";
 import { BottomSheet } from "./BottomSheet";
 import { SheetScrollView } from "./SheetScroll";
 import { EmptyState } from "./EmptyState";

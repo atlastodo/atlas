@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { LocalStore } from "@atlas/client-core";
-import { PREFERENCES_ID } from "@atlas/shared";
+import { LocalStore } from "@atlastodo/client-core";
+import { PREFERENCES_ID } from "@atlastodo/shared";
 import { fakeAuth, withApp, lastCopiedText } from "../testutil";
 import appConfig from "../../app.json";
 import { AboutScreen, noticesUrl } from "./AboutScreen";
