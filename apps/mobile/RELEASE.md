@@ -194,8 +194,10 @@ The workflow then runs these jobs:
   `@atlastodo/shared` and `@atlastodo/sdk` (Bun-bundled ESM in `dist/`, tsc declarations, the
   test vectors they ship) and packs them with `bun pm pack` as `atlastodo-client-core-X.Y.Z.tgz`,
   `atlastodo-shared-X.Y.Z.tgz` and `atlastodo-sdk-X.Y.Z.tgz`. Never `npm pack`: only Bun rewrites
-  the `workspace:*` dependencies between them to the release version. When the `NPM_TOKEN` secret
-  is set, the same tarballs are published to npm (public, in dependency order), a pre-release
+  the `workspace:*` dependencies between them to the release version. After the GitHub Release, the `npm publish` job
+  publishes the same tarballs to npm (with trusted publishing when the `NPM_TRUSTED_PUBLISHING`
+  variable is `true`, else with the `NPM_TOKEN` secret; neither skips it, and a refused publish
+  never holds back the release: re-run that job once fixed) (public, in dependency order), a pre-release
   under the `next` dist-tag (never `latest`); a version already on npm is skipped. Provenance is
   attached from a public repository only (npm refuses it from a private one) and needs each
   package's `repository.url` to name the repository the release runs in. Without npm, pin them by URL
@@ -234,16 +236,16 @@ Android jobs run in it. Repository secrets of the same name work too, but any wo
 those. The `DOCKERHUB_*` secrets stay repository secrets, since the `dev` image pushes use them.
 A ruleset keeps `v*` tags from being moved or deleted.
 
-| Secret                             | Required | What it is                                                                                |
-| ---------------------------------- | -------- | ----------------------------------------------------------------------------------------- |
-| `ANDROID_KEYSTORE_BASE64`          | yes      | the upload keystore (JKS or PKCS12), base64: `base64 -w0 upload.jks`                      |
-| `ANDROID_KEYSTORE_PASSWORD`        | yes      | the keystore password                                                                     |
-| `ANDROID_KEY_ALIAS`                | yes      | the key alias                                                                             |
-| `ANDROID_KEY_PASSWORD`             | yes      | the key password                                                                          |
-| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | no       | a Play service-account JSON key; when unset, the Play upload is skipped                   |
-| `DOCKERHUB_USERNAME`               | no       | the Docker Hub user for the mirror (see `DOCKERHUB_IMAGE`)                                |
-| `DOCKERHUB_TOKEN`                  | no       | a Docker Hub access token with Read & Write scope                                         |
-| `NPM_TOKEN`                        | no       | an npm automation (or granular publish) token for the `@atlastodo` scope; unset skips npm |
+| Secret                             | Required | What it is                                                                                                                |
+| ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `ANDROID_KEYSTORE_BASE64`          | yes      | the upload keystore (JKS or PKCS12), base64: `base64 -w0 upload.jks`                                                      |
+| `ANDROID_KEYSTORE_PASSWORD`        | yes      | the keystore password                                                                                                     |
+| `ANDROID_KEY_ALIAS`                | yes      | the key alias                                                                                                             |
+| `ANDROID_KEY_PASSWORD`             | yes      | the key password                                                                                                          |
+| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | no       | a Play service-account JSON key; when unset, the Play upload is skipped                                                   |
+| `DOCKERHUB_USERNAME`               | no       | the Docker Hub user for the mirror (see `DOCKERHUB_IMAGE`)                                                                |
+| `DOCKERHUB_TOKEN`                  | no       | a Docker Hub access token with Read & Write scope                                                                         |
+| `NPM_TOKEN`                        | no       | a granular npm publish token for the `@atlastodo` scope that bypasses 2FA; unused when `NPM_TRUSTED_PUBLISHING` is `true` |
 
 `GITHUB_TOKEN` is provided automatically and is used for GHCR and the release.
 
@@ -251,15 +253,16 @@ A ruleset keeps `v*` tags from being moved or deleted.
 
 All are optional. An unset or empty variable means the default.
 
-| Variable                      | Default                  | What it does                                                                       |
-| ----------------------------- | ------------------------ | ---------------------------------------------------------------------------------- |
-| `ATLAS_APP_ID`                | `dev.sejder.atlastodo`   | Android package and iOS bundle id                                                  |
-| `ATLAS_EAS_PROJECT_ID`        | the maintainer's project | EAS project id; the update URL follows it. `none` turns over-the-air updates off   |
-| `PLAY_STORE_TRACK`            | `internal`               | the Play track a stable release's AAB goes to, besides internal (always)           |
-| `PLAY_STORE_PRERELEASE_TRACK` | `internal`               | the Play track a pre-release's (`-rc.N` tag) AAB goes to                           |
-| `EXPO_PUBLIC_API_URL`         | unset                    | a server URL baked into the desktop tarball; unset means users pick one at sign-in |
-| `DOCKERHUB_IMAGE`             | unset                    | also push the server image to Docker Hub as this name, e.g. `atlastodo/atlas-todo` |
-| `IMAGE_ALIASES`               | unset                    | more names for the server image (`ghcr.io/…` or `docker.io/…`, space-separated)    |
+| Variable                      | Default                  | What it does                                                                                |
+| ----------------------------- | ------------------------ | ------------------------------------------------------------------------------------------- |
+| `ATLAS_APP_ID`                | `dev.sejder.atlastodo`   | Android package and iOS bundle id                                                           |
+| `ATLAS_EAS_PROJECT_ID`        | the maintainer's project | EAS project id; the update URL follows it. `none` turns over-the-air updates off            |
+| `PLAY_STORE_TRACK`            | `internal`               | the Play track a stable release's AAB goes to, besides internal (always)                    |
+| `PLAY_STORE_PRERELEASE_TRACK` | `internal`               | the Play track a pre-release's (`-rc.N` tag) AAB goes to                                    |
+| `EXPO_PUBLIC_API_URL`         | unset                    | a server URL baked into the desktop tarball; unset means users pick one at sign-in          |
+| `DOCKERHUB_IMAGE`             | unset                    | also push the server image to Docker Hub as this name, e.g. `atlastodo/atlas-todo`          |
+| `IMAGE_ALIASES`               | unset                    | more names for the server image (`ghcr.io/…` or `docker.io/…`, space-separated)             |
+| `NPM_TRUSTED_PUBLISHING`      | unset                    | `true`: publish the core packages with npm trusted publishing (OIDC) instead of `NPM_TOKEN` |
 
 ### Pinning the core packages by release URL
 

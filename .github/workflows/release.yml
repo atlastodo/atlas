@@ -351,15 +351,13 @@ jobs:
 
   # The core JS packages (@atlastodo/client-core, @atlastodo/shared, @atlastodo/sdk) as npm
   # tarballs, atlastodo-<pkg>-X.Y.Z.tgz, attached to the release so another repository can pin
-  # them by URL; also published to npm when the NPM_TOKEN secret is set.
+  # them by URL; the npm job publishes these same files after the GitHub Release.
   packages:
     name: Core packages
     needs: [ci, prepare]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      # npm provenance for the published packages.
-      id-token: write
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
@@ -383,45 +381,6 @@ jobs:
       # Built and packed in dependency order; bun rewrites the workspace:* dependencies to $VERSION.
       - name: Pack
         run: scripts/pack-core-packages.sh dist
-      # Only when the NPM_TOKEN secret is set; a pre-release goes to the "next" dist-tag, never
-      # "latest". Each tarball is published as packed above, so npm and the release carry one file.
-      - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
-          PRIVATE_REPO: ${{ github.event.repository.private }}
-          REPOSITORY: ${{ github.repository }}
-        # client-core first: shared and sdk depend on it (and sdk on shared) at exactly $VERSION.
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "NPM_TOKEN is not set: skipping the npm publish."
-            exit 0
-          fi
-          tag=latest
-          if [ "$PRERELEASE" = true ]; then tag=next; fi
-          # npm signs provenance only for a public repository, and checks that the package's
-          # repository.url names the repository the workflow runs in.
-          flags=(--access public --tag "$tag")
-          if [ "$PRIVATE_REPO" = true ]; then
-            echo "::warning::A private repository gets no npm provenance; publishing without it."
-          else
-            flags+=(--provenance)
-          fi
-          for pkg in client-core shared sdk; do
-            file="dist/atlastodo-$pkg-$VERSION.tgz"
-            repo="$(tar -xzOf "$file" package/package.json | jq -r '.repository.url')"
-            if [ "$PRIVATE_REPO" != true ] && [[ "$repo" != "git+https://github.com/$REPOSITORY.git" ]]; then
-              echo "::error::$file has repository.url $repo, not git+https://github.com/$REPOSITORY.git: npm would refuse its provenance."
-              exit 1
-            fi
-            if npm view "@atlastodo/$pkg@$VERSION" version >/dev/null 2>&1; then
-              echo "@atlastodo/$pkg@$VERSION is already published."
-              continue
-            fi
-            # "./": npm reads a bare dist/x.tgz as a GitHub owner/repo shorthand.
-            npm publish "./$file" "${flags[@]}"
-            echo "Published @atlastodo/$pkg@$VERSION (dist-tag $tag)" >> "$GITHUB_STEP_SUMMARY"
-          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages
@@ -519,3 +478,67 @@ jobs:
             gh release create "$tag" --verify-tag --title "Atlas Todo $tag" \
               --notes-file ../release-notes.md "${flags[@]}" -- *
           fi
+
+  # The core packages to npm, from the tarballs the release carries. After the GitHub Release, so a
+  # refused publish (an expired token, a missing one-time password) never holds the release back;
+  # re-run this job alone once fixed. Authenticates with trusted publishing (OIDC, no token) when
+  # the NPM_TRUSTED_PUBLISHING variable is "true" (configured per package on npmjs.com for this
+  # repository and release.yml), else with the NPM_TOKEN secret; neither set skips it.
+  npm:
+    name: npm publish
+    needs: [prepare, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # Trusted publishing and npm provenance.
+      id-token: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages
+          path: dist
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ vars.NPM_TRUSTED_PUBLISHING != 'true' && secrets.NPM_TOKEN || '' }}
+          TRUSTED: ${{ vars.NPM_TRUSTED_PUBLISHING == 'true' }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          PRIVATE_REPO: ${{ github.event.repository.private }}
+          REPOSITORY: ${{ github.repository }}
+        # client-core first: shared and sdk depend on it (and sdk on shared) at exactly $VERSION.
+        run: |
+          if [ "$TRUSTED" != true ] && [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "Neither NPM_TRUSTED_PUBLISHING nor NPM_TOKEN is set: skipping the npm publish."
+            exit 0
+          fi
+          tag=latest
+          if [ "$PRERELEASE" = true ]; then tag=next; fi
+          # npm signs provenance only for a public repository, and checks that the package's
+          # repository.url names the repository the workflow runs in.
+          flags=(--access public --tag "$tag")
+          if [ "$PRIVATE_REPO" = true ]; then
+            echo "::warning::A private repository gets no npm provenance; publishing without it."
+          else
+            flags+=(--provenance)
+          fi
+          for pkg in client-core shared sdk; do
+            file="dist/atlastodo-$pkg-$VERSION.tgz"
+            repo="$(tar -xzOf "$file" package/package.json | jq -r '.repository.url')"
+            if [ "$PRIVATE_REPO" != true ] && [[ "$repo" != "git+https://github.com/$REPOSITORY.git" ]]; then
+              echo "::error::$file has repository.url $repo, not git+https://github.com/$REPOSITORY.git: npm would refuse its provenance."
+              exit 1
+            fi
+            if npm view "@atlastodo/$pkg@$VERSION" version >/dev/null 2>&1; then
+              echo "@atlastodo/$pkg@$VERSION is already published."
+              continue
+            fi
+            # "./": npm reads a bare dist/x.tgz as a GitHub owner/repo shorthand.
+            npm publish "./$file" "${flags[@]}"
+            echo "Published @atlastodo/$pkg@$VERSION (dist-tag $tag)" >> "$GITHUB_STEP_SUMMARY"
+          done
