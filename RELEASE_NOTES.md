@@ -1,4 +1,4 @@
-## v0.1.11-rc.3
+## v0.1.11-rc.4
 
 ### Features
 - Core package and web app tarballs, pinnable web build
@@ -48,4 +48,4 @@
 - API tokens, the atlas CLI and n8n recipes
 
 ### Maintenance
-- 4 dependency updates, 15 maintenance commits (CI, build, tests) ([full list](https://github.com/atlastodo/atlas-todo/compare/v0.1.11-rc.1...v0.1.11-rc.3))
+- 4 dependency updates, 17 maintenance commits (CI, build, tests) ([full list](https://github.com/atlastodo/atlas-todo/compare/v0.1.11-rc.1...v0.1.11-rc.4))
