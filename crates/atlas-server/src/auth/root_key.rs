@@ -497,8 +497,10 @@ mod tests {
             wrapped_private_key: None,
         };
         assert!(validate_app_keys(&[key("todo")]).is_ok());
-        assert!(validate_app_keys(&[key("todo"), key("notes")]).is_ok());
-        assert!(validate_app_keys(&[key("notes")]).is_err());
+        assert!(validate_app_keys(&[key("todo"), key("journal")]).is_ok());
+        // Only apps this build bundles.
+        assert!(validate_app_keys(&[key("todo"), key("notes")]).is_err());
+        assert!(validate_app_keys(&[key("journal")]).is_err());
         assert!(validate_app_keys(&[key("todo"), key("todo")]).is_err());
         assert!(validate_app_keys(&[]).is_err());
     }
