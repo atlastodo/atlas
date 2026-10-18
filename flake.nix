@@ -1,5 +1,5 @@
 {
-  description = "Atlas Todo: local-first todo & tasks — server and desktop NixOS & Home Manager modules";
+  description = "Atlas: the local-first sync server (NixOS module) and, until the app moves out, the Atlas Todo desktop (NixOS & Home Manager modules)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -59,11 +59,13 @@
 
       pkgsFor = system: nixpkgs.legacyPackages.${system}.extend overlay;
 
-      # Wraps a module file so its `package` defaults to this flake's build.
+      # Wraps a module file so its `package` defaults to this flake's build. The key lets the
+      # module system import it once when it is reached twice (e.g. `default` plus `server`).
       withPackage =
         file: optionPath: name:
         { lib, pkgs, ... }:
         {
+          key = "atlas-flake:${lib.concatStringsSep "." optionPath}";
           imports = [ file ];
           config = lib.setAttrByPath (optionPath ++ [ "package" ]) (
             lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.${name}
@@ -87,9 +89,17 @@
       );
 
       nixosModules = rec {
-        # services.atlas-todo
-        server = withPackage ./nix/server-module.nix [ "services" "atlas-todo" ] "atlas-server";
-        atlas-todo = server;
+        # services.atlas (formerly services.atlas-todo, still accepted with a warning)
+        server = withPackage ./nix/server-module.nix [ "services" "atlas" ] "atlas-server";
+        atlas = server;
+        # Deprecated alias from before the repository was renamed to atlastodo/atlas.
+        atlas-todo = {
+          key = "atlas-flake:nixosModules.atlas-todo";
+          imports = [ server ];
+          config.warnings = [
+            "The atlas flake's nixosModules.atlas-todo is deprecated: import nixosModules.atlas (or nixosModules.server) instead."
+          ];
+        };
 
         # programs.atlas-desktop
         desktop = withPackage ./nix/desktop-nixos-module.nix [
@@ -130,6 +140,35 @@
               webDist = self.packages.${system}.web-dist;
             }
           );
+
+          # The pre-rename names (nixosModules.atlas-todo, services.atlas-todo) still evaluate,
+          # forward to services.atlas and warn; importing it next to `default` (which also
+          # holds the server module) evaluates too.
+          server-module-rename-eval =
+            let
+              eval = lib.nixosSystem {
+                modules = [
+                  self.nixosModules.atlas-todo
+                  self.nixosModules.default
+                  {
+                    nixpkgs.hostPlatform = system;
+                    boot.isContainer = true;
+                    system.stateVersion = "25.11";
+                    services.atlas-todo.enable = true;
+                  }
+                ];
+              };
+              inherit (eval) config;
+              warned = needle: lib.any (lib.hasInfix needle) config.warnings;
+            in
+            assert config.services.atlas.enable;
+            assert config.systemd.services ? atlas-todo;
+            assert warned "services.atlas-todo";
+            assert warned "nixosModules.atlas-todo";
+            pkgs.runCommand "server-module-rename-eval" { } ''
+              echo "services.atlas-todo -> services.atlas: ${config.services.atlas.package}"
+              touch "$out"
+            '';
 
           home-manager-module-eval =
             let

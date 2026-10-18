@@ -73,7 +73,7 @@
 
           # The exported web SPA on its own, without Electron around it. For
           # pointing a self-hosted atlas-server's STATIC_DIR at (the server
-          # flake's services.atlas-todo.staticDir option) — e.g. behind a
+          # flake's services.atlas.staticDir option) — e.g. behind a
           # reverse proxy that fronts the API on the same origin. The release
           # web export bakes no API URL in: each browser types the API URL once
           # on the sign-in screen.

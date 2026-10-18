@@ -1,4 +1,4 @@
-# NixOS VM test for services.atlas-todo: a fresh host with the local Postgres,
+# NixOS VM test for services.atlas: a fresh host with the local Postgres,
 # the auto-generated JWT secret and the web export served from staticDir.
 { module, webDist }:
 {
@@ -6,7 +6,7 @@
 
   nodes.machine = {
     imports = [ module ];
-    services.atlas-todo = {
+    services.atlas = {
       enable = true;
       staticDir = webDist;
       adminEmails = [ "admin@example.com" ];

@@ -1,5 +1,5 @@
 # The exported web SPA (React Native Web via `expo export`), built from source.
-# This is what services.atlas-todo.staticDir points at, and what atlas-desktop
+# This is what services.atlas.staticDir points at, and what atlas-desktop
 # wraps in Electron.
 {
   lib,
