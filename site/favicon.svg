@@ -1,8 +1,0 @@
-<svg width="512" height="512" viewBox="48 48 416 416" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Atlas Todo">
-  <circle cx="256" cy="256" r="202" fill="#4f46e5"/>
-  <g stroke="#ffffff" fill="none" stroke-linecap="round">
-    <circle cx="256" cy="256" r="168" stroke-width="40"/>
-    <ellipse cx="256" cy="256" rx="78" ry="168" stroke-width="36"/>
-    <line x1="96" y1="256" x2="416" y2="256" stroke-width="36"/>
-  </g>
-</svg>
