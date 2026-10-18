@@ -139,7 +139,11 @@ identity, wraps them under the root ([Account root key](#account-root-key)), sto
 a device that loses a race gets 409 `key_already_stored`, loads the stored row from
 `GET /auth/root-key` and opens it, so both devices end with one key. It needs the unlocked root:
 an account from before root keys migrates at its next password sign-in or unlock (`ensureRootKey`)
-and can enable apps after that. Both routes are interactive only.
+and can enable apps after that. Both routes are interactive only, and both take only an app this
+build bundles and the instance offers: `PUT /auth/app-keys/:app` answers 400 for an unbundled id
+and 403 `app_not_enabled` (scope `instance`) for one `ATLAS_APPS` leaves out (`PUT /auth/apps/:app`
+answers 404 and 403), so no key row lands under the root for an app nothing can use. The
+`app_keys` of signup, migration and recovery must name bundled apps too.
 
 ### Discovery
 
