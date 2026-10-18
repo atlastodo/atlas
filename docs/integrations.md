@@ -192,7 +192,27 @@ services:
 then `tasks()`, `createTask()`, `completeTask()`, `changes()` and so on. The CLI is built on
 `crates/atlas-client`, the same client in Rust (`AtlasClient::connect`), which reimplements the
 app's encryption, sync and task rules; the fixtures in `test-vectors/` hold the two at parity.
-Neither is published on its own yet. Use them from this repository, or run the CLI.
+
+Every release attaches the SDK and the packages it builds on as npm tarballs
+(`atlastodo-sdk-X.Y.Z.tgz`, `atlastodo-shared-X.Y.Z.tgz`, `atlastodo-client-core-X.Y.Z.tgz`: ESM
+with type declarations, for Node and bundlers), and publishes them to npm as `@atlastodo/sdk`
+and so on once publishing is on (`npm install @atlastodo/sdk`; an rc under the `next` tag). For a
+version not on npm, install the release tarballs, with `overrides` for the two the SDK depends on:
+
+```json
+{
+  "dependencies": {
+    "@atlastodo/sdk": "https://github.com/atlastodo/atlas-todo/releases/download/vX.Y.Z/atlastodo-sdk-X.Y.Z.tgz"
+  },
+  "overrides": {
+    "@atlastodo/client-core": "https://github.com/atlastodo/atlas-todo/releases/download/vX.Y.Z/atlastodo-client-core-X.Y.Z.tgz",
+    "@atlastodo/shared": "https://github.com/atlastodo/atlas-todo/releases/download/vX.Y.Z/atlastodo-shared-X.Y.Z.tgz"
+  }
+}
+```
+
+`@atlastodo/sdk/testing` exports the in-memory `FakeServer` the SDK's own tests run against. The
+Rust client is not published on its own; use it from this repository, or run the CLI.
 
 ## How it works
 

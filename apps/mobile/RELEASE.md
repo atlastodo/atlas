@@ -190,10 +190,26 @@ The workflow then runs these jobs:
   one to print the tag's version. macOS (`aarch64-apple-darwin`, `x86_64-apple-darwin`) and Windows
   (`x86_64-pc-windows-msvc`, static CRT) build on their own hosted runners once the repository is
   public, where those minutes are free.
+- Core packages: `scripts/pack-core-packages.sh` builds `@atlastodo/client-core`,
+  `@atlastodo/shared` and `@atlastodo/sdk` (Bun-bundled ESM in `dist/`, tsc declarations, the
+  test vectors they ship) and packs them with `bun pm pack` as `atlastodo-client-core-X.Y.Z.tgz`,
+  `atlastodo-shared-X.Y.Z.tgz` and `atlastodo-sdk-X.Y.Z.tgz`. Never `npm pack`: only Bun rewrites
+  the `workspace:*` dependencies between them to the release version. When the `NPM_TOKEN` secret
+  is set, the same tarballs are published to npm (public, in dependency order), a pre-release
+  under the `next` dist-tag (never `latest`); a version already on npm is skipped. Provenance is
+  attached from a public repository only (npm refuses it from a private one) and needs each
+  package's `repository.url` to name the repository the release runs in. Without npm, pin them by URL
+  (see [Pinning the core packages](#pinning-the-core-packages-by-release-url)).
+- Web app tarball: `scripts/web-release-tarball.sh` exports the web app as the server image does
+  (`EXPO_PUBLIC_API_URL=/api`) and attaches `atlas-todo-web-X.Y.Z.tar.gz`, one top-level
+  directory of static files, with `atlas-todo-web-X.Y.Z.tar.gz.sha256`. It is the asset a pinned
+  server image or flake downloads (`apps.lock.json`, see `docs/repo-split.md`), and the shape the
+  todo app's own repository will release once the app moves there.
 - GitHub Release: creates the release, or updates it on a re-run, with `atlas-todo-X.Y.Z.apk`,
   `atlas-todo-X.Y.Z.aab`, `atlas-desktop-X.Y.Z.tar.gz`, `atlas-desktop-latest.tar.gz`, the
-  `atlas-X.Y.Z-<target>` binaries, `THIRD_PARTY_NOTICES.txt` and `SHA256SUMS.txt`, with a build
-  provenance attestation for the APK, the AAB, the tarballs and the binaries.
+  `atlas-X.Y.Z-<target>` binaries, the three core package `.tgz` files, the web app tarball and
+  its `.sha256`, `THIRD_PARTY_NOTICES.txt` and `SHA256SUMS.txt`, with a build provenance
+  attestation for the APK, the AAB, the tarballs, the binaries and the packages.
 - Third-party notices: `scripts/third-party-licenses.mjs` lists the licences of every shipped
   JavaScript package and Rust crate. The Docker job writes it into the image
   (`/usr/share/doc/atlas-todo/`), the desktop tarball carries the JavaScript part, the release
@@ -218,15 +234,16 @@ Android jobs run in it. Repository secrets of the same name work too, but any wo
 those. The `DOCKERHUB_*` secrets stay repository secrets, since the `dev` image pushes use them.
 A ruleset keeps `v*` tags from being moved or deleted.
 
-| Secret                             | Required | What it is                                                              |
-| ---------------------------------- | -------- | ----------------------------------------------------------------------- |
-| `ANDROID_KEYSTORE_BASE64`          | yes      | the upload keystore (JKS or PKCS12), base64: `base64 -w0 upload.jks`    |
-| `ANDROID_KEYSTORE_PASSWORD`        | yes      | the keystore password                                                   |
-| `ANDROID_KEY_ALIAS`                | yes      | the key alias                                                           |
-| `ANDROID_KEY_PASSWORD`             | yes      | the key password                                                        |
-| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | no       | a Play service-account JSON key; when unset, the Play upload is skipped |
-| `DOCKERHUB_USERNAME`               | no       | the Docker Hub user for the mirror (see `DOCKERHUB_IMAGE`)              |
-| `DOCKERHUB_TOKEN`                  | no       | a Docker Hub access token with Read & Write scope                       |
+| Secret                             | Required | What it is                                                                                |
+| ---------------------------------- | -------- | ----------------------------------------------------------------------------------------- |
+| `ANDROID_KEYSTORE_BASE64`          | yes      | the upload keystore (JKS or PKCS12), base64: `base64 -w0 upload.jks`                      |
+| `ANDROID_KEYSTORE_PASSWORD`        | yes      | the keystore password                                                                     |
+| `ANDROID_KEY_ALIAS`                | yes      | the key alias                                                                             |
+| `ANDROID_KEY_PASSWORD`             | yes      | the key password                                                                          |
+| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | no       | a Play service-account JSON key; when unset, the Play upload is skipped                   |
+| `DOCKERHUB_USERNAME`               | no       | the Docker Hub user for the mirror (see `DOCKERHUB_IMAGE`)                                |
+| `DOCKERHUB_TOKEN`                  | no       | a Docker Hub access token with Read & Write scope                                         |
+| `NPM_TOKEN`                        | no       | an npm automation (or granular publish) token for the `@atlastodo` scope; unset skips npm |
 
 `GITHUB_TOKEN` is provided automatically and is used for GHCR and the release.
 
@@ -242,6 +259,42 @@ All are optional. An unset or empty variable means the default.
 | `PLAY_STORE_PRERELEASE_TRACK` | `internal`               | the Play track a pre-release's (`-rc.N` tag) AAB goes to                           |
 | `EXPO_PUBLIC_API_URL`         | unset                    | a server URL baked into the desktop tarball; unset means users pick one at sign-in |
 | `DOCKERHUB_IMAGE`             | unset                    | also push the server image to Docker Hub as this name, e.g. `atlastodo/atlas-todo` |
+| `IMAGE_ALIASES`               | unset                    | more names for the server image (`ghcr.io/…` or `docker.io/…`, space-separated)    |
+
+### Pinning the core packages by release URL
+
+Until a release has published the core packages to npm (or for a version npm lacks), another
+repository (the todo app's, after the split in `docs/repo-split.md`) pins them to a release's
+tarballs instead.
+Each package depends on its siblings at the exact release version, which npm cannot resolve yet, so
+the siblings are pinned through `overrides` as well:
+
+```json
+{
+  "dependencies": {
+    "@atlastodo/client-core": "https://github.com/atlastodo/atlas-todo/releases/download/vX.Y.Z/atlastodo-client-core-X.Y.Z.tgz",
+    "@atlastodo/shared": "https://github.com/atlastodo/atlas-todo/releases/download/vX.Y.Z/atlastodo-shared-X.Y.Z.tgz"
+  },
+  "overrides": {
+    "@atlastodo/client-core": "https://github.com/atlastodo/atlas-todo/releases/download/vX.Y.Z/atlastodo-client-core-X.Y.Z.tgz",
+    "@atlastodo/shared": "https://github.com/atlastodo/atlas-todo/releases/download/vX.Y.Z/atlastodo-shared-X.Y.Z.tgz"
+  }
+}
+```
+
+(`@atlastodo/sdk` the same way.) The lockfile records each tarball's integrity hash, so a
+re-uploaded asset fails the install instead of slipping in. Once the packages are on npm, replace
+both blocks with plain versions (`"@atlastodo/shared": "X.Y.Z"`) and drop the overrides. After the
+rename the URLs move to `atlastodo/atlas`.
+
+A consumer imports the built `dist/` (ESM, declarations for `moduleResolution` `bundler`, `node16`
+and `nodenext`) and can assert the shipped fixtures, e.g.
+`require("@atlastodo/client-core/test-vectors/password_kdf_vectors.json")`. Inside this repository
+the packages are used unbuilt: their `exports` lead with an `@atlastodo/source` condition (their
+`src/`), which `apps/mobile` turns on in `tsconfig.json` (`customConditions`) and `metro.config.js`
+(`unstable_conditionNames`), and jest maps to `src/` directly. `scripts/smoke-core-packages.sh`
+(in CI's Test (TypeScript)) installs the packed tarballs this way into a scratch project and checks
+them; locally, `packages:pack` writes them to `dist-packages/`.
 
 ### Releasing from a fork
 
