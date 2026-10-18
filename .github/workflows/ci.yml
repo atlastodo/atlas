@@ -52,7 +52,6 @@ jobs:
       rust: ${{ steps.filter.outputs.rust }}
       lint_ts: ${{ steps.filter.outputs.lint_ts }}
       test_ts: ${{ steps.filter.outputs.test_ts }}
-      mobile: ${{ steps.filter.outputs.mobile }}
       deps: ${{ steps.filter.outputs.deps }}
     steps:
       - id: filter
@@ -66,7 +65,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          set_all() { for k in rust lint_ts test_ts mobile deps; do echo "$k=$1" >>"$GITHUB_OUTPUT"; done; }
+          set_all() { for k in rust lint_ts test_ts deps; do echo "$k=$1" >>"$GITHUB_OUTPUT"; done; }
           case "$EVENT" in
             schedule)
               set_all false
@@ -91,7 +90,7 @@ jobs:
           ci='^\.github/workflows/ci\.yml$'
           rust="^(crates/|migrations/|Cargo\.(toml|lock)$|\.config/nextest\.toml$|deny\.toml$)|$ci"
           shared="^(packages/|package\.json$|bun\.lock$|bunfig\.toml$|test-vectors/|manifests/)|$ci"
-          deps="^(Cargo\.(toml|lock)|deny\.toml|bun\.lock|package\.json|crates/[^/]+/Cargo\.toml|(apps|packages)/[^/]+/package\.json)$|$ci"
+          deps="^(Cargo\.(toml|lock)|deny\.toml|bun\.lock|package\.json|crates/[^/]+/Cargo\.toml|packages/[^/]+/package\.json)$|$ci"
           has() { if grep -qE "$1" <<<"$files"; then echo true; else echo false; fi; }
           # Prettier checks Markdown, YAML and JSON too, so anything outside the Rust tree lints.
           lints() { if grep -vE "$rust" <<<"$files" | grep -q .; then echo true; else has "$ci"; fi; }
@@ -100,8 +99,7 @@ jobs:
             # $rust so Prettier still lints them.
             echo "rust=$(has "$rust|^manifests/|^test-vectors/")"
             echo "lint_ts=$(lints)"
-            echo "test_ts=$(has "$shared|^apps/electron/|^scripts/(build|pack|smoke)-core-packages?\.")"
-            echo "mobile=$(has "$shared|^apps/mobile/")"
+            echo "test_ts=$(has "$shared|^scripts/(build|pack|smoke)-core-packages?\.")"
             echo "deps=$(has "$deps")"
           } >>"$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
@@ -152,7 +150,7 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
-      # Every workspace that defines `typecheck`: shared, client-core, mobile and electron.
+      # Every workspace that defines `typecheck`: the core packages.
       - run: bun run --parallel --filter '*' typecheck
       # The licences of the JS packages the builds ship, against an allow-list.
       - run: node scripts/third-party-licenses.mjs --check
@@ -259,48 +257,11 @@ jobs:
       - name: sdk
         working-directory: packages/sdk
         run: bunx --bun vitest run
-      - name: electron
-        working-directory: apps/electron
-        run: bunx --bun vitest run
       # The npm tarballs the release attaches, packed and installed as another repository would.
       - name: Pack the core packages
         run: |
           scripts/pack-core-packages.sh "$RUNNER_TEMP/packages"
           scripts/smoke-core-packages.sh "$RUNNER_TEMP/packages"
-
-  test-mobile:
-    name: Test (mobile)
-    needs: changes
-    if: ${{ needs.changes.outputs.mobile == 'true' }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      # jest-expo must run under real Node: under Bun's runtime every suite dies at load
-      # ("Attempted to assign to readonly property"). Bun only installs the deps.
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          package-manager-cache: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          # Babel transforms of node_modules dominate jest-expo's cold start.
-          path: .jest-cache
-          key: jest-${{ runner.os }}-${{ hashFiles('bun.lock') }}-${{ github.sha }}
-          restore-keys: jest-${{ runner.os }}-${{ hashFiles('bun.lock') }}-
-      - run: bun install --frozen-lockfile
-      - run: node --version
-      - working-directory: apps/mobile
-        run: bun run test -- --ci --maxWorkers=4 --cacheDirectory="$GITHUB_WORKSPACE/.jest-cache"
 
   # The audits surface advisories without blocking: they often sit in un-updatable transitive
   # deps. Fixable ones go in `overrides` (JS) or a dependency bump, never an ignore list.

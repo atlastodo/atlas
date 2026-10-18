@@ -7,8 +7,7 @@
 version: 2
 updates:
   - package-ecosystem: github-actions
-    # The root covers .github/workflows; the composite actions need listing.
-    directories: ["/", "/.github/actions/*"]
+    directory: /
     target-branch: dev
     schedule:
       interval: weekly
@@ -31,8 +30,8 @@ updates:
       cargo-minor-patch:
         update-types: [minor, patch]
 
-  # Bun workspace (root bun.lock covers apps/* and packages/*). Bun itself is pinned in lockstep
-  # across devenv, the workflows and docker/Dockerfile, so Dependabot doesn't touch it.
+  # Bun workspace (root bun.lock covers packages/*). Bun itself is pinned in lockstep
+  # across devenv and the workflows, so Dependabot does not touch it.
   - package-ecosystem: bun
     directory: /
     target-branch: dev
@@ -44,36 +43,6 @@ updates:
     groups:
       bun-minor-patch:
         update-types: [minor, patch]
-    # The Expo SDK pins these to the versions it was built and tested with (its
-    # bundledNativeModules.json, `expo install --check`): they move with an SDK upgrade, never one
-    # by one. jest stays on the major jest-expo supports.
-    ignore:
-      - dependency-name: "expo"
-      - dependency-name: "expo-*"
-      - dependency-name: "@expo/*"
-      - dependency-name: "jest-expo"
-      - dependency-name: "react"
-      - dependency-name: "react-dom"
-      - dependency-name: "@types/react"
-      - dependency-name: "@types/react-dom"
-      - dependency-name: "react-native"
-      - dependency-name: "@react-native/*"
-      - dependency-name: "react-native-web"
-      - dependency-name: "react-native-reanimated"
-      - dependency-name: "react-native-worklets"
-      - dependency-name: "react-native-gesture-handler"
-      - dependency-name: "react-native-screens"
-      - dependency-name: "react-native-safe-area-context"
-      - dependency-name: "react-native-svg"
-      - dependency-name: "@react-native-async-storage/async-storage"
-      - dependency-name: "@react-native-community/datetimepicker"
-      - dependency-name: "jest"
-      - dependency-name: "babel-jest"
-      - dependency-name: "@types/jest"
-      - dependency-name: "jest-environment-jsdom"
-      # nativewind 4 is built on Tailwind 3; v4 needs nativewind 5.
-      - dependency-name: "tailwindcss"
-        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directory: /docker

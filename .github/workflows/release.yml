@@ -1,14 +1,13 @@
 # Release on a v* tag (pushed after `version:bump` + the `chore(release): vX.Y.Z` commit):
-# full CI, then the Docker image, the signed Android APK + AAB, the desktop tarball and the static
-# `atlas` CLI binaries (Linux musl x86_64 and aarch64, plus macOS and Windows in a public repo),
-# the core JS packages as npm tarballs (atlastodo-<pkg>-X.Y.Z.tgz, also published to npm when
-# NPM_TOKEN is set) and the web app tarball (atlas-todo-web-X.Y.Z.tar.gz + .sha256, the asset a
-# pinned server image downloads), then a GitHub Release carrying the tag's RELEASE_NOTES.md section, every artifact, their build
-# provenance attestations and SHA256SUMS.txt.
+# full CI, then the Docker image (the server plus the pinned todo web build, apps.lock.json), the
+# static `atlas` CLI binaries (Linux musl x86_64 and aarch64, plus macOS and Windows in a public
+# repo) and the core JS packages as npm tarballs (atlastodo-<pkg>-X.Y.Z.tgz), then a GitHub Release
+# carrying the tag's RELEASE_NOTES.md section, every artifact, the third-party notices, their build
+# provenance attestations and SHA256SUMS.txt, then the npm publish of the packages.
+# The todo app (APK/AAB, desktop tarball, web tarball) is released from atlastodo/atlas-todo.
 # A tag with a "-" (vX.Y.Z-rc.N, tagged by hand on the dev branch) is a pre-release: a GitHub
-# prerelease that is never "latest", the Docker tag X.Y.Z-rc.N (never latest), and the AAB goes to
-# the Play internal track; a stable release goes to PLAY_STORE_TRACK and internal. The Docker `dev`
-# tag follows the dev branch instead (dev-image.yml).
+# prerelease that is never "latest", the Docker tag X.Y.Z-rc.N (never latest) and the npm dist-tag
+# `next`. The Docker `dev` tag follows the dev branch instead (dev-image.yml).
 name: Release
 
 on:
@@ -42,12 +41,12 @@ jobs:
       # ci.yml's `changes` job reads PR file lists; a tag run never uses it, but the grant must cover it.
       pull-requests: read
 
-  # Fails fast, before anything is published, on a tag that doesn't match the manifests, missing
-  # release notes, or a missing signing key (never ship a debug-signed APK).
+  # Fails fast, before anything is published, on a tag that doesn't match the manifests or missing
+  # release notes.
   prepare:
     name: Prepare
     runs-on: ubuntu-24.04
-    # The signing and Play secrets can live in the `release` environment, which only v* tags may use.
+    # The `release` environment only v* tags may use: its protection rules gate every release.
     environment: release
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -63,15 +62,6 @@ jobs:
           manifest="$(jq -r .version package.json)"
           if [ "$version" != "$manifest" ]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match package.json ($manifest). Run version:bump before tagging."
-            exit 1
-          fi
-          # Expo's version and the derived Android versionCode (scripts/version-code.mjs) must agree
-          # too: Play rejects a code that does not rise, and a hand-edited one would slip through.
-          app="$(jq -r .expo.version apps/mobile/app.json)"
-          code="$(jq -r .expo.android.versionCode apps/mobile/app.json)"
-          want="$(node scripts/version-code.mjs "$version")"
-          if [ "$app" != "$version" ] || [ "$code" != "$want" ]; then
-            echo "::error::apps/mobile/app.json has version $app / versionCode $code; expected $version / $want. Run version:bump."
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -93,21 +83,6 @@ jobs:
             exit 1
           }
           cat release-notes.md
-      - name: Require the Android upload keystore
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          missing=()
-          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
-            [ -n "${!name}" ] || missing+=("$name")
-          done
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::error::Missing secrets: ${missing[*]}. A release needs the upload keystore to sign the APK and AAB."
-            exit 1
-          fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-notes
@@ -132,151 +107,6 @@ jobs:
         type=semver,pattern={{version}}
         type=semver,pattern={{major}}.{{minor}}
       flavor: latest=auto
-
-  android:
-    name: Android APK + AAB
-    needs: [ci, prepare]
-    runs-on: ubuntu-24.04
-    environment: release
-    timeout-minutes: 90
-    env:
-      VERSION: ${{ needs.prepare.outputs.version }}
-      # Fork overrides read by apps/mobile/app.config.ts. An unset variable arrives empty,
-      # which means the maintainer's defaults.
-      ATLAS_APP_ID: ${{ vars.ATLAS_APP_ID }}
-      ATLAS_EAS_PROJECT_ID: ${{ vars.ATLAS_EAS_PROJECT_ID }}
-      # The About screen links to the source the app was built from.
-      EXPO_PUBLIC_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
-      CI: "1"
-      EXPO_NO_TELEMETRY: "1"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      # Toolchain, deps and the build caches (written on main by android-cache.yml, read here).
-      - uses: ./.github/actions/android-setup
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          bun-version: ${{ env.BUN_VERSION }}
-      - name: Decode the upload keystore
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        # Tolerates line-wrapped or unpadded base64 as pasted into the secret.
-        run: |
-          python3 -c 'import base64, os, re, sys; s = re.sub(r"[^A-Za-z0-9+/=]", "", os.environ["ANDROID_KEYSTORE_BASE64"]); s += "=" * (-len(s) % 4); open(sys.argv[1], "wb").write(base64.b64decode(s))' \
-            "$RUNNER_TEMP/upload.keystore"
-          echo "KEYSTORE=$RUNNER_TEMP/upload.keystore" >> "$GITHUB_ENV"
-      - name: Build the signed APK and AAB
-        working-directory: apps/mobile/android
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        # AGP's injected signing config (what Android Studio's "Generate Signed Bundle / APK" uses)
-        # signs both outputs with the upload key; the prebuilt project's own release config is the
-        # debug key. The shared script keeps the flags identical to the cache-filling build.
-        run: |
-          ../../../.github/scripts/android-gradle.sh \
-            -Pandroid.injected.signing.store.file="$KEYSTORE" \
-            -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
-            -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
-            -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
-      # A dependency update can add a permission without anyone noticing: only what
-      # docs/android-permissions.md lists may ship.
-      - name: Check the declared permissions
-        run: node apps/mobile/scripts/check-android-permissions.mjs
-      - name: Verify both are signed with the upload key
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-        run: |
-          outputs=apps/mobile/android/app/build/outputs
-          apk="$outputs/apk/release/app-release.apk"
-          aab="$outputs/bundle/release/app-release.aab"
-          build_tools="$(find -L "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
-          fp() { tr -d ':' | tr '[:upper:]' '[:lower:]'; }
-          expected="$(keytool -list -v -keystore "$KEYSTORE" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | awk '/SHA256:/ { print $2; exit }' | fp)"
-          # build-tools <=36 prints "Signer #1 certificate SHA-256 digest: <hex>", 37 rewrote the
-          # labels to "V3.0 Signer: certificate SHA-256 digest: <hex>" -- match both and take the
-          # digest as the last whitespace-separated field.
-          apk_fp="$("$build_tools/apksigner" verify --print-certs "$apk" | awk '/certificate SHA-256 digest/ { print $NF; exit }' | fp)"
-          aab_fp="$(keytool -printcert -jarfile "$aab" | awk '/SHA256:/ { print $2; exit }' | fp)"
-          echo "upload key: $expected"; echo "APK:        $apk_fp"; echo "AAB:        $aab_fp"
-          if [ -z "$expected" ] || [ "$apk_fp" != "$expected" ] || [ "$aab_fp" != "$expected" ]; then
-            echo "::error::The APK or AAB is not signed with the upload keystore."
-            exit 1
-          fi
-          package="$("$build_tools/aapt2" dump packagename "$apk")"
-          echo "ANDROID_PACKAGE_NAME=$package" >> "$GITHUB_ENV"
-          mkdir -p dist
-          cp "$apk" "dist/atlas-todo-$VERSION.apk"
-          cp "$aab" "dist/atlas-todo-$VERSION.aab"
-          echo "Built $package $VERSION, signed with $expected" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: android
-          path: dist/
-          if-no-files-found: error
-          retention-days: 7
-      - name: Upload to Google Play
-        env:
-          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
-          # A pre-release goes to the internal track (PLAY_STORE_PRERELEASE_TRACK to change it);
-          # a stable one to PLAY_STORE_TRACK and to internal as well, so internal testers are
-          # never left on an older rc. The script uploads once and drops a repeated track.
-          PLAY_STORE_TRACK: ${{ needs.prepare.outputs.prerelease == 'true' && (vars.PLAY_STORE_PRERELEASE_TRACK || 'internal') || format('{0},internal', vars.PLAY_STORE_TRACK || 'internal') }}
-        # Only where the service-account secret exists, so forks skip it.
-        run: |
-          if [ -z "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" ]; then
-            echo "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not set; skipping the Play upload."
-            exit 0
-          fi
-          node apps/mobile/scripts/upload-play-store.mjs "dist/atlas-todo-$VERSION.aab" "$PLAY_STORE_TRACK"
-      - name: Remove the keystore
-        if: always()
-        run: rm -f "$RUNNER_TEMP/upload.keystore"
-
-  desktop:
-    name: Desktop tarball
-    needs: [ci, prepare]
-    runs-on: ubuntu-24.04
-    env:
-      VERSION: ${{ needs.prepare.outputs.version }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          package-manager-cache: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
-      - run: bun install --frozen-lockfile
-      - name: Package
-        env:
-          # Unset: users pick a server on the sign-in screen. Set the repo variable to ship
-          # builds that default to a hosted instance (e.g. https://todo.example.com/api).
-          EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
-          # The About screen links to the source the app was built from.
-          EXPO_PUBLIC_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
-        run: bash scripts/package-desktop.sh "$VERSION"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: desktop
-          # The -latest copy (stable releases only) backs the
-          # /releases/latest/download/atlas-desktop-latest.tar.gz URL (the Nix flake input).
-          path: |
-            atlas-desktop-${{ env.VERSION }}.tar.gz
-            atlas-desktop-latest.tar.gz
-          if-no-files-found: error
-          retention-days: 7
 
   # The `atlas` CLI (crates/atlas-cli) as one static binary per platform, named
   # atlas-X.Y.Z-<target>[.exe]. Linux builds against musl with cargo-zigbuild (zig as the C
@@ -388,49 +218,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # The web app as atlas-todo-web-X.Y.Z.tar.gz (+ .sha256): the static files a server image or
-  # flake pinned to this release serves (apps.lock.json). Built like the image's own web stage.
-  web:
-    name: Web app tarball
-    needs: [ci, prepare]
-    runs-on: ubuntu-24.04
-    env:
-      VERSION: ${{ needs.prepare.outputs.version }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          package-manager-cache: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
-      - run: bun install --frozen-lockfile
-      - name: Build
-        env:
-          EXPO_PUBLIC_API_URL: /api
-          # The About screen links to the source the app was built from.
-          EXPO_PUBLIC_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
-        run: scripts/web-release-tarball.sh dist
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: web
-          path: |
-            dist/atlas-todo-web-${{ env.VERSION }}.tar.gz
-            dist/atlas-todo-web-${{ env.VERSION }}.tar.gz.sha256
-          if-no-files-found: error
-          retention-days: 7
-
   publish:
     name: GitHub Release
-    needs: [prepare, docker, android, desktop, cli, packages, web]
+    needs: [prepare, docker, cli, packages]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -441,16 +231,13 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           # Not the docker-digest-* artifacts: those only carry digests between the image jobs.
-          pattern: "{release-notes,android,desktop,cli-*,packages,web,third-party-notices}"
+          pattern: "{release-notes,cli-*,packages,third-party-notices}"
           path: dist
           merge-multiple: true
       # Verify a download with: gh attestation verify <file> --repo atlastodo/atlas
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
-            dist/*.apk
-            dist/*.aab
-            dist/*.tar.gz
             dist/atlas-[0-9]*
             dist/*.tgz
       - name: Create or update the release
@@ -472,10 +259,10 @@ jobs:
             flags=(--prerelease=false --latest)
           fi
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release edit "$tag" --title "Atlas Todo $tag" --notes-file ../release-notes.md "${flags[@]}"
+            gh release edit "$tag" --title "Atlas $tag" --notes-file ../release-notes.md "${flags[@]}"
             gh release upload "$tag" --clobber -- *
           else
-            gh release create "$tag" --verify-tag --title "Atlas Todo $tag" \
+            gh release create "$tag" --verify-tag --title "Atlas $tag" \
               --notes-file ../release-notes.md "${flags[@]}" -- *
           fi
 
