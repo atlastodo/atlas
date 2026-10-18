@@ -143,9 +143,9 @@ in
         "''${inputs.atlas.packages.''${system}.web-dist}"'';
       description = ''
         Optional directory of the exported web SPA to serve (the `STATIC_DIR`
-        env var) — for example the desktop tarball flake's `web-dist` package.
-        Without it the server is API-only. The SPA needs its API URL typed once
-        on the sign-in screen (the release web export bakes none in).
+        env var) — for example this flake's `web-dist` package, the pinned
+        Atlas Todo web build, which calls the API at `/api` on the page's own
+        origin. Without it the server is API-only.
       '';
     };
 
