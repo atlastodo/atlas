@@ -702,7 +702,7 @@
             "--version"
           ],
           "exit": 0,
-          "stdout": "0.1.11-rc.1",
+          "stdout": "<version>",
           "stderr": []
         },
         {
