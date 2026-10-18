@@ -11,6 +11,11 @@ records why the main choices were made.
 
 ## Components
 
+The apps (`apps/mobile`, `apps/electron`) live in their own repository,
+[atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo), on the core packages of this one;
+every `apps/` path on this page is in that repository. The server image and the flake serve a
+pinned release of its web build (`apps.lock.json`).
+
 | Path                   | Language              | Role                                                                                                                                                                                           |
 | ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `crates/atlas-core`    | Rust                  | The hybrid logical clock, the op log types and the bundled app manifest registry. No I/O.                                                                                                      |
@@ -37,7 +42,8 @@ build time. Session storage and notifications work this way.
   the app calls the API at `/api` on the same origin. The local store persists to IndexedDB.
 - Desktop is Electron around the web export. It adds a tray icon, deep links
   (`atlastodo://`), single-instance handling and a hardened protocol handler. See
-  [apps/electron/README.md](../apps/electron/README.md).
+  [apps/electron/README.md](https://github.com/atlastodo/atlas-todo/blob/main/apps/electron/README.md)
+  in the app repository.
 
 All of them use `packages/client-core` for data, sync and encryption, and `packages/shared` for
 domain logic. Neither package depends on React.

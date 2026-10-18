@@ -1,9 +1,11 @@
-# Contributing to Atlas Todo
+# Contributing to Atlas
 
-Thanks for your interest. Atlas Todo has a Rust server, one React Native + Expo UI for Android,
-the web and the desktop, and a TypeScript client core. This guide covers the setup, the checks
-and how changes get merged. For a map of the code, start with
-[docs/architecture.md](./docs/architecture.md).
+Thanks for your interest. This repository is Atlas core: the Rust sync server, the Rust client
+and `atlas` CLI, and the TypeScript client core packages. The todo app itself (the React Native +
+Expo UI for Android, the web and the desktop) lives in
+[atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo), with its own contributing guide;
+UI bugs and features go there. This guide covers the setup, the checks and how changes get merged.
+For a map of the code, start with [docs/architecture.md](./docs/architecture.md).
 
 **Open pull requests against the `dev` branch**, not `main` (GitHub's default): `main` only
 receives releases. See [Branches and releases](#branches-and-releases).
@@ -39,9 +41,8 @@ so please don't start on them without asking:
 - Translations: improving a catalog, or adding a language
   ([Adding or changing UI text](#adding-or-changing-ui-text)), needs no Rust and little setup.
 - Docs: anything in the self-hosting guide that tripped you up is worth a fix.
-- Not code: testing a pre-release (the Android closed test, a `-rc` Docker tag), reproducing
-  someone else's bug report, or answering a question in Discussions all help.
-- Accessibility: [ACCESSIBILITY.md](./ACCESSIBILITY.md) lists the known gaps.
+- Not code: testing a pre-release (a `-rc` Docker tag), reproducing someone else's bug report,
+  or answering a question in Discussions all help.
 
 ## Development environment
 
@@ -58,7 +59,7 @@ cp .env.example .env   # set JWT_SECRET (openssl rand -hex 32)
 devenv shell           # enter the environment
 devenv up              # start PostgreSQL; leave it running in its own terminal
 db:migrate             # apply the migrations
-dev                    # API on :8080 + the web app with live reload
+dev                    # the server on :8080 with live reload, serving the pinned web app
 ```
 
 - The first `devenv shell` builds sqlx-cli from source, which takes about a minute.
@@ -67,7 +68,8 @@ dev                    # API on :8080 + the web app with live reload
   The dev database is `atlas_dev`, the test database is `atlas_test`, and the user and password
   are both `atlas`.
 - The server refuses to start without `DATABASE_URL` and a valid `JWT_SECRET`.
-- The web app talks to `EXPO_PUBLIC_API_URL`, which defaults to `http://localhost:8080`.
+- `dev` serves the web app pinned in `apps.lock.json` (`nix build .#web-dist`), unless
+  `STATIC_DIR` is set. To work on the app against this server, run it from the app repository.
 
 ### Without Nix
 
@@ -87,7 +89,6 @@ export JWT_SECRET=$(openssl rand -hex 32)
 
 bun install
 cargo run -p atlas-server            # API on :8080, migrates on start
-cd apps/mobile && bun run web        # the web app, in a second terminal
 ```
 
 The exports last only for that terminal: run the server and the tests where you set them, or
@@ -101,53 +102,35 @@ The devenv scripts are short shell in `devenv.nix`. Without devenv, `test:all` a
 cargo nextest run --workspace
 (cd packages/client-core && bunx --bun vitest run)
 (cd packages/shared && bunx --bun vitest run)
-(cd apps/electron && bunx --bun vitest run)
-(cd apps/mobile && bun run test)
+(cd packages/sdk && bunx --bun vitest run)
 
-# lint, plus the two typechecks only CI runs
+# lint
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --no-deps -- -D warnings
-bun run --parallel --filter '*' typecheck
+bun run --filter '*' typecheck
 bunx eslint .
 bunx prettier --check .
+node scripts/third-party-licenses.mjs --check
 ```
 
 If you change dependencies without Nix, `nix/bun.nix` can't be regenerated (`nix:bun-lock`). Say
 so in the pull request and the maintainer will regenerate it.
-
-### Android SDK (optional)
-
-The Android SDK is several GB, so it is off by default. Expo Go (`mobile:dev`) and the EAS cloud
-builds don't need it. To turn it on for your machine, create a `devenv.local.nix` in the
-repository root (it is gitignored):
-
-```nix
-{ android.enable = true; }
-```
-
-Then leave and re-enter `devenv shell`. The scripts that need the SDK tell you this when it is
-off.
 
 ## Scripts
 
 All of these run inside `devenv shell` (without it, see [Without Nix](#without-nix)). The root
 `package.json` has no scripts.
 
-| Script                             | What it does                                                     |
-| ---------------------------------- | ---------------------------------------------------------------- |
-| `dev`                              | API (cargo watch) and the Expo web dev server                    |
-| `web:dev`                          | the whole local stack in one command                             |
-| `mobile:dev`                       | Metro for a phone running Expo Go                                |
-| `desktop:dev`                      | API, web and the Electron app with live reload                   |
-| `desktop:start`                    | export the web bundle and run Electron against it                |
-| `desktop:package`                  | build the desktop tarball                                        |
-| `nix:bun-lock`                     | regenerate `nix/bun.nix` after a `bun.lock` change               |
-| `db:migrate`, `db:reset`           | apply or reset the migrations                                    |
-| `test:all`                         | every test suite (see below)                                     |
-| `lint`                             | rustfmt check, clippy, TypeScript checks, ESLint, Prettier check |
-| `fmt`                              | rustfmt and prettier                                             |
-| `emulator:start`, `mobile:android` | Android emulator and native dev build (needs the SDK)            |
-| `version:bump`                     | release helper, maintainers only                                 |
+| Script                   | What it does                                                         |
+| ------------------------ | -------------------------------------------------------------------- |
+| `dev`                    | the server (cargo watch) on :8080, serving the pinned web app        |
+| `nix:bun-lock`           | regenerate `nix/bun.nix` after a `bun.lock` change                   |
+| `db:migrate`, `db:reset` | apply or reset the migrations                                        |
+| `test:all`               | every test suite (see below)                                         |
+| `lint`                   | rustfmt check, clippy, TypeScript checks, ESLint, Prettier, licences |
+| `fmt`                    | rustfmt and prettier                                                 |
+| `packages:pack`          | pack the core packages' npm tarballs into `dist-packages/`           |
+| `version:bump`           | release helper, maintainers only                                     |
 
 The full-suite script is `test:all`, not `test`: a script named `test` collides with the shell
 builtin.
@@ -157,21 +140,16 @@ builtin.
 `test:all` runs, in order and stopping at the first failure:
 
 1. `cargo nextest run --workspace`
-2. vitest in `packages/client-core`, `packages/shared` and `apps/electron`
-3. jest (jest-expo) in `apps/mobile`
+2. vitest in `packages/client-core`, `packages/shared` and `packages/sdk`
 
 `lint` runs `cargo fmt --check`, `cargo clippy --workspace --all-targets --no-deps -D warnings`,
-`tsc --noEmit` for `packages/shared` and `apps/mobile`, `eslint .` and `prettier --check .`.
-`fmt` fixes the formatting. CI also typechecks `packages/client-core` and `apps/electron`. If you
-touch them, run `cd packages/client-core && bun run typecheck` or
-`cd apps/electron && bun run typecheck`.
+`tsc --noEmit` for every core package, `eslint .`, `prettier --check .` and the licence check.
+`fmt` fixes the formatting.
 
 Each package has its own runner. To run one test:
 
 - Rust: `cargo nextest run -p atlas-server <name>`
-- `packages/*` and `apps/electron`: `cd packages/shared && bunx --bun vitest run src/foo.test.ts`
-- `apps/mobile`: `bun run test -- <pattern>`. This must run under Node, not Bun's runtime, or it
-  fails at load with `Attempted to assign to readonly property`.
+- `packages/*`: `cd packages/shared && bunx --bun vitest run src/foo.test.ts`
 
 Where the tests live:
 
@@ -179,8 +157,7 @@ Where the tests live:
 - `crates/atlas-server/tests/`: integration tests over HTTP. They need PostgreSQL running
   (`devenv up`, or the container from [Without Nix](#without-nix)) and migrate
   `TEST_DATABASE_URL` themselves.
-- `packages/*/src/*.test.ts`, `apps/electron/src/*.test.ts` and `apps/mobile/src/**/*.test.tsx`:
-  next to the code they test.
+- `packages/*/src/*.test.ts`: next to the code they test.
 - `manifests/`: the app manifests (entity kinds and their plaintext fields), compiled into the
   server and bundled by the clients; both sides test against them.
 - `test-vectors/`: JSON fixtures. Conflict resolution and recovery challenges are read by both
@@ -199,11 +176,10 @@ Brazilian Portuguese (`pt.json`).
    each other catalog has its own language's plural forms (Polish `_one`/`_few`/`_many`/`_other`).
    If you can't write a language, add the English text to its catalog and say so in the PR.
 2. Use it with `t("section.key")`.
-3. Run the two checks:
-   - `cd packages/shared && bunx --bun vitest run src/i18n.test.ts` checks that every locale has
-     exactly the English keys, in its own plural forms, and is valid UTF-8.
-   - `cd apps/mobile && bun run test -- i18n/keys` checks that every literal key the app uses
-     exists in every locale.
+3. Run `cd packages/shared && bunx --bun vitest run src/i18n.test.ts`: it checks that every
+   locale has exactly the English keys, in its own plural forms, and is valid UTF-8. The app
+   repository's `i18n/keys` test checks that every literal key the app uses exists in every
+   locale; it runs there once the app picks up a core release with the new keys.
 
 A new language also needs an entry in `packages/shared/src/i18n.ts` and a quick-add lexicon in
 `packages/shared/src/quickAddLexicons.ts` (its words for today, tomorrow, weekdays, months, "in 3
@@ -214,17 +190,16 @@ language; they must parse.
 ## Commits and pull requests
 
 - Commit messages and PR titles follow [Conventional Commits](https://www.conventionalcommits.org):
-  `feat:`, `fix(mobile):`, `refactor(sync):`, `docs:`, … Release notes are generated from the
+  `feat:`, `fix(server):`, `refactor(sync):`, `docs:`, … Release notes are generated from the
   commit log, so write the subject for users. The notes of each release also thank its
   contributors by name.
-- Keep a PR to one change. Explain what and why, and how you tested it (platforms, screenshots
-  for UI changes). The PR template has a short checklist.
+- Keep a PR to one change. Explain what and why, and how you tested it. The PR template has a
+  short checklist.
 - Run `lint` and `test:all` before you open the PR. CI runs the same checks.
 - Add tests for new behaviour.
 - Don't edit a version number. Versions move in lockstep across all manifests and only change
   in release commits.
-- Don't commit secrets, keystores, `.env` files or build output (`dist-desktop/`,
-  `atlas-desktop-*.tar.gz`).
+- Don't commit secrets, `.env` files or build output (`target/`, `dist/`, `dist-packages/`).
 - Security problems go through [SECURITY.md](./SECURITY.md), not a public issue or PR.
 
 ### Branches and releases
@@ -235,8 +210,8 @@ Commits; the rest of this section is what the maintainer does. A push to `dev` o
 the moving `dev` Docker image. The maintainer tags pre-releases (`v0.1.4-rc.1`) on `dev`,
 and when one is good, merges `dev` into `main` through a pull request (`main` takes no direct pushes)
 and tags the stable `v0.1.4`. Pre-releases go to
-GitHub as prereleases, to Docker as `0.1.4-rc.1` and `dev`, and to the Play internal track. Details
-in [apps/mobile/RELEASE.md](./apps/mobile/RELEASE.md).
+GitHub as prereleases, to Docker as `0.1.4-rc.1` and to npm under `next`. Details in
+[docs/releasing.md](./docs/releasing.md).
 
 ### What CI runs
 
@@ -244,25 +219,25 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pu
 push to `dev` runs it for the changed paths before building the `dev` image, and a tag runs
 the full suite. Pull requests from forks need no secrets, so they get the same checks:
 
-| Check             | What it runs                                                                  |
-| ----------------- | ----------------------------------------------------------------------------- |
-| Lint (Rust)       | `cargo fmt --check`, clippy with `-D warnings`                                |
-| Lint (TypeScript) | typecheck of shared, client-core, mobile and electron; ESLint; Prettier check |
-| MSRV              | `cargo check` on the minimum Rust version (1.94)                              |
-| Test (Rust)       | `cargo nextest run --workspace` against PostgreSQL 16                         |
-| Test (TypeScript) | vitest in client-core, shared and electron                                    |
-| Test (mobile)     | jest in apps/mobile                                                           |
-| Audit (Rust)      | `cargo deny check` (allowed to fail)                                          |
-| Audit (JS)        | `bun audit` (allowed to fail)                                                 |
+| Check             | What it runs                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| Lint (Rust)       | `cargo fmt --check`, clippy with `-D warnings`                                       |
+| Lint (TypeScript) | typecheck of the core packages; licence check; ESLint; Prettier check                |
+| MSRV              | `cargo check` on the minimum Rust version (1.94)                                     |
+| Test (Rust)       | `cargo nextest run --workspace` against PostgreSQL 16                                |
+| Test (TypeScript) | vitest in client-core, shared and sdk; the packed packages installed as a consumer's |
+| Audit (Rust)      | `cargo deny check` (allowed to fail)                                                 |
+| Audit (JS)        | `bun audit` (allowed to fail)                                                        |
 
-The audits are informational, so a red audit check on a pull request does not block it. A known, unfixable advisory is explained under `//audit-known`
-in the root `package.json`. Fixable advisories are fixed with `overrides`, not ignored.
+The audits are informational, so a red audit check on a pull request does not block it.
+Fixable advisories are fixed with `overrides` or a dependency bump, not ignored.
 
 ## Bug reports from the app
 
 The app's _Report a problem_ screen sends a report to the server it is connected to. It shows up
-in that server's admin panel, not in this repository. To report a bug in Atlas Todo itself, open
-a GitHub issue.
+in that server's admin panel, not in this repository. To report a bug in Atlas itself, open a
+GitHub issue: here for the server, the CLI and the packages, in
+[atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo/issues) for the app.
 
 ## License
 

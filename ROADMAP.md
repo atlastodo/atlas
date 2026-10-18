@@ -9,9 +9,9 @@ This is a direction, not a schedule. It is maintained by one person in their spa
 ## Next
 
 - **Google Play, public:** finish the closed test and open the listing
-  ([help test it](./README.md#help-test-it-on-android)).
+  ([help test it](https://github.com/atlastodo/atlas-todo#help-test-it-on-android)).
 - **Encrypted export:** a password-protected backup file next to today's plaintext JSON export.
-- **Accessibility:** the gaps in [ACCESSIBILITY.md](./ACCESSIBILITY.md#known-gaps).
+- **Accessibility:** the gaps in the app repository's [ACCESSIBILITY.md](https://github.com/atlastodo/atlas-todo/blob/main/ACCESSIBILITY.md#known-gaps).
 - **Importers:** more sources next to TickTick and Todoist, as people ask for them.
 
 ## Before 1.0
