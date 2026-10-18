@@ -38,4 +38,4 @@ This is a direction, not a schedule. It is maintained by one person in their spa
 - **Telemetry or analytics** of any kind.
 
 Want something that isn't here? Start a thread in
-[Discussions → Ideas](https://github.com/atlastodo/atlas-todo/discussions/categories/ideas) first.
+[Discussions → Ideas](https://github.com/atlastodo/atlas/discussions/categories/ideas) first.

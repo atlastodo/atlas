@@ -88,7 +88,7 @@ if (deps + maintenance > 0) {
   if (deps) parts.push(`${deps} dependency update${deps === 1 ? "" : "s"}`);
   if (maintenance) parts.push(`${maintenance} maintenance commit${maintenance === 1 ? "" : "s"} (CI, build, tests)`);
   const compare = prev
-    ? ` ([full list](https://github.com/atlastodo/atlas-todo/compare/${prev}...v${version}))`
+    ? ` ([full list](https://github.com/atlastodo/atlas/compare/${prev}...v${version}))`
     : "";
   lines.push("### Maintenance", `- ${parts.join(", ")}${compare}`, "");
 }

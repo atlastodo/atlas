@@ -171,14 +171,14 @@ jobs:
       id-token: write
       attestations: write
     env:
-      # Optional Docker Hub mirror: the DOCKERHUB_IMAGE variable (e.g. `atlastodo/atlas-todo`) plus the
+      # Optional Docker Hub mirror: the DOCKERHUB_IMAGE variable (e.g. `atlastodo/atlas`) plus the
       # DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets. Skipped while the repository is private,
       # because Docker Hub creates a new repository as public.
       DOCKERHUB_IMAGE: ${{ !github.event.repository.private && vars.DOCKERHUB_IMAGE || '' }}
       # Optional extra names for the same image (the image-aliases input, else the IMAGE_ALIASES
-      # variable): after the repository split the core repo keeps publishing the old
-      # ghcr.io/atlastodo/atlas-todo name next to its own for a deprecation period
-      # (docs/repo-split.md). Unset, nothing changes.
+      # variable): since the repository was renamed to atlastodo/atlas it keeps publishing the old
+      # ghcr.io/atlastodo/atlas-todo (and docker.io/atlastodo/atlas-todo) names next to its own
+      # for a deprecation period (docs/repo-split.md). Unset, nothing changes.
       IMAGE_ALIASES: ${{ inputs.image-aliases || vars.IMAGE_ALIASES || '' }}
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -250,7 +250,7 @@ jobs:
           version="$(jq -r '.labels["org.opencontainers.image.version"]' <<<"$DOCKER_METADATA_OUTPUT_JSON")"
           docker buildx imagetools inspect "$IMAGE:$version"
           echo "digest=$(docker buildx imagetools inspect "$IMAGE:$version" --format '{{.Manifest.Digest}}')" >> "$GITHUB_OUTPUT"
-      # Verify with: gh attestation verify oci://ghcr.io/atlastodo/atlas-todo:<tag> --repo atlastodo/atlas-todo
+      # Verify with: gh attestation verify oci://ghcr.io/atlastodo/atlas:<tag> --repo atlastodo/atlas
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.image.outputs.name }}

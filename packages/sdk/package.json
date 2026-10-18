@@ -3,14 +3,14 @@
   "version": "0.1.11-rc.5",
   "description": "Headless Atlas client for integrations: signs in with a personal API token and syncs an account's tasks into memory",
   "license": "AGPL-3.0-only",
-  "homepage": "https://github.com/atlastodo/atlas-todo/tree/main/packages/sdk",
+  "homepage": "https://github.com/atlastodo/atlas/tree/main/packages/sdk",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/atlastodo/atlas-todo.git",
+    "url": "git+https://github.com/atlastodo/atlas.git",
     "directory": "packages/sdk"
   },
   "bugs": {
-    "url": "https://github.com/atlastodo/atlas-todo/issues"
+    "url": "https://github.com/atlastodo/atlas/issues"
   },
   "type": "module",
   "main": "./dist/index.js",

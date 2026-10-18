@@ -45,7 +45,7 @@ and no time zone database (it carries its own). Each release attaches one per pl
 ```sh
 VERSION=X.Y.Z
 TARGET=x86_64-unknown-linux-musl
-BASE=https://github.com/atlastodo/atlas-todo/releases/download/v$VERSION
+BASE=https://github.com/atlastodo/atlas/releases/download/v$VERSION
 curl -fLO "$BASE/atlas-$VERSION-$TARGET"
 curl -fLO "$BASE/SHA256SUMS.txt"
 sha256sum --check --ignore-missing SHA256SUMS.txt
@@ -54,7 +54,9 @@ atlas --help
 ```
 
 Each file also carries a build provenance attestation:
-`gh attestation verify atlas-$VERSION-$TARGET --repo atlastodo/atlas-todo`. Earlier releases
+`gh attestation verify atlas-$VERSION-$TARGET --repo atlastodo/atlas` (the repository was
+`atlastodo/atlas-todo` until its rename: releases signed before that verify with
+`--repo atlastodo/atlas-todo`). Earlier releases
 shipped the CLI as a JavaScript file (`atlas-cli-X.Y.Z.mjs`, and `@atlastodo/cli` on npm); the
 binary takes the same commands and environment and prints the same output.
 
@@ -202,11 +204,11 @@ version not on npm, install the release tarballs, with `overrides` for the two t
 ```json
 {
   "dependencies": {
-    "@atlastodo/sdk": "https://github.com/atlastodo/atlas-todo/releases/download/vX.Y.Z/atlastodo-sdk-X.Y.Z.tgz"
+    "@atlastodo/sdk": "https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/atlastodo-sdk-X.Y.Z.tgz"
   },
   "overrides": {
-    "@atlastodo/client-core": "https://github.com/atlastodo/atlas-todo/releases/download/vX.Y.Z/atlastodo-client-core-X.Y.Z.tgz",
-    "@atlastodo/shared": "https://github.com/atlastodo/atlas-todo/releases/download/vX.Y.Z/atlastodo-shared-X.Y.Z.tgz"
+    "@atlastodo/client-core": "https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/atlastodo-client-core-X.Y.Z.tgz",
+    "@atlastodo/shared": "https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/atlastodo-shared-X.Y.Z.tgz"
   }
 }
 ```

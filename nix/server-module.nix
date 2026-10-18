@@ -1,9 +1,16 @@
-# services.atlas-todo — run the Atlas Todo server as a native systemd service.
+# services.atlas — run the Atlas server as a native systemd service.
 #
-# Imported through the repository flake (`nixosModules.atlas-todo`), which sets
-# the flake's atlas-server package as the `package` default. Importing this file
-# standalone requires setting `services.atlas-todo.package` yourself (e.g. to
-# `pkgs.atlas-server` from the flake's `overlays.default`).
+# Imported through the repository flake (`nixosModules.atlas`, also exported as
+# `nixosModules.server`), which sets the flake's atlas-server package as the
+# `package` default. Importing this file standalone requires setting
+# `services.atlas.package` yourself (e.g. to `pkgs.atlas-server` from the
+# flake's `overlays.default`).
+#
+# The option was `services.atlas-todo` before the repository was renamed to
+# atlastodo/atlas. That name still works: it is forwarded here with a
+# deprecation warning. The system names the module creates are unchanged, so
+# existing deployments keep their state: the `atlas-todo` user, group and
+# systemd unit, `/var/lib/atlas-todo` and the `atlas-todo` database.
 #
 # This module deliberately does not duplicate the server's defaults. Every env
 # knob from crates/atlas-server/src/config.rs (+ ratelimit.rs) — mirrored in
@@ -13,7 +20,7 @@
 { config, lib, pkgs, ... }:
 
 let
-  cfg = config.services.atlas-todo;
+  cfg = config.services.atlas;
 
   # DATABASE_URL when database.createLocally is set: the host Postgres's unix
   # socket, so no password is involved. sqlx reads `host` (a socket directory)
@@ -46,14 +53,19 @@ let
   shadowedSettings = lib.intersectLists reservedSettings (lib.attrNames cfg.settings);
 in
 {
-  options.services.atlas-todo = {
-    enable = lib.mkEnableOption "the Atlas Todo server (atlas-server)";
+  imports = [
+    # Deprecated name, kept so existing configurations evaluate (with a warning).
+    (lib.mkRenamedOptionModule [ "services" "atlas-todo" ] [ "services" "atlas" ])
+  ];
+
+  options.services.atlas = {
+    enable = lib.mkEnableOption "the Atlas server (atlas-server)";
 
     package = lib.mkOption {
       type = lib.types.package;
-      defaultText = lib.literalExpression "atlas-todo.packages.\${system}.atlas-server";
+      defaultText = lib.literalExpression "atlas.packages.\${system}.atlas-server";
       description = ''
-        The atlas-server package to run. The flake's `nixosModules.atlas-todo`
+        The atlas-server package to run. The flake's `nixosModules.atlas`
         sets its own build as the default; a standalone import of this file
         needs it set explicitly.
       '';
@@ -128,7 +140,7 @@ in
       type = lib.types.nullOr lib.types.path;
       default = null;
       example = lib.literalExpression ''
-        "''${inputs.atlas-todo.packages.''${system}.web-dist}"'';
+        "''${inputs.atlas.packages.''${system}.web-dist}"'';
       description = ''
         Optional directory of the exported web SPA to serve (the `STATIC_DIR`
         env var) — for example the desktop tarball flake's `web-dist` package.
@@ -222,7 +234,7 @@ in
           assertion =
             cfg.database.url != null || cfg.database.createLocally || cfg.environmentFile != [ ];
           message = ''
-            services.atlas-todo: set database.url or a DATABASE_URL in
+            services.atlas: set database.url or a DATABASE_URL in
             environmentFile (external Postgres), or keep
             database.createLocally = true.
           '';
@@ -230,7 +242,7 @@ in
         {
           assertion = cfg.database.url == null || !cfg.database.createLocally;
           message = ''
-            services.atlas-todo.database.url and database.createLocally are
+            services.atlas.database.url and database.createLocally are
             mutually exclusive: set database.createLocally = false when pointing
             at an external database.
           '';
@@ -238,21 +250,21 @@ in
         {
           assertion = !(cfg.settings ? "JWT_SECRET");
           message = ''
-            services.atlas-todo.settings must not set JWT_SECRET: env values
-            land in the nix store. Use services.atlas-todo.jwtSecretFile.
+            services.atlas.settings must not set JWT_SECRET: env values
+            land in the nix store. Use services.atlas.jwtSecretFile.
           '';
         }
         {
           assertion = usingLocalDatabase -> cfg.database.name == cfg.database.user;
           message = ''
-            services.atlas-todo.database: name and user must be equal (the
+            services.atlas.database: name and user must be equal (the
             ensureDBOwnership grant follows the user).
           '';
         }
         {
           assertion = shadowedSettings == [ ];
           message = ''
-            services.atlas-todo.settings must not set ${
+            services.atlas.settings must not set ${
               lib.concatStringsSep ", " shadowedSettings
             }: each is derived from one of the module's own options (port,
             bindAddress, dataDir, staticDir, adminEmails, database).
@@ -273,7 +285,7 @@ in
 
       systemd.services.atlas-todo = {
         description = "Atlas Todo server";
-        documentation = [ "https://github.com/atlastodo/atlas-todo" ];
+        documentation = [ "https://github.com/atlastodo/atlas" ];
         wantedBy = [ "multi-user.target" ];
         # Locally, postgresql.target covers both the server and the
         # postgresql-setup unit that runs ensureUsers/ensureDatabases: ordering

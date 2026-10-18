@@ -48,7 +48,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Atlas Todo backend: Axum HTTP + WebSocket API over PostgreSQL";
-    homepage = "https://github.com/atlastodo/atlas-todo";
+    homepage = "https://github.com/atlastodo/atlas";
     license = lib.licenses.agpl3Only;
     platforms = lib.platforms.linux;
     mainProgram = "atlas-server";

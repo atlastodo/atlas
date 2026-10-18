@@ -18,8 +18,8 @@ The server applies database migrations every time it starts. The API answers at 
 You need Docker with Compose v2.24 or later. (On NixOS, use the [module](#nixos) instead.)
 
 ```sh
-git clone https://github.com/atlastodo/atlas-todo.git
-cd atlas-todo
+git clone https://github.com/atlastodo/atlas.git
+cd atlas
 cp .env.example .env
 ```
 
@@ -33,7 +33,7 @@ JWT_SECRET=<openssl rand -hex 32>
 Then start it:
 
 ```sh
-docker compose up -d            # pulls ghcr.io/atlastodo/atlas-todo:latest
+docker compose up -d            # pulls ghcr.io/atlastodo/atlas:latest
 docker compose up -d --build    # or: builds the image from this checkout
 docker compose logs -f server   # follow the logs
 ```
@@ -43,15 +43,33 @@ Run all `docker compose` commands from the repository root. The root `compose.ya
 every variable in it. A `docker/.env` is read too, if it exists, for tools that run
 `docker compose -f docker/docker-compose.yml` and write their env file there.
 
-In production, pin a version: `ATLAS_IMAGE=ghcr.io/atlastodo/atlas-todo:X.Y.Z`. The same image is
-on Docker Hub as `atlastodo/atlas-todo`. It is built for linux/amd64 and linux/arm64 (a 64-bit OS
+In production, pin a version: `ATLAS_IMAGE=ghcr.io/atlastodo/atlas:X.Y.Z`. The same image is
+on Docker Hub as `atlastodo/atlas`. It is built for linux/amd64 and linux/arm64 (a 64-bit OS
 on a Raspberry Pi works; 32-bit ARM does not).
 
-To try unreleased changes, `ATLAS_IMAGE=ghcr.io/atlastodo/atlas-todo:dev` follows the `dev` branch:
+To try unreleased changes, `ATLAS_IMAGE=ghcr.io/atlastodo/atlas:dev` follows the `dev` branch:
 it is rebuilt after every change there that passes CI. Use it with a database you can lose or
 restore. A `dev` image may apply database migrations that no release has yet, and a release image
 refuses to start against a database with a migration it does not know, so going back means waiting
 for the next release that includes it, or restoring a backup taken before switching.
+
+### Image renamed
+
+The repository was renamed from `atlastodo/atlas-todo` to `atlastodo/atlas`, and the image with
+it: it is now `ghcr.io/atlastodo/atlas` (Docker Hub: `atlastodo/atlas`). The old names,
+`ghcr.io/atlastodo/atlas-todo` and `atlastodo/atlas-todo`, keep receiving the same tags for a
+deprecation period, then stop getting new ones. Switch now:
+
+- Set `ATLAS_IMAGE=ghcr.io/atlastodo/atlas:latest` (or a pinned `X.Y.Z`) in `.env` if you set
+  it to the old name; the compose default already uses the new one.
+- Point an existing clone at the new repository, because `atlastodo/atlas-todo` will hold the
+  todo app rather than the server:
+  `git remote set-url origin https://github.com/atlastodo/atlas.git`.
+- On NixOS, change the flake input to `github:atlastodo/atlas` (or
+  `git+https://github.com/atlastodo/atlas.git`), import `nixosModules.atlas` and rename
+  `services.atlas-todo` to `services.atlas`. The old option and module names still evaluate,
+  with a deprecation warning, and the service keeps its unit, user, data directory and database
+  (all still called `atlas-todo`).
 
 ## NixOS
 
@@ -60,14 +78,14 @@ runs the server, and optionally the database, as native services instead of the 
 
 ```nix
 # flake input
-atlas-todo.url = "git+https://github.com/atlastodo/atlas-todo.git";
+atlas.url = "git+https://github.com/atlastodo/atlas.git";
 # No `inputs.nixpkgs.follows`: the packages build with the flake's own pinned nixpkgs, the Bun
 # and Node versions CI tests (a stable channel can carry an older Bun).
 
 # configuration
-imports = [ inputs.atlas-todo.nixosModules.atlas-todo ];
+imports = [ inputs.atlas.nixosModules.atlas ]; # also exported as nixosModules.server
 
-services.atlas-todo = {
+services.atlas = {
   enable = true;
   # Attachment blobs live under <dataDir>/blobs. Back this up together with the database.
   dataDir = "/var/lib/atlas-todo";
@@ -83,6 +101,10 @@ services.atlas-todo = {
 };
 ```
 
+- Names: the option is `services.atlas` and the module `nixosModules.atlas`. The pre-rename
+  `services.atlas-todo` and `nixosModules.atlas-todo` still work, with a deprecation warning
+  ([Image renamed](#image-renamed)). The system names below stay `atlas-todo`, so a rename never
+  moves the data.
 - Database: by default the module creates the `atlas-todo` database and user on the host's
   `services.postgresql`, which is additive: an existing cluster keeps its version and settings.
   It connects over the unix socket, with no password. Migrations run when the service starts. For
@@ -97,7 +119,7 @@ services.atlas-todo = {
 - The web app: `staticDir` points the server at a web export and it serves SPA and API on
   one port, like the container. The repository flake builds the export from source as
   `packages.<system>.web-dist`, from the same revision as the server, so a flake update ships
-  both together (`staticDir = inputs.atlas-todo.packages.${pkgs.system}.web-dist;`). No API URL
+  both together (`staticDir = inputs.atlas.packages.${pkgs.system}.web-dist;`). No API URL
   is baked into it, so each browser types the API URL once on the sign-in screen.
 - The service runs as the system user `atlas-todo` with a hardened unit (`ProtectSystem=strict`,
   only `dataDir` writable). It listens on 0.0.0.0:8080 by default (`bindAddress`, `port`);
@@ -148,14 +170,14 @@ startup:
 
 These are read by compose, not by the server.
 
-| Variable            | Default                               | Notes                                                                                                                         |
-| ------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `POSTGRES_PASSWORD` | none, required                        | Database password. It goes into a URL, so use URL-safe characters. PostgreSQL only reads it when the volume is first created. |
-| `POSTGRES_USER`     | `atlas`                               | Database user.                                                                                                                |
-| `POSTGRES_DB`       | `atlas`                               | Database name.                                                                                                                |
-| `PORT_BIND`         | `127.0.0.1:8080`                      | Host address and port. Localhost only by default; `8080` listens on every interface. Inside, the server always uses 8080.     |
-| `ATLAS_IMAGE`       | `ghcr.io/atlastodo/atlas-todo:latest` | Image to pull, or the name to tag a local build with.                                                                         |
-| `ATLAS_DB_VOLUME`   | `docker_atlas_db`                     | Name of the database volume. The default keeps the name older installs already have.                                          |
+| Variable            | Default                          | Notes                                                                                                                         |
+| ------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `POSTGRES_PASSWORD` | none, required                   | Database password. It goes into a URL, so use URL-safe characters. PostgreSQL only reads it when the volume is first created. |
+| `POSTGRES_USER`     | `atlas`                          | Database user.                                                                                                                |
+| `POSTGRES_DB`       | `atlas`                          | Database name.                                                                                                                |
+| `PORT_BIND`         | `127.0.0.1:8080`                 | Host address and port. Localhost only by default; `8080` listens on every interface. Inside, the server always uses 8080.     |
+| `ATLAS_IMAGE`       | `ghcr.io/atlastodo/atlas:latest` | Image to pull, or the name to tag a local build with.                                                                         |
+| `ATLAS_DB_VOLUME`   | `docker_atlas_db`                | Name of the database volume. The default keeps the name older installs already have.                                          |
 
 Compose builds `DATABASE_URL` from the `POSTGRES_*` values and pins `PORT=8080` and
 `BIND_ADDR=0.0.0.0`. A `DATABASE_URL` in `.env` or in your shell is ignored.
@@ -300,14 +322,14 @@ under the prefix is the same as the directory layout under `BLOB_DIR`, so for ex
 
 Only for `docker compose up -d --build` or `docker build`:
 
-| Argument          | Default                                   | Notes                                                                                                                                             |
-| ----------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PUBLIC_API_URL`  | `/api`                                    | API URL baked into the web app. `/api` means the same origin.                                                                                     |
-| `REPO_URL`        | `https://github.com/atlastodo/atlas-todo` | The source link on the web app's About screen. If you run modified code, point it at that code: the AGPL asks you to offer your users its source. |
-| `BUN_VERSION`     | `1.4.2`                                   | Bun used to build the web app.                                                                                                                    |
-| `TODO_WEB_FROM`   | `source`                                  | `source` builds the web app from `apps/mobile`; `release` uses a released web build instead (the next two), and skips the source build.           |
-| `TODO_WEB_URL`    | none                                      | With `release`: the `atlas-todo-web-X.Y.Z.tar.gz` asset of a release.                                                                             |
-| `TODO_WEB_SHA256` | none                                      | With `release`: that file's SHA-256 (its `.sha256` asset); the build fails on a mismatch. The PUBLIC_API_URL and REPO_URL arguments do not apply. |
+| Argument          | Default                              | Notes                                                                                                                                             |
+| ----------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PUBLIC_API_URL`  | `/api`                               | API URL baked into the web app. `/api` means the same origin.                                                                                     |
+| `REPO_URL`        | `https://github.com/atlastodo/atlas` | The source link on the web app's About screen. If you run modified code, point it at that code: the AGPL asks you to offer your users its source. |
+| `BUN_VERSION`     | `1.4.2`                              | Bun used to build the web app.                                                                                                                    |
+| `TODO_WEB_FROM`   | `source`                             | `source` builds the web app from `apps/mobile`; `release` uses a released web build instead (the next two), and skips the source build.           |
+| `TODO_WEB_URL`    | none                                 | With `release`: the `atlas-todo-web-X.Y.Z.tar.gz` asset of a release.                                                                             |
+| `TODO_WEB_SHA256` | none                                 | With `release`: that file's SHA-256 (its `.sha256` asset); the build fails on a mismatch. The PUBLIC_API_URL and REPO_URL arguments do not apply. |
 
 Release images pin the web build in `apps.lock.json` when it has a `todo` entry (see
 [repo-split.md](./repo-split.md)); while it is `null` they build it from source.
