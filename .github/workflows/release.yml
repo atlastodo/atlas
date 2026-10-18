@@ -418,7 +418,8 @@ jobs:
               echo "@atlastodo/$pkg@$VERSION is already published."
               continue
             fi
-            npm publish "$file" "${flags[@]}"
+            # "./": npm reads a bare dist/x.tgz as a GitHub owner/repo shorthand.
+            npm publish "./$file" "${flags[@]}"
             echo "Published @atlastodo/$pkg@$VERSION (dist-tag $tag)" >> "$GITHUB_STEP_SUMMARY"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
