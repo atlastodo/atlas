@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-// The third-party code Atlas Todo ships, and its licences.
+// The third-party code Atlas core ships, and its licences.
 //
 // The JavaScript side is every package reachable through `dependencies` (and installed peer and
-// optional dependencies) from the workspace packages that end up in a build: the app, the desktop
-// shell and the shared packages. Dev dependencies (build tools, tests) are not shipped or listed. The
+// optional dependencies) from the core packages (client-core, shared, sdk). Dev dependencies
+// (build tools, tests) are not shipped or listed. The apps keep their own notices: the todo app's
+// release (atlastodo/atlas-todo) attaches its THIRD_PARTY_NOTICES.txt, which the server image
+// carries next to the web build (docker/Dockerfile). The
 // Rust side is the normal (non-dev, non-build) dependency closure of atlas-server and atlas-cli
 // for Linux, from `cargo metadata`.
 //
@@ -19,13 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-const WORKSPACES = [
-  "apps/mobile",
-  "apps/electron",
-  "packages/shared",
-  "packages/client-core",
-  "packages/sdk",
-];
+const WORKSPACES = ["packages/shared", "packages/client-core", "packages/sdk"];
 
 // deny.toml's list, and the permissive licences the shipped JS tree adds (each checked by hand).
 const ALLOW = new Set([
@@ -43,8 +39,7 @@ const ALLOW = new Set([
   "CC0-1.0",
   "Python-2.0",
   "MIT-0",
-  // Weak copyleft, compatible with AGPL (MPL 2.0 section 3.3): lightningcss, through Expo's CSS
-  // tooling; also in deny.toml, for webauthn-rs.
+  // Weak copyleft, compatible with AGPL (MPL 2.0 section 3.3); also in deny.toml, for webauthn-rs.
   "MPL-2.0",
   // Browser-support data, not code: caniuse-lite, through browserslist.
   "CC-BY-4.0",
@@ -84,7 +79,6 @@ function resolveDep(fromDir, name) {
 
 function jsPackages() {
   const seen = new Map(); // realpath -> entry
-  // A build context may hold only some workspaces (the Docker image has no apps/electron).
   const workspaceDirs = new Set(
     WORKSPACES.map((w) => path.join(ROOT, w))
       .filter((d) => fs.existsSync(path.join(d, "package.json")))
@@ -177,11 +171,14 @@ function licenseTexts(dir) {
 
 function writeNotices(file, withRust) {
   const out = [
-    "Atlas Todo third-party notices",
+    "Atlas third-party notices",
     "",
-    "Atlas Todo is licensed under the GNU Affero General Public License v3.0 only. It includes the",
+    "Atlas is licensed under the GNU Affero General Public License v3.0 only. It includes the",
     "third-party software below, each under its own licence. Packages with identical licence texts",
     "share one copy of the text.",
+    "",
+    "The Atlas Todo web app in the server image is a release of https://github.com/atlastodo/atlas-todo",
+    "with its own notices: web/THIRD_PARTY_NOTICES.txt next to this file, also attached to that release.",
     "",
   ];
   const section = (title, pkgs) => {
@@ -200,7 +197,7 @@ function writeNotices(file, withRust) {
       out.push(...names, "", text, "", "-".repeat(78), "");
     }
   };
-  section("JavaScript packages (web, Android and desktop apps)", jsPackages());
+  section("JavaScript packages (the core packages' dependencies)", jsPackages());
   if (withRust) section("Rust crates (the server and the atlas CLI)", rustPackages());
   fs.writeFileSync(file, out.join("\n"));
   console.log(`Wrote ${file} (${(fs.statSync(file).size / 1024).toFixed(0)} KiB)`);

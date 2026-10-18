@@ -27,7 +27,7 @@ the runbook for doing the split.
 | 3. App repository from the filtered history           | to do                                                                                                                                                                                                                                                                                                                                                          |
 | 4. App on pinned core packages                        | to do                                                                                                                                                                                                                                                                                                                                                          |
 | 5. First app release                                  | to do                                                                                                                                                                                                                                                                                                                                                          |
-| 6. Pin the web build in core, remove the app          | to do. Also then: the core half of `apps/mobile/RELEASE.md` → `docs/releasing.md` with core URLs (left alone so far: it lives under `apps/`).                                                                                                                                                                                                                  |
+| 6. Pin the web build in core, remove the app          | **done** (`chore/remove-app`): pinned to atlas-todo v0.1.11-rc.6, `apps/` and the app-only files removed, the image and the flake serve only the pin (the image with the app release's notices), and the core half of `apps/mobile/RELEASE.md` is now `docs/releasing.md`. See [step 6](#6-pin-the-web-build-in-core-and-remove-the-app).                      |
 | 7. Deprecation period                                 | to do: announce the new names in the release notes; unset `IMAGE_ALIASES` after two stable releases; drop the NixOS aliases after that.                                                                                                                                                                                                                        |
 
 ## What is already in place
@@ -41,9 +41,9 @@ These landed before the split and work in the monorepo today:
 | A consumer's view, checked in CI       | `scripts/smoke-core-packages.sh` (Test (TypeScript)): tarball install with `overrides`, Node import, tsc nodenext + bundler                                                                                                      |
 | Package tarballs on every release      | `release.yml` Core packages: `atlastodo-<pkg>-X.Y.Z.tgz`, published to npm when `NPM_TOKEN` is set                                                                                                                               |
 | Web app tarball on every release       | `release.yml` Web app tarball: `atlas-todo-web-X.Y.Z.tar.gz` + `.sha256` (`scripts/web-release-tarball.sh`)                                                                                                                      |
-| Server image from a pinned web build   | `docker/Dockerfile` `TODO_WEB_FROM=release` + `TODO_WEB_URL` + `TODO_WEB_SHA256`; `docker.yml` reads `apps.lock.json`                                                                                                            |
-| Flake web-dist from a pinned web build | `flake.nix`: `web-dist` is a fixed-output fetch of the pin when set; `web-dist-source` keeps the source build                                                                                                                    |
-| Writing a pin                          | `node scripts/pin-app-web.mjs <version> [--repo owner/name]`, `--source` to clear it                                                                                                                                             |
+| Server image from a pinned web build   | `docker/Dockerfile` reads `apps.lock.json` (or `TODO_WEB_URL` + `TODO_WEB_SHA256`); since step 6 the only way                                                                                                                    |
+| Flake web-dist from a pinned web build | `flake.nix`: `web-dist` is a fixed-output fetch of the pin (`web-dist-source` was removed in step 6)                                                                                                                             |
+| Writing a pin                          | `node scripts/pin-app-web.mjs <version> [--repo owner/name]` (since step 6 also the notices; no `--source`)                                                                                                                      |
 | Image under its old name               | `docker.yml` `image-aliases` input / `IMAGE_ALIASES` variable (no-op while unset)                                                                                                                                                |
 
 In this repository the packages are used unbuilt: their `exports` lead with an
@@ -262,6 +262,24 @@ In core, on `dev`:
    (`THIRD_PARTY_NOTICES.txt` there) — ship that file into the image next to the web build, or
    link it from the core notices.
 3. `bun install`, `nix:bun-lock`, `test:all`, `lint`, `nix flake check`.
+
+How it was done (`chore/remove-app`):
+
+- The pin also records the app release's `THIRD_PARTY_NOTICES.txt` (URL and SHA-256, both checked
+  against that release's `SHA256SUMS.txt` by `pin-app-web.mjs`). The Dockerfile's web stage
+  downloads and checks both and ships the notices as
+  `/usr/share/doc/atlas-todo/web/THIRD_PARTY_NOTICES.txt`; the core notices name that file. That
+  keeps the web app's licences inside every image (a local build included), not only behind a
+  link.
+- The Dockerfile reads `apps.lock.json` itself, so `docker.yml` passes no build args and a plain
+  `docker build -f docker/Dockerfile .` serves the pin. `TODO_WEB_FROM`, `REPO_URL`,
+  `PUBLIC_API_URL` and `BUN_VERSION` are gone; `TODO_WEB_URL`/`TODO_WEB_SHA256` (and the
+  optional `TODO_WEB_NOTICES_*`) serve another build.
+- `nixosModules.default` is the server module alone (it used to add the desktop module);
+  `nixosModules.desktop`/`atlas-desktop`, `homeManagerModules` and `packages.atlas-desktop` are
+  gone from core, as is `web-dist-source`. The `bun2nix` input and `nix/bun.nix` stay, unused by
+  any build, so existing `follows` overrides keep evaluating.
+- The root `overrides` and `//audit-known` only concerned the app's tooling and went with it.
 
 ### 7. Deprecation period
 

@@ -1,8 +1,11 @@
 {
-  description = "Atlas: the local-first sync server (NixOS module) and, until the app moves out, the Atlas Todo desktop (NixOS & Home Manager modules)";
+  description = "Atlas: the local-first sync server (package and NixOS module) and the pinned Atlas Todo web build";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # No build here uses it since the todo app moved to atlastodo/atlas-todo. Kept so existing
+    # `inputs.atlas.inputs.bun2nix.follows` overrides and the `nix:bun-lock` devenv script keep
+    # working.
     bun2nix = {
       url = "github:nix-community/bun2nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -13,7 +16,7 @@
     {
       self,
       nixpkgs,
-      bun2nix,
+      ...
     }:
     let
       lib = nixpkgs.lib;
@@ -27,34 +30,16 @@
       # Cargo.toml in lockstep with package.json, so no bump step is needed here.
       version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
 
-      # The pinned app web builds (apps.lock.json, which docker.yml reads too): a "todo" pin makes
-      # atlas-web-dist that release asset instead of a build of apps/mobile.
-      appsLock =
-        if builtins.pathExists ./apps.lock.json then
-          builtins.fromJSON (builtins.readFile ./apps.lock.json)
-        else
-          { };
-      todoWebPin = appsLock.todo or null;
+      # The pinned app web build (the "todo" pin of apps.lock.json, which docker/Dockerfile reads
+      # too): a release asset of atlastodo/atlas-todo, set with scripts/pin-app-web.mjs.
+      todoWebPin =
+        (builtins.fromJSON (builtins.readFile ./apps.lock.json)).todo
+          or (throw "apps.lock.json has no todo pin: run scripts/pin-app-web.mjs <version>");
 
-      # Adds atlas-server, atlas-web-dist(-source) and atlas-desktop to a package set.
+      # Adds atlas-server and atlas-web-dist to a package set.
       overlay = final: _prev: {
         atlas-server = final.callPackage ./nix/packages/atlas-server.nix { inherit version; };
-        atlas-web-dist-source = final.callPackage ./nix/packages/web-dist.nix {
-          inherit version;
-          bun2nix = bun2nix.packages.${final.stdenv.hostPlatform.system}.default;
-        };
-        atlas-web-dist =
-          if todoWebPin != null then
-            final.callPackage ./nix/packages/web-dist-pinned.nix { pin = todoWebPin; }
-          else
-            final.atlas-web-dist-source;
-        # Always the source build: the pinned asset is built for a server (its API at /api on the
-        # page's origin), while the desktop app asks for a server at sign-in.
-        atlas-desktop = final.callPackage ./nix/packages/atlas-desktop.nix {
-          inherit version;
-          bun2nix = bun2nix.packages.${final.stdenv.hostPlatform.system}.default;
-          atlas-web-dist = final.atlas-web-dist-source;
-        };
+        atlas-web-dist = final.callPackage ./nix/packages/web-dist-pinned.nix { pin = todoWebPin; };
       };
 
       pkgsFor = system: nixpkgs.legacyPackages.${system}.extend overlay;
@@ -81,9 +66,9 @@
           pkgs = pkgsFor system;
         in
         {
-          inherit (pkgs) atlas-server atlas-desktop;
+          inherit (pkgs) atlas-server;
+          # What a services.atlas.staticDir points at.
           web-dist = pkgs.atlas-web-dist;
-          web-dist-source = pkgs.atlas-web-dist-source;
           default = pkgs.atlas-server;
         }
       );
@@ -101,28 +86,9 @@
           ];
         };
 
-        # programs.atlas-desktop
-        desktop = withPackage ./nix/desktop-nixos-module.nix [
-          "programs"
-          "atlas-desktop"
-        ] "atlas-desktop";
-        atlas-desktop = desktop;
-
-        default = {
-          imports = [
-            server
-            desktop
-          ];
-        };
-      };
-
-      homeManagerModules = rec {
-        desktop = withPackage ./nix/desktop-home-manager-module.nix [
-          "programs"
-          "atlas-desktop"
-        ] "atlas-desktop";
-        atlas-desktop = desktop;
-        default = desktop;
+        # The server module alone. The desktop modules (programs.atlas-desktop) moved to the app's
+        # flake, github:atlastodo/atlas-todo, with the app.
+        default = server;
       };
 
       checks = forAllSystems (
@@ -131,7 +97,7 @@
           pkgs = pkgsFor system;
         in
         {
-          inherit (self.packages.${system}) atlas-server atlas-desktop web-dist;
+          inherit (self.packages.${system}) atlas-server web-dist;
 
           # Boots a VM with the server module and exercises it end to end.
           server-vm = pkgs.testers.runNixOSTest (
@@ -167,27 +133,6 @@
             assert warned "nixosModules.atlas-todo";
             pkgs.runCommand "server-module-rename-eval" { } ''
               echo "services.atlas-todo -> services.atlas: ${config.services.atlas.package}"
-              touch "$out"
-            '';
-
-          home-manager-module-eval =
-            let
-              eval = lib.evalModules {
-                specialArgs = { inherit pkgs; };
-                modules = [
-                  {
-                    options.home.packages = lib.mkOption {
-                      type = lib.types.listOf lib.types.package;
-                      default = [ ];
-                    };
-                  }
-                  self.homeManagerModules.default
-                  { programs.atlas-desktop.enable = true; }
-                ];
-              };
-            in
-            pkgs.runCommand "hm-module-eval-test" { } ''
-              echo "HM Desktop package: ${builtins.elemAt eval.config.home.packages 0}"
               touch "$out"
             '';
         }

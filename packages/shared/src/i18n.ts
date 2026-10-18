@@ -12,7 +12,7 @@ import pt from "./locales/pt.json";
  * The translation catalogs and offered languages, shared so apps cannot drift. Only data lives
  * here; each app runs its own i18next `init`. English is the base and fallback. Catalogs stay JSON
  * because the ESLint rule banning unicode glyphs targets `.ts`/`.tsx`. A new UI string needs its
- * key in every catalog (`keys.test.ts` in apps/mobile checks). `pt` is Brazilian Portuguese.
+ * key in every catalog (`keys.test.ts` in the app repository's apps/mobile checks). `pt` is Brazilian Portuguese.
  */
 export const resources = {
   en: { translation: en },

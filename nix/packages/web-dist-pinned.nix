@@ -1,8 +1,7 @@
-# The web SPA from a pinned release asset instead of a source build: the
-# "todo" pin of apps.lock.json ({ version, url, sha256 }), an
-# atlas-todo-web-X.Y.Z.tar.gz holding one top-level directory of static files.
-# The flake's web-dist is this whenever the pin is set (the source build stays
-# available as web-dist-source); the server image reads the same pin.
+# The web SPA from a pinned release asset of atlastodo/atlas-todo (the app is
+# not built here): the "todo" pin of apps.lock.json ({ version, url, sha256 }),
+# an atlas-todo-web-X.Y.Z.tar.gz holding one top-level directory of static
+# files. It is the flake's web-dist; the server image reads the same pin.
 {
   lib,
   stdenvNoCC,

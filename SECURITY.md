@@ -16,7 +16,9 @@ Atlas Todo has one maintainer, who reads every report.
 
 - **Within 7 days:** an acknowledgement in the advisory.
 - **Within 14 days:** an assessment: whether it is a vulnerability, how severe (CVSS), and a plan.
-- **The fix** ships in a patch release (a new Docker tag, APK and desktop tarball). The advisory
+- **The fix** ships in a patch release (a new Docker tag, CLI binaries and packages here; an APK
+  and desktop tarball from [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo) when
+  the app is affected). The advisory
   is then published on GitHub, with a CVE requested through GitHub when it applies, and linked
   from the release notes. Self-hosters learn of it there and from GitHub's security alerts.
 - **Disclosure:** please keep the details private until the fix is released, or for 90 days from
@@ -31,30 +33,34 @@ The design and the code have not had an independent security audit.
 
 ## Verifying a release
 
-Release files (APK, AAB, desktop tarball) and the container image carry GitHub build provenance
-attestations, which show they were built by this repository's release workflow from the tagged
-commit:
+Release files (the CLI binaries and the package tarballs) and the container image carry GitHub
+build provenance attestations, which show they were built by this repository's release workflow
+from the tagged commit. The app files (APK, AAB, desktop tarball, web tarball) are released and
+attested by the app repository:
 
 ```sh
-gh attestation verify atlas-todo-X.Y.Z.apk --repo atlastodo/atlas-todo
 gh attestation verify oci://ghcr.io/atlastodo/atlas:X.Y.Z --repo atlastodo/atlas
+gh attestation verify atlas-X.Y.Z-x86_64-unknown-linux-musl --repo atlastodo/atlas
+gh attestation verify atlas-todo-X.Y.Z.apk --repo atlastodo/atlas-todo
 ```
 
 The attestation is on the GitHub Container Registry image; the Docker Hub mirror is the same
-image but carries none. This repository was `atlastodo/atlas-todo` until it was renamed to
-`atlastodo/atlas`, and the app files (APK, AAB, desktop tarball) are moving to a new
-`atlastodo/atlas-todo` app repository, hence the two `--repo` values above. `--repo` names the
-repository that built the file: anything released before the rename verifies with
-`atlastodo/atlas-todo`, and an app file this repository released after it with `atlastodo/atlas`.
-Each release also lists `SHA256SUMS.txt`, which the desktop app checks before it installs an
-update, and the image carries an SBOM. Releases before 0.1.10 have no attestations.
+image but carries none. The web app inside the image is a release of the app repository, pinned
+by its SHA-256 in `apps.lock.json`. This repository was `atlastodo/atlas-todo` until it was
+renamed to `atlastodo/atlas`. `--repo` names the repository that built the file: anything
+released before the rename verifies with `atlastodo/atlas-todo`, and an app file this repository
+released between the rename and the split with `atlastodo/atlas`. Each release also lists
+`SHA256SUMS.txt`, and the image carries an SBOM. Releases before 0.1.10 have no attestations.
 
 ## Scope
 
 - The server (`crates/atlas-server`): authentication and sessions, key distribution, sync,
   attachments and the admin API.
-- The clients: local stores, the sync client and the encryption (`packages/client-core`,
-  `apps/mobile`, `apps/electron`).
+- The client core: local stores, the sync client and the encryption (`packages/client-core`,
+  `crates/atlas-client`), and the `atlas` CLI.
+- The apps (`apps/mobile`, `apps/electron` in
+  [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo)): report them there, or here if
+  you are not sure which side a problem is on.
 - The container image and compose setup (`docker/`, `compose.yaml`).
 
 ## Threat model

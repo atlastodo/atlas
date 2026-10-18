@@ -13,18 +13,10 @@ devenv.local.yaml
 /target
 **/*.rs.bk
 
-# The jest cache CI keeps inside the checkout; Prettier skips it via this file, ESLint via its own
-# ignores.
-/.jest-cache/
-
-# Node / Bun / frontend
+# Node / Bun
 node_modules/
 dist/
-dist-desktop/
 dist-packages/
-dist-web/
-atlas-desktop-*.tar.gz
-atlas-todo-web-*.tar.gz
 # A core package's pack output (scripts/build-core-package.mjs): its tarball, the fixtures copied
 # from test-vectors/ and the copied licence. dist/ is covered above.
 atlastodo-*.tgz
@@ -33,7 +25,6 @@ atlastodo-*.tgz
 # nix build outputs
 result
 result-*
-.vite/
 *.tsbuildinfo
 bun.lockb.tmp
 
@@ -44,17 +35,9 @@ bun.lockb.tmp
 !.env.example
 *.local
 
-# Android (signing keystores never belong in the repo)
-.android/
+# Signing keystores never belong in the repo
 *.jks
 *.keystore
-local.properties
-*.apk
-*.aab
-apps/mobile/android/
-apps/mobile/ios/
-# A local native Android project, never tracked.
-apps/android/
 
 # OS / editor
 .DS_Store

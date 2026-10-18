@@ -44,8 +44,10 @@ env:
     org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}/blob/main/docs/self-hosting.md
 
 jobs:
-  # The licences of the third-party code in the image (the server's crates and the web app's
-  # packages), as /usr/share/doc/atlas-todo/THIRD_PARTY_NOTICES.txt. A release also attaches it.
+  # The licences of the third-party code core ships (the server's and the CLI's crates, the core
+  # packages' dependencies), as /usr/share/doc/atlas-todo/THIRD_PARTY_NOTICES.txt. A release also
+  # attaches it. The web app's notices come from its own release (docker/Dockerfile puts them in
+  # /usr/share/doc/atlas-todo/web/).
   notices:
     name: Third-party notices
     runs-on: ubuntu-24.04
@@ -95,22 +97,11 @@ jobs:
         # GHCR names must be lowercase (Owner/Repo -> ghcr.io/owner/repo); a fork
         # publishes under its own owner automatically.
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      # The web app: built from apps/mobile (the default), or, when apps.lock.json pins "todo"
-      # (a url and sha256), that release asset, downloaded and verified by docker/Dockerfile.
+      # The web app is the "todo" pin in apps.lock.json (a release of atlastodo/atlas-todo), which
+      # docker/Dockerfile downloads and verifies itself.
       - name: Web app pin
-        id: web
         run: |
-          {
-            echo "args<<BUILD_ARGS"
-            if [ -f apps.lock.json ] && jq -e '.todo.url // empty' apps.lock.json >/dev/null; then
-              jq -er '"TODO_WEB_FROM=release", "TODO_WEB_URL=\(.todo.url)", "TODO_WEB_SHA256=\(.todo.sha256 // error("apps.lock.json: todo has a url but no sha256"))"' apps.lock.json || exit 1
-              jq -r '"Web app: the pinned todo \(.todo.version) web build (\(.todo.url))"' apps.lock.json >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "TODO_WEB_FROM=source"
-              echo "Web app: built from apps/mobile" >> "$GITHUB_STEP_SUMMARY"
-            fi
-            echo "BUILD_ARGS"
-          } >> "$GITHUB_OUTPUT"
+          jq -er '"Web app: the pinned todo \(.todo.version) web build (\(.todo.url))"' apps.lock.json >> "$GITHUB_STEP_SUMMARY"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -140,13 +131,8 @@ jobs:
           # BuildKit's SLSA provenance (with the build's full inputs) and an SBOM, attached to the image.
           provenance: mode=max
           sbom: true
-          # The web app's About screen links to the source it was built from (a source build), and
-          # the web app pin above.
-          build-args: |
-            REPO_URL=${{ github.server_url }}/${{ github.repository }}
-            ${{ steps.web.outputs.args }}
           # Registry cache, not type=gha: Actions caches written on a tag ref are invisible to the
-          # next tag, so only a registry cache carries the cargo/bun layers between builds. Release
+          # next tag, so only a registry cache carries the cargo layers between builds. Release
           # and dev builds share it.
           cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.arch }},mode=max,ignore-error=true
