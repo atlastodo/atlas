@@ -14,7 +14,7 @@
     },
     "apps/electron": {
       "name": "@atlastodo/electron",
-      "version": "0.1.11-rc.2",
+      "version": "0.1.11-rc.3",
       "devDependencies": {
         "@types/node": "^26.6.5",
         "electron": "^44.7.0",
@@ -24,7 +24,7 @@
     },
     "apps/mobile": {
       "name": "@atlastodo/mobile",
-      "version": "0.1.11-rc.2",
+      "version": "0.1.11-rc.3",
       "dependencies": {
         "@atlastodo/client-core": "workspace:*",
         "@atlastodo/shared": "workspace:*",
@@ -97,7 +97,7 @@
     },
     "packages/client-core": {
       "name": "@atlastodo/client-core",
-      "version": "0.1.11-rc.2",
+      "version": "0.1.11-rc.3",
       "dependencies": {
         "@noble/ciphers": "^2.4.0",
         "@noble/curves": "^2.4.0",
@@ -113,7 +113,7 @@
     },
     "packages/sdk": {
       "name": "@atlastodo/sdk",
-      "version": "0.1.11-rc.2",
+      "version": "0.1.11-rc.3",
       "dependencies": {
         "@atlastodo/client-core": "workspace:*",
         "@atlastodo/shared": "workspace:*",
@@ -126,7 +126,7 @@
     },
     "packages/shared": {
       "name": "@atlastodo/shared",
-      "version": "0.1.11-rc.2",
+      "version": "0.1.11-rc.3",
       "dependencies": {
         "@atlastodo/client-core": "workspace:*",
         "@noble/hashes": "^2.4.0",

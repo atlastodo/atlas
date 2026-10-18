@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/atlas-core", "crates/atlas-server", "crates/atlas-client", "crates/atlas-cli"]
 
 [workspace.package]
-version = "0.1.11-rc.2"
+version = "0.1.11-rc.3"
 edition = "2021"
 license = "AGPL-3.0-only"
 repository = "https://github.com/atlastodo/atlas-todo"
