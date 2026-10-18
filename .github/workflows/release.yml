@@ -389,6 +389,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          PRIVATE_REPO: ${{ github.event.repository.private }}
+          REPOSITORY: ${{ github.repository }}
+        # client-core first: shared and sdk depend on it (and sdk on shared) at exactly $VERSION.
         run: |
           if [ -z "$NODE_AUTH_TOKEN" ]; then
             echo "NPM_TOKEN is not set: skipping the npm publish."
@@ -396,12 +399,27 @@ jobs:
           fi
           tag=latest
           if [ "$PRERELEASE" = true ]; then tag=next; fi
+          # npm signs provenance only for a public repository, and checks that the package's
+          # repository.url names the repository the workflow runs in.
+          flags=(--access public --tag "$tag")
+          if [ "$PRIVATE_REPO" = true ]; then
+            echo "::warning::A private repository gets no npm provenance; publishing without it."
+          else
+            flags+=(--provenance)
+          fi
           for pkg in client-core shared sdk; do
+            file="dist/atlastodo-$pkg-$VERSION.tgz"
+            repo="$(tar -xzOf "$file" package/package.json | jq -r '.repository.url')"
+            if [ "$PRIVATE_REPO" != true ] && [[ "$repo" != "git+https://github.com/$REPOSITORY.git" ]]; then
+              echo "::error::$file has repository.url $repo, not git+https://github.com/$REPOSITORY.git: npm would refuse its provenance."
+              exit 1
+            fi
             if npm view "@atlastodo/$pkg@$VERSION" version >/dev/null 2>&1; then
               echo "@atlastodo/$pkg@$VERSION is already published."
               continue
             fi
-            npm publish "dist/atlastodo-$pkg-$VERSION.tgz" --access public --provenance --tag "$tag"
+            npm publish "$file" "${flags[@]}"
+            echo "Published @atlastodo/$pkg@$VERSION (dist-tag $tag)" >> "$GITHUB_STEP_SUMMARY"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
