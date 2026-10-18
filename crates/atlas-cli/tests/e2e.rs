@@ -1,7 +1,8 @@
 //! The `atlas` binary end to end against a real server on the Postgres in `TEST_DATABASE_URL`: an
 //! account signs up with real keys, makes an API token as the app does, and the CLI reads and
 //! writes its tasks over HTTP. A second token session checks that the server only ever held
-//! ciphertext that the account's keys open.
+//! ciphertext that the account's keys open. A journal-only token does the same with Atlas Journal
+//! entries, and a token or server without the app is refused with a JSON error.
 
 use std::net::SocketAddr;
 use std::process::Command;
@@ -9,7 +10,8 @@ use std::process::Command;
 use atlas_client::api::{ApiClient, UreqTransport};
 use atlas_client::client::{AtlasClient, TaskQuery};
 use atlas_client::crypto::{
-    format_api_token, generate_api_token, random_bytes, wrap_keys_for_api_token, x25519_public_key,
+    decrypt_field, format_api_token, generate_api_token, random_bytes, wrap_app_keys_for_api_token,
+    wrap_keys_for_api_token, x25519_public_key, FieldEnvelope, FieldLocation, KeyScope,
 };
 use atlas_client::session::ConnectOptions;
 use atlas_server::{app, config::Config, db, state::AppState};
@@ -23,6 +25,12 @@ fn test_database_url() -> String {
 
 /// Serve a fresh app on a free port from a background runtime; returns its base URL.
 fn start_server() -> String {
+    start_server_with(&["todo"])
+}
+
+/// [`start_server`] for an instance offering `apps` (`ATLAS_APPS`).
+fn start_server_with(apps: &[&str]) -> String {
+    let apps: Vec<String> = apps.iter().map(|a| a.to_string()).collect();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -48,7 +56,7 @@ fn start_server() -> String {
                 blob_quota_bytes: 1024 * 1024 * 1024,
                 blob_gc_grace_days: 7,
                 max_blob_transfers: 16,
-                apps: vec!["todo".into()],
+                apps,
                 static_dir: None,
             };
             let pool = db::connect(&test_database_url())
@@ -237,4 +245,206 @@ fn the_cli_reads_and_writes_tasks_on_a_real_server() {
     let (code, _, err) = atlas(&base, &other, &["tasks", "list"]);
     assert_eq!(code, 1);
     assert!(err.contains("\"status\":401"), "{err}");
+}
+
+/// Sign up a current account (a root key and the todo key under it), enable Atlas Journal as the
+/// app does (its key under the root, then the app), and make a journal-only API token carrying the
+/// journal key and identity. Returns the token string and the journal key.
+fn account_with_journal_token(base: &str) -> (String, [u8; 32]) {
+    let api = ApiClient::new(base, Box::new(UreqTransport::default()));
+    let user_id = Uuid::new_v4().to_string();
+    let signup = api
+        .request(
+            "POST",
+            "/auth/signup",
+            Some(&json!({
+                "email": format!("cli-journal-{}@example.com", Uuid::now_v7()),
+                "password": hex::encode(random_bytes::<32>()),
+                "salt": hex::encode(random_bytes::<16>()),
+                "public_key": x25519_public_key(&random_bytes()),
+                "recovery_public_key": x25519_public_key(&random_bytes()),
+                "encrypted_dek": wrapped(),
+                "encrypted_private_key": wrapped(),
+                "recovery_encrypted_dek": wrapped(),
+                "recovery_encrypted_private_key": wrapped(),
+                "user_id": user_id,
+                "encrypted_root_key": wrapped(),
+                "recovery_encrypted_root_key": wrapped(),
+                "app_keys": [{ "app": "todo", "wrapped_key": wrapped(), "wrapped_private_key": wrapped() }],
+            })),
+        )
+        .expect("signs up");
+    api.set_token(Some(signup["access_token"].as_str().unwrap().to_owned()));
+    api.request(
+        "PUT",
+        "/auth/app-keys/journal",
+        Some(&json!({ "wrapped_key": wrapped(), "wrapped_private_key": wrapped() })),
+    )
+    .expect("stores the journal key");
+    api.request("PUT", "/auth/apps/journal", None)
+        .expect("enables journal");
+
+    let journal_key: [u8; 32] = random_bytes();
+    let journal_private: [u8; 32] = random_bytes();
+    let token = generate_api_token();
+    let wraps =
+        wrap_app_keys_for_api_token(&token, &user_id, "journal", &journal_key, &journal_private)
+            .unwrap();
+    let auth = atlas_client::crypto::derive_api_token_keys(&token).auth;
+    let made = api
+        .request(
+            "POST",
+            "/auth/api-tokens",
+            Some(&json!({
+                "id": token.id, "name": "journal e2e", "auth": auth,
+                "apps": ["journal"], "app_keys": { "journal": wraps },
+            })),
+        )
+        .expect("creates a journal token");
+    assert_eq!(made["apps"], json!(["journal"]));
+    (format_api_token(&token), journal_key)
+}
+
+#[test]
+fn the_cli_writes_journal_entries_with_a_journal_only_token() {
+    let base = start_server_with(&["todo", "journal"]);
+    let (token, journal_key) = account_with_journal_token(&base);
+
+    let (code, added, err) = atlas(
+        &base,
+        &token,
+        &[
+            "journal",
+            "entries",
+            "add",
+            "--date",
+            "2026-10-17",
+            "--title",
+            "Harbour walk",
+            "--body",
+            "Fog over the water.",
+            "--mood",
+            "4",
+            "--tag",
+            "walks",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(added["title"], "Harbour walk");
+    assert_eq!(added["mood"], 4);
+    assert_eq!(added["tags"], json!(["walks"]));
+    let id = added["id"].as_str().unwrap().to_owned();
+
+    let (code, _, err) = atlas(
+        &base,
+        &token,
+        &[
+            "journal",
+            "entries",
+            "add",
+            "--json",
+            r#"{"date": "2026-10-16", "body": "From n8n", "tags": ["n8n"]}"#,
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    let (code, listed, err) = atlas(&base, &token, &["journal", "entries", "list"]);
+    assert_eq!(code, 0, "{err}");
+    let dates: Vec<&str> = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["date"].as_str().unwrap())
+        .collect();
+    assert_eq!(dates, ["2026-10-17", "2026-10-16"]);
+
+    let (code, updated, err) = atlas(
+        &base,
+        &token,
+        &[
+            "journal",
+            "entries",
+            "update",
+            &id,
+            "--body",
+            "Fog, then sun.",
+            "--mood",
+            "none",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(updated["body"], "Fog, then sun.");
+    assert!(updated["mood"].is_null());
+    let (code, got, _) = atlas(&base, &token, &["journal", "entries", "get", &id]);
+    assert_eq!(code, 0);
+    assert_eq!(got["body"], "Fog, then sun.");
+    let (code, _, err) = atlas(&base, &token, &["journal", "entries", "delete", &id]);
+    assert_eq!(code, 0, "{err}");
+    let (_, listed, _) = atlas(
+        &base,
+        &token,
+        &["journal", "entries", "list", "--tag", "walks"],
+    );
+    assert_eq!(listed, json!([]));
+
+    // Another session opens what the CLI wrote; the server held only ciphertext under the journal
+    // key, as journal.entry ops.
+    let mut opts = ConnectOptions::new(&base, &token);
+    opts.app = "journal".into();
+    let client = AtlasClient::connect(opts).expect("a journal session connects");
+    assert_eq!(client.journal_entry(&id).unwrap().body, "Fog, then sun.");
+    let pulled = client
+        .session()
+        .api
+        .request("GET", "/sync/pull?since=0", None)
+        .unwrap();
+    let raw = pulled.to_string();
+    assert!(!raw.contains("Harbour") && !raw.contains("Fog") && !raw.contains("walks"));
+    let ops = pulled["operations"].as_array().unwrap();
+    assert!(!ops.is_empty());
+    for op in ops {
+        assert_eq!(op["entity"], "journal.entry");
+        let envelope = FieldEnvelope::from_value(&op["value"]).expect("encrypted");
+        let at = FieldLocation {
+            entity: "journal.entry",
+            entity_id: op["entity_id"].as_str().unwrap(),
+            field: op["field"].as_str().unwrap(),
+        };
+        assert!(decrypt_field(&journal_key, &KeyScope::Personal, at, &envelope).is_ok());
+    }
+
+    // The token carries no todo key: todo commands fail with a clear JSON error, before any sync.
+    for args in [&["tasks", "list"][..], &["todo", "projects", "list"]] {
+        let (code, _, err) = atlas(&base, &token, args);
+        assert_eq!(code, 1, "{args:?}");
+        let line: Value = serde_json::from_str(err.trim()).expect("a JSON error");
+        assert_eq!(line["code"], "app_not_in_token", "{err}");
+        assert!(
+            line["error"].as_str().unwrap().contains("Atlas Todo"),
+            "{err}"
+        );
+    }
+}
+
+#[test]
+fn journal_commands_need_a_token_and_a_server_with_journal() {
+    // A todo token on a server offering journal: refused with a JSON error naming the app.
+    let base = start_server_with(&["todo", "journal"]);
+    let token = account_with_token(&base);
+    let (code, _, err) = atlas(&base, &token, &["journal", "entries", "list"]);
+    assert_eq!(code, 1);
+    let line: Value = serde_json::from_str(err.trim()).expect("a JSON error");
+    assert_eq!(line["code"], "app_not_in_token", "{err}");
+    assert!(
+        line["error"].as_str().unwrap().contains("Atlas Journal"),
+        "{err}"
+    );
+
+    // A server that does not offer journal.
+    let todo_only = start_server_with(&["todo"]);
+    let token = account_with_token(&todo_only);
+    let (code, _, err) = atlas(&todo_only, &token, &["journal", "entries", "list"]);
+    assert_eq!(code, 1);
+    let line: Value = serde_json::from_str(err.trim()).expect("a JSON error");
+    assert_eq!(line["code"], "server_incompatible", "{err}");
+    assert!(line["error"].as_str().unwrap().contains("journal"), "{err}");
 }

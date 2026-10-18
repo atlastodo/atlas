@@ -16,6 +16,7 @@
 //!   [`drop_for_legacy_write`] then removes the root (the next new client re-creates it), unless an
 //!   app other than `todo` holds a key, whose loss would be data loss.
 
+use atlas_core::Registry;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -66,6 +67,30 @@ pub fn validate_app(app: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// An app id this build bundles (`Registry::bundled`); 400 for any other.
+pub fn validate_bundled_app(app: &str) -> AppResult<()> {
+    validate_app(app)?;
+    if Registry::bundled().app(app).is_none() {
+        return Err(AppError::BadRequest(format!(
+            "{app} is not an app this server bundles"
+        )));
+    }
+    Ok(())
+}
+
+/// A bundled app the instance offers (`ATLAS_APPS`): 400 for an id the build does not bundle, 403
+/// `app_not_enabled` with scope `instance` for one the instance has off.
+pub fn check_offered_app(state: &AppState, app: &str) -> AppResult<()> {
+    validate_bundled_app(app)?;
+    if !state.config.apps.iter().any(|a| a == app) {
+        return Err(AppError::AppNotEnabled {
+            app: app.to_owned(),
+            scope: "instance",
+        });
+    }
+    Ok(())
+}
+
 /// A wrapped key: an object with string `iv` and `ct` and nothing large.
 pub fn validate_wrap(field: &str, value: &Value) -> AppResult<()> {
     let shaped = value.as_object().is_some_and(|o| {
@@ -97,7 +122,7 @@ pub fn validate_app_keys(keys: &[AppKeyInput]) -> AppResult<()> {
         return Err(AppError::BadRequest("too many app keys".into()));
     }
     for (i, key) in keys.iter().enumerate() {
-        validate_app(&key.app)?;
+        validate_bundled_app(&key.app)?;
         validate_wrap("wrapped_key", &key.wrapped_key)?;
         if let Some(private_key) = &key.wrapped_private_key {
             validate_wrap("wrapped_private_key", private_key)?;
@@ -391,14 +416,16 @@ pub struct PutAppKeyRequest {
 }
 
 /// `PUT /auth/app-keys/:app`: store a new app's key, wrapped under the root key. Set once: an app
-/// that has a key is 409 `key_already_stored`. Needs a migrated account.
+/// that has a key is 409 `key_already_stored`. Needs a migrated account. Only for an app this
+/// build bundles (400 otherwise) and the instance offers (403 `app_not_enabled`, scope
+/// `instance`): a key row for any other id would sit under the root with nothing to use it.
 pub async fn put_app_key(
     State(state): State<AppState>,
     InteractiveAuthUser(user): InteractiveAuthUser,
     Path(app): Path<String>,
     Json(req): Json<PutAppKeyRequest>,
 ) -> AppResult<StatusCode> {
-    validate_app(&app)?;
+    check_offered_app(&state, &app)?;
     validate_wrap("wrapped_key", &req.wrapped_key)?;
     if let Some(private_key) = &req.wrapped_private_key {
         validate_wrap("wrapped_private_key", private_key)?;
@@ -470,8 +497,10 @@ mod tests {
             wrapped_private_key: None,
         };
         assert!(validate_app_keys(&[key("todo")]).is_ok());
-        assert!(validate_app_keys(&[key("todo"), key("notes")]).is_ok());
-        assert!(validate_app_keys(&[key("notes")]).is_err());
+        assert!(validate_app_keys(&[key("todo"), key("journal")]).is_ok());
+        // Only apps this build bundles.
+        assert!(validate_app_keys(&[key("todo"), key("notes")]).is_err());
+        assert!(validate_app_keys(&[key("journal")]).is_err());
         assert!(validate_app_keys(&[key("todo"), key("todo")]).is_err());
         assert!(validate_app_keys(&[]).is_err());
     }

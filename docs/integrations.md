@@ -96,6 +96,49 @@ How the arguments are read:
   milliseconds, `today`, `tomorrow`, or `none`.
 - **Projects and labels** can be given by name (case-insensitive) or by id.
 
+### Atlas Journal
+
+On a server that offers Atlas Journal (`ATLAS_APPS=todo,journal`), the CLI also reads and writes
+journal entries. Journal commands always start with `journal`, and they need a token that
+includes Atlas Journal (see [App-scoped tokens](#app-scoped-tokens)):
+
+```sh
+atlas journal entries list [--from DAY] [--to DAY] [--tag T] [--search TEXT]
+atlas journal entries get 0192…
+atlas journal entries add --title "Harbour walk" --body "Fog over the water." --mood 4 --tag walks
+atlas journal entries add --json '{"date": "2026-10-16", "body": "From a form", "tags": ["n8n"]}'
+atlas journal entries update 0192… --date yesterday --mood none
+atlas journal entries delete 0192…   # to the trash: deleted_at is set, list leaves it out
+```
+
+`DAY` is `YYYY-MM-DD`, `today`, `yesterday` or `tomorrow` (in `ATLAS_TZ`). `list` shows entries
+outside the trash, newest date first; `--from` and `--to` are inclusive, `--tag` is
+case-insensitive and `--search` matches the title or body. `add` and `update` take flags or a
+`--json` object with the same keys (`date`, `title`, `body`, `mood`, `tags`); a flag wins over
+`--json`. `--tag` may be repeated, and on `update` it replaces the list. `--mood none` (or
+`"mood": null`) clears the mood, `"tags": []` the tags.
+
+An entry (`journal.entry`) is printed, and stored, with these fields:
+
+| Field        | Value                                                          |
+| ------------ | -------------------------------------------------------------- |
+| `id`         | the entry's id (a UUID)                                        |
+| `date`       | the day the entry is about, `YYYY-MM-DD`; today when not given |
+| `title`      | text, may be empty                                             |
+| `body`       | text, may be empty; an entry needs a title or a body           |
+| `mood`       | 1 (awful) to 5 (great), or `null`                              |
+| `tags`       | a list of strings, trimmed, without repeats (case-insensitive) |
+| `created_at` | unix milliseconds                                              |
+| `updated_at` | unix milliseconds of the last change                           |
+| `deleted_at` | unix milliseconds once in the trash, else `null`               |
+
+Every field is end-to-end encrypted: `manifests/journal.json` lists no plaintext field for
+`journal.entry`, so the server sees only ids and ciphertext. A journal command on a token without
+Atlas Journal fails with `{"error": "this API token is not for Atlas Journal …", "code":
+"app_not_in_token"}`, as does a todo command on a journal-only token; a server that does not offer
+journal fails with `server_incompatible`. With `ATLAS_STATE_DIR` each app keeps its own file
+there.
+
 Each run signs in, downloads and decrypts the account, then exits. That takes about a second for
 a typical account, and longer for a very large one. With `ATLAS_STATE_DIR` set, a run keeps the
 account there and the next one downloads only what changed. The file is encrypted under a key
@@ -167,9 +210,26 @@ id is the token's id. With the DEK the client opens the account's signing key an
 projects' keys, just as a signed-in device does. See
 [architecture.md](./architecture.md#api-tokens) for the server side.
 
-A token is scoped to apps. The tokens the app makes are todo tokens, and their sessions sync todo
-only. A server with the `app_scoped_api_tokens` capability also accepts tokens for another app of
-the suite (Atlas Journal): the token then carries that app's key and identity in `app_keys`
-instead of, or next to, the DEK, the session response lists its `apps`, and the client names the
-app in the `x-atlas-sync-apps` header of its sync requests
-([sync-protocol.md](./sync-protocol.md#app-scope)).
+### App-scoped tokens
+
+A token is scoped to apps. The tokens Atlas Todo's settings make are todo tokens, and their
+sessions sync todo only. A server with the `app_scoped_api_tokens` capability also accepts tokens
+for another app of the suite (Atlas Journal), made by a client of that app with
+`POST /auth/api-tokens` and `"apps": ["journal"]` (or `["todo", "journal"]`) once the account has
+enabled it:
+
+- The session response lists the token's `apps`. It carries the todo wraps (`wrapped_dek`,
+  `wrapped_private_key`) exactly when the token is for todo, and every other app's key and X25519
+  identity in `app_keys`: `{"journal": {"wrapped_key": …, "wrapped_private_key": …}}`, wrapped
+  under the same `atlas-pat-wrap-v1` key with the slots `app_key:<app>` and
+  `app_private_key:<app>` in the associated data (`["atlas-pat-wrap", 1, user_id, token_id,
+slot]`; `test-vectors/api_token_vectors.json` has a journal entry).
+- A client syncs one app per session and names it in the `x-atlas-sync-apps` header of every
+  `/sync/*` request ([sync-protocol.md](./sync-protocol.md#app-scope)); naming an app the token
+  is not for is 403 `app_not_enabled`, scope `token`. The CLI sends `todo` for its todo commands
+  and `journal` for its journal commands, and checks the session's `apps` first, so a token
+  without the app fails before any sync.
+- In a journal session the journal app key does what the DEK does for todo: each field value is a
+  personal-scope field envelope (`{"__enc": 2, "kid": "dek", …}`, associated data naming the kind
+  `journal.entry`, the entity, the field and the scope `personal`) under the journal key. There
+  are no shared projects, project keys or legacy values in a journal session.

@@ -8,8 +8,8 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, Transport, UreqTransport};
 use crate::crypto::{
-    derive_api_token_keys, parse_api_token, unwrap_api_token_keys, unwrap_signing_key,
-    ApiTokenParts, Keyring,
+    derive_api_token_keys, parse_api_token, unwrap_api_token_app_keys, unwrap_api_token_keys,
+    unwrap_signing_key, x25519_public_key, ApiTokenParts, Keyring, TODO_APP,
 };
 use crate::discovery::{describe_incompatibility, server_incompatibility, ServerRequirements};
 use crate::error::{Error, Result};
@@ -35,6 +35,9 @@ pub struct ConnectOptions {
     pub store: Option<Box<dyn FnOnce(Uuid) -> Store>>,
     /// Where the synced account is cached between runs ([`crate::state`]).
     pub state_dir: Option<PathBuf>,
+    /// The app this session syncs (`todo`, `journal`): its key opens the session's data, and every
+    /// sync request names it in `x-atlas-sync-apps`.
+    pub app: String,
 }
 
 impl ConnectOptions {
@@ -47,8 +50,16 @@ impl ConnectOptions {
             check_discovery: true,
             store: None,
             state_dir: None,
+            app: TODO_APP.to_owned(),
         }
     }
+}
+
+/// The bundled app's display name (`Atlas Journal`), or its id.
+pub fn app_name(app: &str) -> String {
+    atlas_core::Registry::bundled()
+        .app(app)
+        .map_or_else(|| app.to_owned(), |m| m.name.clone())
 }
 
 /// The oldest sync protocol this client works with and what it needs from the server.
@@ -60,6 +71,8 @@ pub struct Session {
     pub sync: SyncClient,
     pub keyring: Keyring,
     pub user_id: String,
+    /// The app this session syncs.
+    pub app: String,
     token: Arc<ApiTokenParts>,
     server_url: String,
     state_dir: Option<PathBuf>,
@@ -68,6 +81,14 @@ pub struct Session {
 impl Session {
     pub fn connect(opts: ConnectOptions) -> Result<Self> {
         let parts = Arc::new(parse_api_token(&opts.token)?);
+        let app = opts.app.clone();
+        if atlas_core::Registry::bundled().app(&app).is_none() {
+            return Err(Error::atlas(
+                "unknown_app",
+                format!("\"{app}\" is not an Atlas app this client knows"),
+            ));
+        }
+        let todo = app == TODO_APP;
         let auth = derive_api_token_keys(&parts).auth;
         let transport = opts
             .transport
@@ -75,14 +96,20 @@ impl Session {
         let mut api = ApiClient::new(&opts.server_url, transport);
         if opts.check_discovery {
             let discovery = api.get_discovery()?;
+            // An app other than todo needs sessions scoped to it and tokens that carry its key.
+            let capabilities: &[&str] = if todo {
+                &["api_tokens"]
+            } else {
+                &["api_tokens", "app_scoped_sync", "app_scoped_api_tokens"]
+            };
             let required = ServerRequirements {
                 min_protocol: Some(REQUIRED_PROTOCOL),
-                capabilities: &["api_tokens"],
-                apps: &["todo"],
+                capabilities,
+                apps: &[app.as_str()],
             };
-            // A legacy server (no discovery) still gets its chance: an old one fails the token
-            // exchange with its own error.
-            if !discovery.legacy {
+            // A legacy server (no discovery) still gets its chance with todo: an old one fails the
+            // token exchange with its own error. It offers no other app.
+            if !discovery.legacy || !todo {
                 if let Some(problem) = server_incompatibility(&discovery, &required) {
                     return Err(Error::atlas(
                         "server_incompatible",
@@ -98,22 +125,56 @@ impl Session {
         }));
         let session = api.open_api_token_session(&parts.id, &auth)?;
         api.set_token(Some(session.access_token.clone()));
+        api.set_sync_apps(Some(app.clone()));
 
-        let (dek, private_key) = unwrap_api_token_keys(
-            &parts,
-            &session.user_id,
-            &session.wrapped_dek,
-            &session.wrapped_private_key,
-        )?;
-        let mut keyring = Keyring::new(dek, private_key, session.public_key.clone());
-        if let (Some(wrapped), Some(public)) =
-            (&session.encrypted_signing_key, &session.signing_public_key)
-        {
-            // Only needed to rotate or deliver project keys, which this client never does.
-            if let Ok(secret) = unwrap_signing_key(wrapped, &dek, public) {
-                keyring.set_signing_key(secret);
-            }
+        if !session.apps.contains(&app) {
+            let carried: Vec<String> = session.apps.iter().map(|a| app_name(a)).collect();
+            return Err(Error::atlas(
+                "app_not_in_token",
+                format!(
+                    "this API token is not for {} (it is for {}); make a token that includes it",
+                    app_name(&app),
+                    carried.join(", ")
+                ),
+            ));
         }
+        let missing_key = || {
+            Error::atlas(
+                "app_not_in_token",
+                format!(
+                    "the server sent no {} key for this API token",
+                    app_name(&app)
+                ),
+            )
+        };
+        let keyring = if todo {
+            let (Some(wrapped_dek), Some(wrapped_private_key)) =
+                (&session.wrapped_dek, &session.wrapped_private_key)
+            else {
+                return Err(missing_key());
+            };
+            let (dek, private_key) =
+                unwrap_api_token_keys(&parts, &session.user_id, wrapped_dek, wrapped_private_key)?;
+            let mut keyring = Keyring::new(dek, private_key, session.public_key.clone());
+            if let (Some(wrapped), Some(public)) =
+                (&session.encrypted_signing_key, &session.signing_public_key)
+            {
+                // Only needed to rotate or deliver project keys, which this client never does.
+                if let Ok(secret) = unwrap_signing_key(wrapped, &dek, public) {
+                    keyring.set_signing_key(secret);
+                }
+            }
+            keyring
+        } else {
+            // Another app's key plays the DEK's part for that app's data: its values are
+            // personal-scope field envelopes under the app key (`kid` "dek"). Personal only: no
+            // shared projects, no values from before field envelopes, no key trust state.
+            let wraps = session.app_keys.get(&app).ok_or_else(missing_key)?;
+            let (app_key, private_key) =
+                unwrap_api_token_app_keys(&parts, &session.user_id, &app, wraps)?;
+            api.set_legacy_migrated(true);
+            Keyring::new(app_key, private_key, Some(x25519_public_key(&private_key)))
+        };
         // The token id is this client's device: its HLC node and its session's device id.
         let node = Uuid::parse_str(&parts.id).map_err(|_| Error::Protocol("token id".into()))?;
         let mut store = match opts.store {
@@ -122,7 +183,7 @@ impl Session {
         };
         let mut cursor = 0;
         if let Some(dir) = &opts.state_dir {
-            if let Some(cached) = state::load(dir, &parts, &opts.server_url) {
+            if let Some(cached) = state::load(dir, &parts, &opts.server_url, &app) {
                 if cached.user_id == session.user_id {
                     store.apply_remote_batch(&cached.ops);
                     cursor = cached.cursor;
@@ -135,6 +196,7 @@ impl Session {
             sync: SyncClient::new(cursor),
             keyring,
             user_id: session.user_id,
+            app,
             token: parts.clone(),
             server_url: opts.server_url.clone(),
             state_dir: opts.state_dir,
@@ -146,6 +208,10 @@ impl Session {
     /// Pull everything, then load the shared projects' keys under the synced trust state.
     fn initial_sync(&mut self) -> Result<()> {
         self.sync_now()?;
+        if self.app != TODO_APP {
+            // Shared projects and their keys are todo's.
+            return Ok(());
+        }
         let user_id = self.user_id.clone();
         let trust = read_key_trust(&self.store);
         // `isProjectCreator` is false for a project neither in the store nor in a member row.
@@ -208,7 +274,7 @@ impl Session {
             cursor: self.sync.cursor(),
             ops: self.store.winning_ops(),
         };
-        state::save(dir, &self.token, &self.server_url, &cached)?;
+        state::save(dir, &self.token, &self.server_url, &self.app, &cached)?;
         Ok(true)
     }
 

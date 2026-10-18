@@ -9,7 +9,9 @@
 //! - [`store`], [`scope`], [`trust`], [`project_keys`], [`api`], [`sync`]: the in-memory store
 //!   with the client's conflict resolution, key scopes, the synced trust state, project key
 //!   hydration, the HTTP API and the sync cycle.
-//! - [`session`]: an API-token session holding all of that.
+//! - [`session`]: an API-token session of one app holding all of that.
+//! - [`client`], [`journal`]: what integrations call: todo's tasks, projects and labels, and
+//!   Atlas Journal's entries.
 
 pub mod api;
 pub mod client;
@@ -17,6 +19,7 @@ pub mod crypto;
 pub mod discovery;
 pub mod error;
 pub mod field_policy;
+pub mod journal;
 pub mod project_keys;
 pub mod rules;
 pub mod scope;

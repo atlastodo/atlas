@@ -1,5 +1,5 @@
 {
-  "_doc": "Golden runs of the `atlas` CLI (crates/atlas-cli/tests/golden.rs). They were recorded from the TypeScript CLI (packages/cli, retired once the Rust CLI reproduced every run byte for byte), so they pin the output contract integrations rely on. Each scenario runs its steps against a fresh fake server with the clock fixed at `now` and ATLAS_TZ `tz`. A `seed` step writes an entity's fields from another device of the account and names it `ref`; a `revoke` step revokes the token. A run step passes `argv` ({name} is a ref or a value captured earlier: `capture` maps a name to a field of the step's JSON output) and optional `env` overrides, and expects `exit`, `stdout` (the text printed, \"<usage>\" for the help text) and `stderr` (the lines printed). In outputs every UUID is replaced by <id:N>, numbered by first appearance in the scenario. A deliberate change to the output is recorded with GOLDEN_UPDATE=1 cargo nextest run -p atlas-cli golden.",
+  "_doc": "Golden runs of the `atlas` CLI (crates/atlas-cli/tests/golden.rs). They were recorded from the TypeScript CLI (packages/cli, retired once the Rust CLI reproduced every run byte for byte), so they pin the output contract integrations rely on; the journal scenarios were recorded from the Rust CLI. Each scenario runs its steps against a fresh fake server (for a token for its `token_apps`, todo when absent, on a current server offering every bundled app) with the clock fixed at `now` and ATLAS_TZ `tz`. A `seed` step writes an entity's fields from another device of the account and names it `ref`; a `revoke` step revokes the token. A run step passes `argv` ({name} is a ref or a value captured earlier: `capture` maps a name to a field of the step's JSON output) and optional `env` overrides, and expects `exit`, `stdout` (the text printed, \"<usage>\" for the help text) and `stderr` (the lines printed). In outputs every UUID is replaced by <id:N>, numbered by first appearance in the scenario. A deliberate change to the output is recorded with GOLDEN_UPDATE=1 cargo nextest run -p atlas-cli golden.",
   "now": 1791972000000,
   "scenarios": [
     {
@@ -732,6 +732,517 @@
           "stderr": [
             "{\"error\":\"unauthorized (revoked or wrong token?)\",\"code\":\"unauthorized\",\"status\":401}"
           ]
+        }
+      ]
+    },
+    {
+      "name": "journal entries from add to trash",
+      "tz": "Europe/Copenhagen",
+      "token_apps": [
+        "journal"
+      ],
+      "steps": [
+        {
+          "seed": {
+            "entity": "journal.entry",
+            "ref": "autumn",
+            "fields": {
+              "date": "2026-10-01",
+              "title": "Autumn",
+              "body": "Leaves on the path.",
+              "mood": 3,
+              "tags": [
+                "season"
+              ],
+              "created_at": 1791000000000,
+              "updated_at": 1791000000000
+            }
+          }
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--title",
+            "Harbour walk",
+            "--body",
+            "Fog over the water.",
+            "--mood",
+            "4",
+            "--tag",
+            "walks",
+            "--tag",
+            "sea"
+          ],
+          "capture": {
+            "e1": "id"
+          },
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"date\": \"2026-10-14\",\n  \"title\": \"Harbour walk\",\n  \"body\": \"Fog over the water.\",\n  \"mood\": 4,\n  \"tags\": [\n    \"walks\",\n    \"sea\"\n  ],\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--json",
+            "{\"date\": \"2026-10-12\", \"body\": \"From n8n\", \"tags\": [\"n8n\"], \"mood\": null}"
+          ],
+          "capture": {
+            "e2": "id"
+          },
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:2>\",\n  \"date\": \"2026-10-12\",\n  \"title\": \"\",\n  \"body\": \"From n8n\",\n  \"mood\": null,\n  \"tags\": [\n    \"n8n\"\n  ],\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"date\": \"2026-10-14\",\n    \"title\": \"Harbour walk\",\n    \"body\": \"Fog over the water.\",\n    \"mood\": 4,\n    \"tags\": [\n      \"walks\",\n      \"sea\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  },\n  {\n    \"id\": \"<id:2>\",\n    \"date\": \"2026-10-12\",\n    \"title\": \"\",\n    \"body\": \"From n8n\",\n    \"mood\": null,\n    \"tags\": [\n      \"n8n\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  },\n  {\n    \"id\": \"<id:3>\",\n    \"date\": \"2026-10-01\",\n    \"title\": \"Autumn\",\n    \"body\": \"Leaves on the path.\",\n    \"mood\": 3,\n    \"tags\": [\n      \"season\"\n    ],\n    \"created_at\": 1791000000000,\n    \"updated_at\": 1791000000000,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list",
+            "--from",
+            "2026-10-10"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"date\": \"2026-10-14\",\n    \"title\": \"Harbour walk\",\n    \"body\": \"Fog over the water.\",\n    \"mood\": 4,\n    \"tags\": [\n      \"walks\",\n      \"sea\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  },\n  {\n    \"id\": \"<id:2>\",\n    \"date\": \"2026-10-12\",\n    \"title\": \"\",\n    \"body\": \"From n8n\",\n    \"mood\": null,\n    \"tags\": [\n      \"n8n\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list",
+            "--to",
+            "2026-10-05"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:3>\",\n    \"date\": \"2026-10-01\",\n    \"title\": \"Autumn\",\n    \"body\": \"Leaves on the path.\",\n    \"mood\": 3,\n    \"tags\": [\n      \"season\"\n    ],\n    \"created_at\": 1791000000000,\n    \"updated_at\": 1791000000000,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list",
+            "--tag",
+            "WALKS"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"date\": \"2026-10-14\",\n    \"title\": \"Harbour walk\",\n    \"body\": \"Fog over the water.\",\n    \"mood\": 4,\n    \"tags\": [\n      \"walks\",\n      \"sea\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list",
+            "--search",
+            "fog"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"date\": \"2026-10-14\",\n    \"title\": \"Harbour walk\",\n    \"body\": \"Fog over the water.\",\n    \"mood\": 4,\n    \"tags\": [\n      \"walks\",\n      \"sea\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "get",
+            "{e1}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"date\": \"2026-10-14\",\n  \"title\": \"Harbour walk\",\n  \"body\": \"Fog over the water.\",\n  \"mood\": 4,\n  \"tags\": [\n    \"walks\",\n    \"sea\"\n  ],\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "update",
+            "{e1}",
+            "--date",
+            "yesterday",
+            "--mood",
+            "none"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"date\": \"2026-10-13\",\n  \"title\": \"Harbour walk\",\n  \"body\": \"Fog over the water.\",\n  \"mood\": null,\n  \"tags\": [\n    \"walks\",\n    \"sea\"\n  ],\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "update",
+            "{e2}",
+            "--json",
+            "{\"title\": \"Imported\", \"tags\": []}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:2>\",\n  \"date\": \"2026-10-12\",\n  \"title\": \"Imported\",\n  \"body\": \"From n8n\",\n  \"mood\": null,\n  \"tags\": [],\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "update",
+            "{e2}",
+            "--title",
+            "Imported"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:2>\",\n  \"date\": \"2026-10-12\",\n  \"title\": \"Imported\",\n  \"body\": \"From n8n\",\n  \"mood\": null,\n  \"tags\": [],\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "delete",
+            "{autumn}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"deleted\": \"<id:3>\"\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "get",
+            "{autumn}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:3>\",\n  \"date\": \"2026-10-01\",\n  \"title\": \"Autumn\",\n  \"body\": \"Leaves on the path.\",\n  \"mood\": 3,\n  \"tags\": [\n    \"season\"\n  ],\n  \"created_at\": 1791000000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": 1791972000000\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "delete",
+            "{autumn}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"deleted\": \"<id:3>\"\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"date\": \"2026-10-13\",\n    \"title\": \"Harbour walk\",\n    \"body\": \"Fog over the water.\",\n    \"mood\": null,\n    \"tags\": [\n      \"walks\",\n      \"sea\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  },\n  {\n    \"id\": \"<id:2>\",\n    \"date\": \"2026-10-12\",\n    \"title\": \"Imported\",\n    \"body\": \"From n8n\",\n    \"mood\": null,\n    \"tags\": [],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        }
+      ]
+    },
+    {
+      "name": "journal errors",
+      "tz": "Europe/Copenhagen",
+      "token_apps": [
+        "journal"
+      ],
+      "steps": [
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "get",
+            "00000000-0000-4000-8000-000000000099"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"no journal entry \\\"<id:1>\\\"\",\"code\":\"unknown_journal_entry\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "bogus"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"unknown command \\\"journal entries bogus\\\"\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "nothing"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"unknown command \\\"journal nothing\\\"\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "get"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"journal entries get\\\" needs an entry id\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "update"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"journal entries update\\\" needs an entry id\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"a journal entry needs a title or a body\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--title",
+            "   ",
+            "--body",
+            " "
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"a journal entry needs a title or a body\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--title",
+            "x",
+            "--mood",
+            "9"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"mood must be 1 (awful) to 5 (great)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--title",
+            "x",
+            "--mood",
+            "great"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"mood must be 1 (awful) to 5 (great)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--title",
+            "x",
+            "--date",
+            "someday"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"someday\\\" is not a date (YYYY-MM-DD, today, yesterday or tomorrow)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--title",
+            "x",
+            "--date",
+            "2026-02-30"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"2026-02-30\\\" is not a date (YYYY-MM-DD, today, yesterday or tomorrow)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--json",
+            "{\"title\": \"x\", \"tags\": \"a\"}"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"tags must be a list of strings\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--json",
+            "{\"title\": 5}"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"title must be a string\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--json",
+            "[1]"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"--json must be an object\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list",
+            "--tag",
+            "a",
+            "--tag",
+            "b"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"journal entries list takes one --tag\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list",
+            "--from",
+            "soon"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"soon\\\" is not a date (YYYY-MM-DD, today, yesterday or tomorrow)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"this API token is not for Atlas Todo (it is for Atlas Journal); make a token that includes it\",\"code\":\"app_not_in_token\"}"
+          ]
+        },
+        {
+          "argv": [
+            "todo",
+            "projects",
+            "list"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"this API token is not for Atlas Todo (it is for Atlas Journal); make a token that includes it\",\"code\":\"app_not_in_token\"}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "journal commands with a todo token",
+      "tz": "Europe/Copenhagen",
+      "token_apps": [
+        "todo"
+      ],
+      "steps": [
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"this API token is not for Atlas Journal (it is for Atlas Todo); make a token that includes it\",\"code\":\"app_not_in_token\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[]",
+          "stderr": []
         }
       ]
     }

@@ -29,6 +29,10 @@ fn test_database_url() -> String {
 }
 
 async fn setup() -> Router {
+    setup_with(&["todo", "journal"]).await
+}
+
+async fn setup_with(apps: &[&str]) -> Router {
     let config = Config {
         database_url: test_database_url(),
         jwt_secret: b"integration-test-secret-32-bytes-x".to_vec(),
@@ -49,7 +53,7 @@ async fn setup() -> Router {
         blob_gc_grace_days: 7,
         max_blob_transfers: 16,
         static_dir: None,
-        apps: vec!["todo".into()],
+        apps: apps.iter().map(|a| a.to_string()).collect(),
         passkeys: None,
         android_asset_links: None,
     };
@@ -296,8 +300,14 @@ async fn signup_root_fields_go_together_and_need_the_todo_key() {
     let (status, _) = send(&router, "POST", "/auth/signup", None, partial).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let mut no_todo = body.clone();
-    no_todo["app_keys"] = json!([{ "app": "notes", "wrapped_key": wrap() }]);
+    no_todo["app_keys"] = json!([{ "app": "journal", "wrapped_key": wrap() }]);
     let (status, _) = send(&router, "POST", "/auth/signup", None, no_todo).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    // A key for an app this build does not bundle is refused too.
+    let mut unbundled = body.clone();
+    let todo = body["app_keys"][0].clone();
+    unbundled["app_keys"] = json!([todo, { "app": "notes", "wrapped_key": wrap() }]);
+    let (status, _) = send(&router, "POST", "/auth/signup", None, unbundled).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
@@ -520,7 +530,7 @@ async fn an_old_client_password_change_drops_the_root_unless_another_app_holds_a
     let (status, _) = send(
         &router,
         "PUT",
-        "/auth/app-keys/notes",
+        "/auth/app-keys/journal",
         Some(&acct.access),
         json!({ "wrapped_key": wrap() }),
     )
@@ -548,7 +558,7 @@ async fn app_keys_are_set_once_and_need_a_root() {
     let (status, _) = send(
         &router,
         "PUT",
-        "/auth/app-keys/notes",
+        "/auth/app-keys/journal",
         Some(&legacy.access),
         json!({ "wrapped_key": wrap() }),
     )
@@ -568,7 +578,7 @@ async fn app_keys_are_set_once_and_need_a_root() {
     let (status, _) = send(
         &router,
         "PUT",
-        "/auth/app-keys/notes",
+        "/auth/app-keys/journal",
         Some(&acct.access),
         json!({ "wrapped_key": wrap() }),
     )
@@ -577,7 +587,7 @@ async fn app_keys_are_set_once_and_need_a_root() {
     let (status, resp) = send(
         &router,
         "PUT",
-        "/auth/app-keys/notes",
+        "/auth/app-keys/journal",
         Some(&acct.access),
         json!({ "wrapped_key": wrap() }),
     )
@@ -593,6 +603,49 @@ async fn app_keys_are_set_once_and_need_a_root() {
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn app_keys_are_only_for_bundled_apps_the_instance_offers() {
+    // Not bundled by this build: 400, however well-formed the id.
+    let router = setup().await;
+    let (acct, _) = signup(&router, true).await;
+    for app in ["notes", "vault", "x"] {
+        let (status, _) = send(
+            &router,
+            "PUT",
+            &format!("/auth/app-keys/{app}"),
+            Some(&acct.access),
+            json!({ "wrapped_key": wrap() }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{app}");
+    }
+
+    // Bundled, but this instance offers todo only: 403 app_not_enabled, scope instance.
+    let todo_only = setup_with(&["todo"]).await;
+    let (acct, _) = signup(&todo_only, true).await;
+    let (status, resp) = send(
+        &todo_only,
+        "PUT",
+        "/auth/app-keys/journal",
+        Some(&acct.access),
+        json!({ "wrapped_key": wrap() }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(resp["code"], "app_not_enabled");
+    assert_eq!(resp["app"], "journal");
+    assert_eq!(resp["scope"], "instance");
+    // Nothing was stored: the account still holds only its todo key.
+    let (_, resp) = login(&todo_only, &acct.email, PASSWORD).await;
+    let apps: Vec<&str> = resp["app_keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|k| k["app"].as_str().unwrap())
+        .collect();
+    assert_eq!(apps, ["todo"]);
 }
 
 #[tokio::test]
@@ -759,7 +812,7 @@ async fn an_api_token_session_never_reaches_the_root_key() {
         ),
         (
             "PUT",
-            "/auth/app-keys/notes",
+            "/auth/app-keys/journal",
             json!({ "wrapped_key": wrap() }),
         ),
     ];
