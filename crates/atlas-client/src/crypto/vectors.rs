@@ -195,10 +195,9 @@ fn api_token_vectors() {
                 (app_key, app_private)
             );
         }
-        assert!(
-            v["app_keys"]["journal"].is_object(),
-            "the vectors cover journal"
-        );
+        for app in ["journal", "vault"] {
+            assert!(v["app_keys"][app].is_object(), "the vectors cover {app}");
+        }
     }
     let parts = generate_api_token();
     for bad in ["todo", "", "Journal", "1x", "a-b"] {

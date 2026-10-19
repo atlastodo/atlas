@@ -73,6 +73,11 @@ pub struct Session {
     pub user_id: String,
     /// The app this session syncs.
     pub app: String,
+    /// Whether the token may write; a read-only one (the default for an Atlas Vault token) is
+    /// refused every write by the server, so the client refuses it first.
+    pub can_write: bool,
+    /// When the token expires (unix ms), if it does.
+    pub token_expires_at: Option<i64>,
     token: Arc<ApiTokenParts>,
     server_url: String,
     state_dir: Option<PathBuf>,
@@ -197,6 +202,8 @@ impl Session {
             keyring,
             user_id: session.user_id,
             app,
+            can_write: session.write,
+            token_expires_at: session.expires_at,
             token: parts.clone(),
             server_url: opts.server_url.clone(),
             state_dir: opts.state_dir,
@@ -276,6 +283,20 @@ impl Session {
         };
         state::save(dir, &self.token, &self.server_url, &self.app, &cached)?;
         Ok(true)
+    }
+
+    /// Fail with `api_token_read_only` before a write a read-only token could not push.
+    pub fn require_write(&self) -> Result<()> {
+        if self.can_write {
+            return Ok(());
+        }
+        Err(Error::atlas(
+            "api_token_read_only",
+            format!(
+                "this API token is read-only: changing {} data needs a token made with write access",
+                app_name(&self.app)
+            ),
+        ))
     }
 
     /// Push pending writes; fails when any did not reach the server.

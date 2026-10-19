@@ -34,6 +34,20 @@
             "iv": "dXrtP9iobV/5dQK7",
             "ct": "YVQDhrVqw2A7XxrJ1DBI/qTTTVQ0FlPSaGNiMxAE5GyMh3JDOvj6Sl4JjdNi0xQY"
           }
+        },
+        "vault": {
+          "app_key": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "app_private_key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "wrapped_key": {
+            "v": 1,
+            "iv": "wm+GsbI61xROnC8+",
+            "ct": "3wMTljSLoopA53SXjhbdhPFksiuOdMXNmj7HGqiU+ByMqb794Vb57+NVh0Br9FZv"
+          },
+          "wrapped_private_key": {
+            "v": 1,
+            "iv": "/QKoOwtHubDapdW1",
+            "ct": "UFyTM//C7trgffAR2i0JDdLwtRf6I/9l+eq6oixMefK3KtXZixSE6RF5Flrdzf7C"
+          }
         }
       }
     }

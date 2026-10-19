@@ -39,6 +39,8 @@ pub const CAPABILITIES: &[&str] = &[
     "root_key",
     "app_scoped_sync",
     "app_scoped_api_tokens",
+    // API tokens with an expiry and read-only tokens, as the apps' manifests require them.
+    "api_token_policies",
 ];
 
 /// Advertised next to [`CAPABILITIES`] when the instance has passkeys on (`WEBAUTHN_RP_ID`).

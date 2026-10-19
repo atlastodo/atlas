@@ -610,7 +610,7 @@ async fn app_keys_are_only_for_bundled_apps_the_instance_offers() {
     // Not bundled by this build: 400, however well-formed the id.
     let router = setup().await;
     let (acct, _) = signup(&router, true).await;
-    for app in ["notes", "vault", "x"] {
+    for app in ["notes", "bookmarks", "x"] {
         let (status, _) = send(
             &router,
             "PUT",

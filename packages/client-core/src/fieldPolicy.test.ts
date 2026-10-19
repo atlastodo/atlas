@@ -1,7 +1,15 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { BUNDLED_MANIFESTS, PLAINTEXT_FIELDS, appOfKind, shouldEncryptField } from "./index";
+import {
+  BUNDLED_MANIFESTS,
+  PLAINTEXT_FIELDS,
+  appOfKind,
+  shouldEncryptField,
+  shouldEncryptKindField,
+  tokenPolicyFor,
+  type TokenPolicy,
+} from "./index";
 import type { EntityKind } from "./types";
 
 type Manifest = {
@@ -16,20 +24,60 @@ const readManifest = (app: string) =>
 const manifest = readManifest("todo");
 const journalManifest = readManifest("journal");
 
+interface FieldPolicyVectors {
+  fields: { entity: string; field: string; encrypted: boolean }[];
+  token_policies: { apps: string[]; policy: TokenPolicy }[];
+}
+
+const vectors = JSON.parse(
+  readFileSync(
+    fileURLToPath(new URL("../../../test-vectors/field_policy_vectors.json", import.meta.url)),
+    "utf8",
+  ),
+) as FieldPolicyVectors;
+
+describe("field policy vectors", () => {
+  it.each(vectors.fields.map((c) => [c.entity, c.field, c.encrypted] as const))(
+    "%s.%s encrypted: %s",
+    (entity, field, encrypted) => {
+      expect(shouldEncryptKindField(entity, field)).toBe(encrypted);
+      if (entity in PLAINTEXT_FIELDS) {
+        expect(shouldEncryptField(entity as EntityKind, field)).toBe(encrypted);
+      }
+    },
+  );
+
+  it.each(vectors.token_policies.map((c) => [c.apps.join(","), c] as const))(
+    "a token for %s",
+    (_, c) => {
+      expect(tokenPolicyFor(c.apps)).toEqual(c.policy);
+    },
+  );
+});
+
 describe("field encryption policy", () => {
   it("is exactly the bundled manifests' plaintext_fields, every kind of every app", () => {
     const fromManifests = Object.fromEntries(
-      [manifest, journalManifest].flatMap((m) =>
+      [manifest, journalManifest, readManifest("vault")].flatMap((m) =>
         Object.entries(m.kinds).map(([kind, spec]) => [kind, spec.plaintext_fields]),
       ),
     );
     expect(PLAINTEXT_FIELDS).toEqual(fromManifests);
   });
 
-  it("bundles the todo and journal manifests and maps their kinds to them", () => {
-    expect(BUNDLED_MANIFESTS.map((m) => m.app)).toEqual([manifest.app, "journal"]);
+  it("bundles the todo, journal and vault manifests and maps their kinds to them", () => {
+    expect(BUNDLED_MANIFESTS.map((m) => m.app)).toEqual([manifest.app, "journal", "vault"]);
     expect(BUNDLED_MANIFESTS[0]!.version).toBe(manifest.version);
     for (const kind of Object.keys(manifest.kinds)) expect(appOfKind(kind)?.app).toBe("todo");
+    const vault = BUNDLED_MANIFESTS[2]!;
+    expect(vault.name).toBe("Atlas Vault");
+    expect(Object.keys(vault.kinds).sort()).toEqual([
+      "vault.folder",
+      "vault.item",
+      "vault.preference",
+    ]);
+    for (const spec of Object.values(vault.kinds)) expect(spec.plaintext_fields).toEqual([]);
+    expect(appOfKind("vault.item")?.app).toBe("vault");
     const journal = BUNDLED_MANIFESTS[1]!;
     expect(journal.name).toBe("Atlas Journal");
     expect(Object.keys(journal.kinds).sort()).toEqual(["journal.entry", "journal.preference"]);

@@ -27,6 +27,14 @@ pub struct FakeState {
     pub seq: u64,
     pub sessions: u32,
     pub revoked: bool,
+    /// The token is past its expiry: the exchange and every request answer 401
+    /// `api_token_expired`.
+    pub token_expired: bool,
+    /// Whether the token may write (`write` of the session); a push from a read-only one answers
+    /// 403 `api_token_read_only`.
+    pub write: bool,
+    /// The token's `expires_at` (unix ms) in the session response.
+    pub expires_at: Option<i64>,
     /// Access tokens that answer 401 (expired).
     pub expired: Vec<String>,
     /// `GET /project-keys`.
@@ -71,6 +79,13 @@ fn json_res(status: u16, body: Value) -> HttpResponse {
 fn app_of_op(op: &Value) -> Option<&'static str> {
     let kind = op.get("entity")?.as_str()?;
     Registry::bundled().app_of(kind).map(|m| m.app.as_str())
+}
+
+fn token_expired() -> HttpResponse {
+    json_res(
+        401,
+        json!({"error": "this API token has expired", "code": "api_token_expired"}),
+    )
 }
 
 fn refused(app: &str, scope: &str) -> HttpResponse {
@@ -127,6 +142,9 @@ impl FakeServer {
                 seq: 0,
                 sessions: 0,
                 revoked: false,
+                token_expired: false,
+                write: true,
+                expires_at: None,
                 expired: Vec::new(),
                 project_keys: json!({"keys": [], "canonical": {}}),
                 stored_keys: Vec::new(),
@@ -151,15 +169,19 @@ impl FakeServer {
 
     /// `POST /auth/api-token/session`: the todo wraps exactly when the token is for todo, every
     /// other app's in `app_keys`.
-    fn session_body(&self, sessions: u32) -> Value {
+    fn session_body(&self, st: &FakeState) -> Value {
         let mut body = json!({
-            "access_token": format!("access-{sessions}"),
+            "access_token": format!("access-{}", st.sessions),
             "expires_in": 900,
             "token_id": self.token.id,
             "user_id": USER_ID,
             "apps": self.apps,
             "public_key": self.public_key(),
+            "write": st.write,
         });
+        if let Some(at) = st.expires_at {
+            body["expires_at"] = json!(at);
+        }
         if self.apps.iter().any(|a| a == TODO_APP) {
             let wraps = wrap_keys_for_api_token(&self.token, USER_ID, &self.dek, &self.private_key)
                 .expect("wraps");
@@ -218,12 +240,25 @@ impl FakeServer {
             {
                 return json_res(401, json!({"error": "unauthorized"}));
             }
+            if st.token_expired {
+                return token_expired();
+            }
             st.sessions += 1;
-            return json_res(200, self.session_body(st.sessions));
+            return json_res(200, self.session_body(&st));
         }
         let bearer = auth.and_then(|a| a.strip_prefix("Bearer "));
         if st.revoked || bearer.is_none() || st.expired.iter().any(|e| Some(e.as_str()) == bearer) {
             return json_res(401, json!({"error": "unauthorized"}));
+        }
+        if st.token_expired {
+            return token_expired();
+        }
+        // A read-only token reaches the read routes only.
+        if !st.write && method != "GET" && path != "/sync/ws-ticket" {
+            return json_res(
+                403,
+                json!({"error": "this API token is read-only", "code": "api_token_read_only"}),
+            );
         }
         // The session's scope, resolved as the server resolves it for a token session.
         let scope: Vec<String> = match sync_apps {

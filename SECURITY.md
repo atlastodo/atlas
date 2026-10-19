@@ -110,7 +110,9 @@ The list lives in the `plaintext_fields` of each kind in
 [`manifests/todo.json`](./manifests/todo.json), the todo app manifest that the server and the
 clients both bundle. Atlas Journal's manifest ([`manifests/journal.json`](./manifests/journal.json))
 lists none: every journal field is encrypted, and journal data never leaves your own account's
-partition (journal has no sharing).
+partition (journal has no sharing). Atlas Vault's ([`manifests/vault.json`](./manifests/vault.json))
+lists none either: the server sees no vault item's name, type, folder, URLs, tags, timestamps or
+secrets, only that an item with some id changed, and vault data has no sharing yet.
 The client encrypts by it, and the server checks that every field value it reads is on it.
 
 | Entity         | Plaintext fields                                          | Why                                                                          |
@@ -180,6 +182,13 @@ it never receives.
   copy of those apps' keys and no other, never the account root key, and its sessions are refused
   sync for any other app. Token sessions are refused on every route that reads or writes the root
   or the app keys.
+- A token may expire and may be read-only, and an app's manifest can require both: an Atlas
+  Vault token always expires, at most a year after it is made, and only reads unless it was made
+  with write access. The server enforces this, not only the client: an expired token opens no
+  session and its open sessions are refused on their next request; a read-only token's sessions
+  reach only the read routes. Read-only limits what a leaked token can change, not what it can
+  read: it still decrypts every item of the vault, so grant CI a token of its own and revoke it
+  when the job no longer needs it.
 
 ### Account root key
 
@@ -188,9 +197,9 @@ server only ever stores wrapped. The root key in turn wraps one key per Atlas ap
 key is the data key your account always had, so nothing was re-encrypted when the root key was
 introduced. Details in [docs/architecture.md](./docs/architecture.md#account-root-key).
 
-- Enabling another app (Atlas Journal) creates that app's key and X25519 identity on your device
-  and stores them wrapped under the root key. The todo key never wraps another app's key, so a
-  todo API token cannot open journal data.
+- Enabling another app (Atlas Journal, Atlas Vault) creates that app's key and X25519 identity on
+  your device and stores them wrapped under the root key. The todo key never wraps another app's
+  key, so a todo API token cannot open journal or vault data.
 - Each app's client syncs only its own app's data (`x-atlas-sync-apps`). This limits what each
   app holds on a device; it is not a boundary against the server, which stores every app's
   ciphertext in one log per account.

@@ -237,9 +237,13 @@ async fn discovery_is_public_and_describes_the_server() {
 fn instance_apps_are_checked_against_the_bundled_manifests() {
     assert_eq!(parse_apps(None).unwrap(), ["todo"]);
     assert_eq!(parse_apps(Some("todo")).unwrap(), ["todo"]);
-    assert!(parse_apps(Some("todo,vault"))
+    assert_eq!(
+        parse_apps(Some(" Vault ,todo,vault")).unwrap(),
+        ["vault", "todo"]
+    );
+    assert!(parse_apps(Some("todo,notes"))
         .unwrap_err()
-        .contains("\"vault\""));
+        .contains("\"notes\""));
     assert!(parse_apps(Some(",")).is_err());
 }
 
@@ -267,7 +271,7 @@ async fn a_new_account_has_todo_and_can_list_and_enable_its_apps() {
     let (status, _) = send(
         &router,
         "PUT",
-        "/auth/apps/vault",
+        "/auth/apps/notes",
         Some(&token),
         Value::Null,
     )

@@ -1,7 +1,7 @@
 //! App manifests: which app owns each synced entity kind, and which of its fields travel in
 //! plaintext.
 //!
-//! Atlas is a suite of apps (todo, journal) on one server and one account. Each app ships a
+//! Atlas is a suite of apps (todo, journal, vault) on one server and one account. Each app ships a
 //! first-party manifest in the repository's `manifests/` directory, compiled in here
 //! ([`BUNDLED_MANIFESTS`]) and bundled by the clients too, so server and clients read the same
 //! table. Operators never load manifests from disk; they choose which bundled apps an instance
@@ -24,6 +24,7 @@ use crate::op::EntityKind;
 pub const BUNDLED_MANIFESTS: &[&str] = &[
     include_str!("../../../manifests/todo.json"),
     include_str!("../../../manifests/journal.json"),
+    include_str!("../../../manifests/vault.json"),
 ];
 
 /// Apps whose kinds predate namespacing and keep their bare wire names (`task`, `project`).
@@ -48,6 +49,85 @@ impl PlaintextFields {
     }
 }
 
+/// What an app asks of the API tokens that include it (`api_tokens` in its manifest), which the
+/// server enforces when a token is made and whenever it is used. A token for several apps takes
+/// the strictest of their policies ([`TokenPolicy::strictest`]). An app without the key keeps the
+/// defaults: no expiry needed, writes allowed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokenPolicy {
+    /// A token must name an expiry.
+    pub expiry_required: bool,
+    /// The latest expiry a token may name, in days after it is made.
+    pub max_lifetime_days: Option<u32>,
+    /// Whether a token may write when its creator does not say: `false` makes tokens read-only
+    /// unless writes are opted in.
+    pub write_by_default: bool,
+}
+
+impl Default for TokenPolicy {
+    fn default() -> Self {
+        Self {
+            expiry_required: false,
+            max_lifetime_days: None,
+            write_by_default: true,
+        }
+    }
+}
+
+impl TokenPolicy {
+    /// The policy of a token for all of `policies`: an expiry required if any requires one, the
+    /// shortest lifetime, and read-only by default if any is.
+    pub fn strictest<'a>(policies: impl IntoIterator<Item = &'a TokenPolicy>) -> TokenPolicy {
+        policies
+            .into_iter()
+            .fold(TokenPolicy::default(), |acc, p| TokenPolicy {
+                expiry_required: acc.expiry_required || p.expiry_required,
+                max_lifetime_days: match (acc.max_lifetime_days, p.max_lifetime_days) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                },
+                write_by_default: acc.write_by_default && p.write_by_default,
+            })
+    }
+
+    fn parse(app: &str, doc: Option<&Value>) -> Result<Self, String> {
+        let Some(doc) = doc else {
+            return Ok(Self::default());
+        };
+        let bad = |what: &str| format!("manifest {app}: api_tokens.{what}");
+        let obj = doc
+            .as_object()
+            .ok_or_else(|| format!("manifest {app}: `api_tokens` must be an object"))?;
+        if let Some(key) = obj.keys().find(|k| {
+            !matches!(
+                k.as_str(),
+                "expiry_required" | "max_lifetime_days" | "write_by_default"
+            )
+        }) {
+            return Err(bad(&format!("{key} is not a token policy setting")));
+        }
+        let flag = |key: &str, default: bool| match obj.get(key) {
+            None => Ok(default),
+            Some(Value::Bool(b)) => Ok(*b),
+            Some(_) => Err(bad(&format!("{key} must be a boolean"))),
+        };
+        let max_lifetime_days = match obj.get("max_lifetime_days") {
+            None => None,
+            Some(v) => Some(
+                v.as_u64()
+                    .and_then(|d| u32::try_from(d).ok())
+                    .filter(|d| *d >= 1)
+                    .ok_or_else(|| bad("max_lifetime_days must be a positive integer"))?,
+            ),
+        };
+        Ok(Self {
+            expiry_required: flag("expiry_required", false)?,
+            max_lifetime_days,
+            write_by_default: flag("write_by_default", true)?,
+        })
+    }
+}
+
 /// One entity kind an app syncs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KindManifest {
@@ -65,6 +145,8 @@ pub struct AppManifest {
     pub version: u32,
     /// Entity kinds by wire name.
     pub kinds: BTreeMap<String, KindManifest>,
+    /// What the app asks of API tokens that include it.
+    pub api_tokens: TokenPolicy,
 }
 
 fn is_ident(s: &str) -> bool {
@@ -131,11 +213,13 @@ impl AppManifest {
             };
             kinds.insert(kind.clone(), KindManifest { plaintext_fields });
         }
+        let api_tokens = TokenPolicy::parse(&app, doc.get("api_tokens"))?;
         Ok(Self {
             app,
             name,
             version,
             kinds,
+            api_tokens,
         })
     }
 }
@@ -259,6 +343,81 @@ mod tests {
             assert_eq!(kind.plaintext_fields, PlaintextFields::Only(Vec::new()));
         }
         assert_eq!(registry.app_of("preference").unwrap().app, "todo");
+    }
+
+    #[test]
+    fn vault_owns_its_namespaced_kinds_keeps_nothing_plaintext_and_asks_for_strict_tokens() {
+        let registry = Registry::bundled();
+        let vault = registry.app("vault").expect("vault is bundled");
+        assert_eq!(vault.name, "Atlas Vault");
+        assert_eq!(EntityKind::VaultItem.app(), "vault");
+        assert_eq!(EntityKind::VaultFolder.app(), "vault");
+        assert_eq!(EntityKind::VaultPreference.app(), "vault");
+        assert_eq!(vault.kinds.len(), 3);
+        for kind in vault.kinds.values() {
+            assert_eq!(kind.plaintext_fields, PlaintextFields::Only(Vec::new()));
+        }
+        assert_eq!(
+            vault.api_tokens,
+            TokenPolicy {
+                expiry_required: true,
+                max_lifetime_days: Some(365),
+                write_by_default: false,
+            }
+        );
+        // Todo and journal keep the defaults.
+        for app in ["todo", "journal"] {
+            assert_eq!(
+                registry.app(app).unwrap().api_tokens,
+                TokenPolicy::default()
+            );
+        }
+    }
+
+    #[test]
+    fn a_token_for_several_apps_takes_the_strictest_policy() {
+        let open = TokenPolicy::default();
+        let strict = TokenPolicy {
+            expiry_required: true,
+            max_lifetime_days: Some(365),
+            write_by_default: false,
+        };
+        let short = TokenPolicy {
+            max_lifetime_days: Some(30),
+            ..TokenPolicy::default()
+        };
+        assert_eq!(TokenPolicy::strictest([&open]), open);
+        assert_eq!(TokenPolicy::strictest([&open, &strict]), strict);
+        assert_eq!(
+            TokenPolicy::strictest([&strict, &short]),
+            TokenPolicy {
+                max_lifetime_days: Some(30),
+                ..strict
+            }
+        );
+        assert_eq!(TokenPolicy::strictest(std::iter::empty()), open);
+    }
+
+    #[test]
+    fn token_policies_are_checked() {
+        let with = |policy: &str| {
+            format!(
+                r#"{{"app":"x","name":"x","version":1,"kinds":{{"x.t":{{"plaintext_fields":[]}}}},"api_tokens":{policy}}}"#
+            )
+        };
+        let parsed = AppManifest::parse(&with(r#"{"expiry_required":true}"#)).unwrap();
+        assert!(parsed.api_tokens.expiry_required);
+        assert!(parsed.api_tokens.write_by_default);
+        assert_eq!(parsed.api_tokens.max_lifetime_days, None);
+        for bad in [
+            "[]",
+            r#"{"expiry_required":"yes"}"#,
+            r#"{"max_lifetime_days":0}"#,
+            r#"{"max_lifetime_days":1.5}"#,
+            r#"{"write":false}"#,
+        ] {
+            assert!(AppManifest::parse(&with(bad)).is_err(), "{bad}");
+        }
     }
 
     #[test]

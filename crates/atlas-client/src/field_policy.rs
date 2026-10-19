@@ -28,6 +28,51 @@ mod tests {
         assert!(should_encrypt_field("notes.note", "body"));
     }
 
+    /// `test-vectors/field_policy_vectors.json`, which `fieldPolicy.test.ts` asserts too.
+    #[test]
+    fn field_policy_vectors() {
+        let path = format!(
+            "{}/../../test-vectors/field_policy_vectors.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        for c in doc["fields"].as_array().unwrap() {
+            let (entity, field) = (c["entity"].as_str().unwrap(), c["field"].as_str().unwrap());
+            assert_eq!(
+                should_encrypt_field(entity, field),
+                c["encrypted"].as_bool().unwrap(),
+                "{entity}.{field}"
+            );
+        }
+        let registry = Registry::bundled();
+        for c in doc["token_policies"].as_array().unwrap() {
+            let apps: Vec<&str> = c["apps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|a| a.as_str().unwrap())
+                .collect();
+            let policy = atlas_core::TokenPolicy::strictest(
+                apps.iter().map(|a| &registry.app(a).unwrap().api_tokens),
+            );
+            let p = &c["policy"];
+            assert_eq!(
+                (
+                    policy.expiry_required,
+                    policy.max_lifetime_days.map(u64::from),
+                    policy.write_by_default
+                ),
+                (
+                    p["expiry_required"].as_bool().unwrap(),
+                    p["max_lifetime_days"].as_u64(),
+                    p["write_by_default"].as_bool().unwrap()
+                ),
+                "{apps:?}"
+            );
+        }
+    }
+
     /// Every kind and plaintext field of `manifests/todo.json`, read independently of atlas-core.
     #[test]
     fn matches_the_manifest_file() {

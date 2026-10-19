@@ -306,6 +306,10 @@ export interface ApiTokenView {
   apps?: string[];
   created_at: number;
   last_used_at?: number;
+  /** When the token stops working; absent when it never does. An expired token stays listed until revoked. */
+  expires_at?: number;
+  /** Whether its sessions may write (absent from servers predating read-only tokens: they may). */
+  write?: boolean;
 }
 
 /** One non-todo app's key and X25519 identity wrapped for an API token (`wrapAppKeysForApiToken`). */
@@ -327,6 +331,14 @@ export interface CreateApiTokenPayload {
   wrapped_dek?: { v: 1; iv: string; ct: string };
   wrapped_private_key?: { v: 1; iv: string; ct: string };
   app_keys?: Record<string, ApiTokenAppKeyWraps>;
+  /**
+   * When the token stops working (unix ms). The apps' policy ({@link tokenPolicyFor}) may require
+   * one and cap how far out it is: a vault token needs one at most 365 days ahead (needs the
+   * `api_token_policies` capability).
+   */
+  expires_at?: number;
+  /** Whether its sessions may write; the policy's default when absent (a vault token is read-only). */
+  write?: boolean;
 }
 
 /** `POST /auth/api-token/session`: an access token (no refresh token) and the token's wraps. */
@@ -344,6 +356,10 @@ export interface ApiTokenSessionResponse {
   public_key?: string;
   signing_public_key?: string;
   encrypted_signing_key?: { v: 1; iv: string; ct: string };
+  /** When the token expires (unix ms); `expires_in` ends no later. Absent when it never does. */
+  expires_at?: number;
+  /** Whether the session may write; a read-only one gets 403 `api_token_read_only` on writes. */
+  write?: boolean;
 }
 
 export interface MemberView {
@@ -398,7 +414,11 @@ export type EntityKind =
    * after todo. Personal and fully encrypted: no plaintext field, no project scope. A journal
    * client syncs them in a journal-scoped session (`ApiClientOptions.apps`).
    */
-  | JournalEntityKind;
+  | JournalEntityKind
+  /** Atlas Vault (`manifests/vault.json`): personal, every field encrypted. */
+  | "vault.item"
+  | "vault.folder"
+  | "vault.preference";
 
 /** Atlas Journal's entity kinds: `journal.entry` (one entry) and `journal.preference` (a setting). */
 export type JournalEntityKind = "journal.entry" | "journal.preference";

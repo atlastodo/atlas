@@ -54,6 +54,12 @@ change.
   (an empty pull), as before the header existed.
 - An unknown app id or an empty list is `400`.
 
+An API-token session can also be refused for its token (servers with the `api_token_policies`
+capability): `401 {"code": "api_token_expired"}` once the token is past its `expires_at`, on every
+route including the WebSocket ticket, and `403 {"code": "api_token_read_only"}` for a push (or any
+request other than `GET` and the WebSocket ticket) from a token made without write access. Neither
+is retried: only a new token helps.
+
 See [architecture.md](./architecture.md#apps-and-manifests).
 
 ## Operations
@@ -77,16 +83,18 @@ A delete has `"op": "delete"` and no `field` or `value`.
 
 - `entity` is one of todo's `task`, `project`, `section`, `label`, `comment`, `preference`,
   `saved_filter`, `reminder`, `project_member`, `activity`, `focus_session`, `habit`,
-  `habit_checkin`, `attachment`, or journal's `journal.entry` and `journal.preference`. The
-  server refuses other kinds, and `project_member` ops, which only the server writes. Journal ops
-  never leave their owner's partition, whatever their fields say.
+  `habit_checkin`, `attachment`, journal's `journal.entry` and `journal.preference`, or the
+  vault's `vault.item`, `vault.folder` and `vault.preference`. The server refuses other kinds,
+  and `project_member` ops, which only the server writes. Journal and vault ops never leave their
+  owner's partition, whatever their fields say.
 - `ts` is a hybrid logical clock stamp. `counter` is at most 65535; a clock that would pass it
   moves to the next millisecond instead. `wall_ms` may be at most five minutes ahead of the
   server's clock.
 - `value` is any JSON value of at most 64 KiB serialized. Values are encrypted, except the
   routing fields listed in the `plaintext_fields` of [`manifests/todo.json`](../manifests/todo.json)
   (such as a task's `project_id`), which the server reads to find who shares an entity.
-  [`manifests/journal.json`](../manifests/journal.json) lists none: every journal value is
+  [`manifests/journal.json`](../manifests/journal.json) and
+  [`manifests/vault.json`](../manifests/vault.json) list none: every journal and vault value is
   encrypted.
   [architecture.md](./architecture.md#field-values) describes the envelope.
 

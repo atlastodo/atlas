@@ -1,10 +1,10 @@
 //! `test-vectors/cli_golden.json`: runs recorded from the TypeScript CLI before its retirement,
-//! reproduced byte for byte by this CLI against the same fake server, and the Atlas Journal runs
-//! recorded from this CLI since.
+//! reproduced byte for byte by this CLI against the same fake server, and the Atlas Journal and
+//! Atlas Vault runs recorded from this CLI since.
 
 use std::collections::HashMap;
 
-use atlas_cli::{run, Io};
+use atlas_cli::{run, Io, ReadStdin};
 use atlas_client::client::AtlasClient;
 use atlas_client::session::{ConnectOptions, Session};
 use atlas_client::store::Store;
@@ -65,21 +65,42 @@ fn reproduces_the_recorded_runs() {
     for (si, scenario) in golden["scenarios"].as_array().unwrap().iter().enumerate() {
         let name = scenario["name"].as_str().unwrap();
         let tz = scenario["tz"].as_str().unwrap();
-        // `token_apps`: the token's apps (todo when absent), on a current server offering every
-        // bundled app.
+        // `token_apps`: the token's apps (todo when absent), on a current server offering
+        // `server_apps` (todo and journal when absent). `token_write: false` makes the token
+        // read-only, `token_expires_at` gives its expiry.
         let server = match scenario.get("token_apps").and_then(Value::as_array) {
             None => FakeServer::new(),
             Some(apps) => {
                 let apps: Vec<&str> = apps.iter().map(|a| a.as_str().unwrap()).collect();
                 let server = FakeServer::with_apps(&apps);
-                server.state.lock().unwrap().discovery =
-                    Some(current_discovery(&["todo", "journal"]));
+                let offered: Vec<&str> = match scenario.get("server_apps") {
+                    Some(v) => v
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|a| a.as_str().unwrap())
+                        .collect(),
+                    None => vec!["todo", "journal"],
+                };
+                server.state.lock().unwrap().discovery = Some(current_discovery(&offered));
                 server
             }
         };
+        let token_write = scenario.get("token_write").and_then(Value::as_bool);
+        let token_expires_at = scenario.get("token_expires_at").and_then(Value::as_i64);
         let mut refs: HashMap<String, String> = HashMap::new();
         let mut ids = HashMap::new();
         for (ti, step) in scenario["steps"].as_array().unwrap().iter().enumerate() {
+            // Seeds write as the app would; the CLI's steps run with the scenario's token.
+            {
+                let mut st = server.state.lock().unwrap();
+                st.write = step.get("seed").is_some() || token_write.unwrap_or(true);
+                st.expires_at = token_expires_at;
+            }
+            if step.get("expire").is_some() {
+                server.state.lock().unwrap().token_expired = true;
+                continue;
+            }
             if let Some(seed) = step.get("seed") {
                 let mut opts = ConnectOptions::new("http://atlas.test", &server.token_string());
                 opts.transport = Some(server.transport());
@@ -132,6 +153,10 @@ fn reproduces_the_recorded_runs() {
             {
                 env.insert(k.clone(), v.as_str().unwrap().to_owned());
             }
+            // `stdin`: what the step's standard input holds (`--json -`).
+            let stdin_text: Option<String> =
+                step.get("stdin").and_then(Value::as_str).map(str::to_owned);
+            let read_stdin = || Ok(stdin_text.clone().unwrap_or_default());
             let mut out: Vec<String> = Vec::new();
             let mut err: Vec<String> = Vec::new();
             let connect = |mut opts: ConnectOptions| {
@@ -149,6 +174,7 @@ fn reproduces_the_recorded_runs() {
                     stdout: &mut push_out,
                     stderr: &mut push_err,
                     connect: Some(&connect),
+                    stdin: stdin_text.is_some().then_some(&read_stdin as ReadStdin<'_>),
                 };
                 run(&argv, &mut io)
             };

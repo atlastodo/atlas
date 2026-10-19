@@ -36,6 +36,7 @@
       "api_token_vectors.json",
       "conflict_vectors.json",
       "envelope_vectors.json",
+      "field_policy_vectors.json",
       "identity_vectors.json",
       "passkey_vectors.json",
       "password_kdf_vectors.json",
