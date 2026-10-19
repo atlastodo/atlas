@@ -16,6 +16,7 @@ export * from "./trust";
 export * from "./store";
 export * from "./opLogFile";
 export * from "./persistence";
+export * from "./sealedPersistence";
 export * from "./attachments";
 export * from "./indexeddb";
 export * from "./expo-sqlite";

@@ -1008,6 +1008,20 @@ The sealed format has two versions: version 1 is AES-GCM under the browser wrapp
 sealed by the browser wrap is sealed again with the OS key store when next saved, or right after
 loading (`session.web.ts`).
 
+### Sealed local stores
+
+The persistent op log holds what the store merged, values already decrypted. A client that
+locks, such as a password manager, must not leave them readable on disk while locked, so
+client-core offers `sealPersistence(inner, key)` (`packages/client-core/src/sealedPersistence.ts`):
+any backend (SQLite, IndexedDB, memory) with each `set` op's value, and each stored bootstrap
+repair's, kept as a v2 field envelope under `key` with the key id `local-v1` (never a wire key id,
+and bound to its entity, field and scope like a wire envelope). Op ids, entities, entity ids, field
+names, clocks and the cursor stay as they are: the metadata the server sees anyway. The key comes
+from `deriveLocalStoreKey(appKey, userId)` (HKDF-SHA256, info `atlas-local-store-v1`), so it is
+held only while the app key is, and a locked client cannot read its own store. A store that does
+not open under the key (another key, tampering, or written unsealed) fails to load with
+`SealedStoreError`; the client starts it over. Attachment queue rows are not sealed.
+
 ## What stays plaintext
 
 A field is encrypted unless its app manifest lists it in `plaintext_fields`
