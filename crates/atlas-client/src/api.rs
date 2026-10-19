@@ -140,6 +140,17 @@ pub struct ApiTokenSession {
     pub signing_public_key: Option<String>,
     #[serde(default)]
     pub encrypted_signing_key: Option<EncryptedPayload>,
+    /// When the token expires (unix ms); `None` when it never does, or on a server predating
+    /// expiring tokens.
+    #[serde(default)]
+    pub expires_at: Option<i64>,
+    /// Whether the session may write; a server predating read-only tokens sends none (it may).
+    #[serde(default = "default_token_write")]
+    pub write: bool,
+}
+
+fn default_token_write() -> bool {
+    true
 }
 
 fn default_token_apps() -> Vec<String> {

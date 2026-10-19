@@ -1,0 +1,555 @@
+{
+  "_doc": "The Atlas Vault item rules (packages/shared/src/vault.ts, crates/atlas-client/src/vault.rs), asserted by both. Every value is a field of a `vault.item` entity, end-to-end encrypted (manifests/vault.json keeps none plaintext). `create`: `input` (the keys type, name, fields, urls, notes, tags, folder, favorite) at `now` gives the stored `fields`, or fails with `error` {code, message}. `update`: a stored `item` and a `patch` (the create keys, `folder: null` clears; or `set_fields`/`remove_fields` instead of `fields`) at `now` give the `changes` written (field → value; none when nothing changed), or an `error`. A changed or removed secret field (kind hidden or totp) leaves its old value in `history`, newest first, at most 5 per field name. `read`: raw stored `fields` (another client's, possibly malformed) read as `item` and listed as `summary` (no field values). `resolve`: a reference (id, or name case-insensitively among items outside the trash) among `items` gives an `id` or an `error`. `field`: one field's value by name, case-insensitively.",
+  "now": 1791972000000,
+  "create": [
+    {
+      "name": "a login with a username, password and TOTP seed",
+      "input": {
+        "type": "login",
+        "name": "  GitHub ",
+        "fields": [
+          { "name": "username", "value": "octo" },
+          { "name": "password", "kind": "hidden", "value": " pa ss " },
+          { "name": "totp", "kind": "totp", "value": "jbsw y3dp ehpk 3pxp==" }
+        ],
+        "urls": [" https://github.com ", "", "https://github.com", "https://github.com/login"],
+        "tags": ["work", " Work", "dev"],
+        "favorite": true
+      },
+      "fields": {
+        "type": "login",
+        "name": "GitHub",
+        "fields": [
+          { "name": "username", "kind": "text", "value": "octo" },
+          { "name": "password", "kind": "hidden", "value": " pa ss " },
+          { "name": "totp", "kind": "totp", "value": "JBSWY3DPEHPK3PXP" }
+        ],
+        "urls": ["https://github.com", "https://github.com/login"],
+        "notes": "",
+        "tags": ["work", "dev"],
+        "folder": null,
+        "favorite": true,
+        "history": [],
+        "created_at": 1791972000000,
+        "updated_at": 1791972000000
+      }
+    },
+    {
+      "name": "the defaults: a login with nothing but a name",
+      "input": { "name": "Router" },
+      "fields": {
+        "type": "login",
+        "name": "Router",
+        "fields": [],
+        "urls": [],
+        "notes": "",
+        "tags": [],
+        "folder": null,
+        "favorite": false,
+        "history": [],
+        "created_at": 1791972000000,
+        "updated_at": 1791972000000
+      }
+    },
+    {
+      "name": "an API key in a folder, with an otpauth URI kept as given",
+      "input": {
+        "type": "api_key",
+        "name": "Deploy key",
+        "fields": [
+          { "name": "key", "kind": "hidden", "value": "sk_live_123" },
+          {
+            "name": "2fa",
+            "kind": "totp",
+            "value": " otpauth://totp/Atlas:me?secret=JBSWY3DPEHPK3PXP&issuer=Atlas "
+          }
+        ],
+        "notes": "Rotate yearly.\n",
+        "folder": "0192f000-0000-7000-8000-00000000f001"
+      },
+      "fields": {
+        "type": "api_key",
+        "name": "Deploy key",
+        "fields": [
+          { "name": "key", "kind": "hidden", "value": "sk_live_123" },
+          {
+            "name": "2fa",
+            "kind": "totp",
+            "value": "otpauth://totp/Atlas:me?secret=JBSWY3DPEHPK3PXP&issuer=Atlas"
+          }
+        ],
+        "urls": [],
+        "notes": "Rotate yearly.\n",
+        "tags": [],
+        "folder": "0192f000-0000-7000-8000-00000000f001",
+        "favorite": false,
+        "history": [],
+        "created_at": 1791972000000,
+        "updated_at": 1791972000000
+      }
+    },
+    {
+      "name": "every type is accepted",
+      "input": { "type": "ssh_key", "name": "laptop", "fields": [{ "name": "private key", "kind": "hidden", "value": "-----BEGIN" }] },
+      "fields": {
+        "type": "ssh_key",
+        "name": "laptop",
+        "fields": [{ "name": "private key", "kind": "hidden", "value": "-----BEGIN" }],
+        "urls": [],
+        "notes": "",
+        "tags": [],
+        "folder": null,
+        "favorite": false,
+        "history": [],
+        "created_at": 1791972000000,
+        "updated_at": 1791972000000
+      }
+    },
+    {
+      "name": "a name is required",
+      "input": { "type": "note", "name": "   ", "notes": "x" },
+      "error": { "code": "bad_input", "message": "a vault item needs a name" }
+    },
+    {
+      "name": "an unknown type",
+      "input": { "type": "wifi", "name": "Home" },
+      "error": {
+        "code": "bad_input",
+        "message": "type must be one of login, note, card, identity, ssh_key, api_key"
+      }
+    },
+    {
+      "name": "an unknown key, such as a typo",
+      "input": { "name": "x", "url": "https://example.com" },
+      "error": { "code": "bad_input", "message": "url is not a vault item field" }
+    },
+    {
+      "name": "two fields with one name, case-insensitively",
+      "input": {
+        "name": "x",
+        "fields": [
+          { "name": "Password", "kind": "hidden", "value": "a" },
+          { "name": "password ", "kind": "hidden", "value": "b" }
+        ]
+      },
+      "error": { "code": "bad_input", "message": "two fields are named \"password\"" }
+    },
+    {
+      "name": "a field without a name",
+      "input": { "name": "x", "fields": [{ "name": " ", "value": "a" }] },
+      "error": { "code": "bad_input", "message": "a field needs a name" }
+    },
+    {
+      "name": "an unknown field kind",
+      "input": { "name": "x", "fields": [{ "name": "pin", "kind": "secret", "value": "1234" }] },
+      "error": {
+        "code": "bad_input",
+        "message": "field kind must be one of text, hidden, totp, email, url, phone"
+      }
+    },
+    {
+      "name": "a field value that is not a string",
+      "input": { "name": "x", "fields": [{ "name": "pin", "kind": "hidden", "value": 1234 }] },
+      "error": {
+        "code": "bad_input",
+        "message": "fields must be a list of {name, kind, value} objects with string values"
+      }
+    },
+    {
+      "name": "a TOTP seed that is not base32",
+      "input": { "name": "x", "fields": [{ "name": "totp", "kind": "totp", "value": "not base32!" }] },
+      "error": {
+        "code": "bad_input",
+        "message": "the totp field \"totp\" needs an otpauth:// URI or a base32 secret"
+      }
+    },
+    {
+      "name": "urls must be strings",
+      "input": { "name": "x", "urls": ["https://a.example", 7] },
+      "error": { "code": "bad_input", "message": "urls must be a list of strings" }
+    },
+    {
+      "name": "favorite must be a boolean",
+      "input": { "name": "x", "favorite": "yes" },
+      "error": { "code": "bad_input", "message": "favorite must be true or false" }
+    },
+    {
+      "name": "folder must be an id or null",
+      "input": { "name": "x", "folder": 3 },
+      "error": { "code": "bad_input", "message": "folder must be a folder id or null" }
+    },
+    {
+      "name": "set_fields is for updates",
+      "input": { "name": "x", "set_fields": [] },
+      "error": { "code": "bad_input", "message": "set_fields is not a vault item field" }
+    }
+  ],
+  "update": [
+    {
+      "name": "a new password keeps the old one in the history",
+      "item": {
+        "type": "login",
+        "name": "GitHub",
+        "fields": [
+          { "name": "username", "kind": "text", "value": "octo" },
+          { "name": "password", "kind": "hidden", "value": "old" }
+        ],
+        "urls": [],
+        "notes": "",
+        "tags": [],
+        "folder": null,
+        "favorite": false,
+        "history": [],
+        "created_at": 1791000000000,
+        "updated_at": 1791000000000
+      },
+      "patch": { "set_fields": [{ "name": "Password", "value": "new" }] },
+      "changes": {
+        "fields": [
+          { "name": "username", "kind": "text", "value": "octo" },
+          { "name": "password", "kind": "hidden", "value": "new" }
+        ],
+        "history": [{ "field": "password", "value": "old", "changed_at": 1791972000000 }],
+        "updated_at": 1791972000000
+      }
+    },
+    {
+      "name": "a text field changes without history; a new field is appended as text",
+      "item": {
+        "type": "login",
+        "name": "GitHub",
+        "fields": [{ "name": "username", "kind": "text", "value": "octo" }],
+        "history": [],
+        "created_at": 1791000000000,
+        "updated_at": 1791000000000
+      },
+      "patch": {
+        "set_fields": [
+          { "name": "username", "value": "cat" },
+          { "name": "recovery email", "kind": "email", "value": "me@example.com" },
+          { "name": "note" , "value": "" }
+        ]
+      },
+      "changes": {
+        "fields": [
+          { "name": "username", "kind": "text", "value": "cat" },
+          { "name": "recovery email", "kind": "email", "value": "me@example.com" },
+          { "name": "note", "kind": "text", "value": "" }
+        ],
+        "updated_at": 1791972000000
+      }
+    },
+    {
+      "name": "removing a secret field keeps it in the history, capped at 5 per field, newest first",
+      "item": {
+        "type": "api_key",
+        "name": "Deploy",
+        "fields": [
+          { "name": "key", "kind": "hidden", "value": "k6" },
+          { "name": "totp", "kind": "totp", "value": "JBSWY3DPEHPK3PXP" }
+        ],
+        "history": [
+          { "field": "key", "value": "k5", "changed_at": 1791500000005 },
+          { "field": "totp", "value": "OLDSEED", "changed_at": 1791500000004 },
+          { "field": "Key", "value": "k4", "changed_at": 1791500000004 },
+          { "field": "key", "value": "k3", "changed_at": 1791500000003 },
+          { "field": "key", "value": "k2", "changed_at": 1791500000002 },
+          { "field": "key", "value": "k1", "changed_at": 1791500000001 }
+        ],
+        "created_at": 1791000000000,
+        "updated_at": 1791000000000
+      },
+      "patch": { "remove_fields": ["KEY"] },
+      "changes": {
+        "fields": [{ "name": "totp", "kind": "totp", "value": "JBSWY3DPEHPK3PXP" }],
+        "history": [
+          { "field": "key", "value": "k6", "changed_at": 1791972000000 },
+          { "field": "key", "value": "k5", "changed_at": 1791500000005 },
+          { "field": "totp", "value": "OLDSEED", "changed_at": 1791500000004 },
+          { "field": "Key", "value": "k4", "changed_at": 1791500000004 },
+          { "field": "key", "value": "k3", "changed_at": 1791500000003 },
+          { "field": "key", "value": "k2", "changed_at": 1791500000002 }
+        ],
+        "updated_at": 1791972000000
+      }
+    },
+    {
+      "name": "replacing the whole list records every secret that changed or went",
+      "item": {
+        "type": "card",
+        "name": "Visa",
+        "fields": [
+          { "name": "number", "kind": "hidden", "value": "4111" },
+          { "name": "cvv", "kind": "hidden", "value": "123" },
+          { "name": "holder", "kind": "text", "value": "A" }
+        ],
+        "history": [],
+        "created_at": 1791000000000,
+        "updated_at": 1791000000000
+      },
+      "patch": {
+        "name": " Visa debit ",
+        "fields": [
+          { "name": "Number", "kind": "hidden", "value": "4111" },
+          { "name": "holder", "value": "B" }
+        ],
+        "tags": ["Bank"],
+        "favorite": true,
+        "folder": "0192f000-0000-7000-8000-00000000f001"
+      },
+      "changes": {
+        "name": "Visa debit",
+        "fields": [
+          { "name": "Number", "kind": "hidden", "value": "4111" },
+          { "name": "holder", "kind": "text", "value": "B" }
+        ],
+        "tags": ["Bank"],
+        "folder": "0192f000-0000-7000-8000-00000000f001",
+        "favorite": true,
+        "history": [{ "field": "cvv", "value": "123", "changed_at": 1791972000000 }],
+        "updated_at": 1791972000000
+      }
+    },
+    {
+      "name": "unchanged values write nothing",
+      "item": {
+        "type": "note",
+        "name": "Wi-Fi",
+        "notes": "pw on the router",
+        "folder": "0192f000-0000-7000-8000-00000000f001",
+        "tags": ["home"],
+        "created_at": 1791000000000,
+        "updated_at": 1791000000000
+      },
+      "patch": {
+        "type": "note",
+        "name": "Wi-Fi ",
+        "notes": "pw on the router",
+        "tags": ["home", "HOME"],
+        "folder": "0192f000-0000-7000-8000-00000000f001",
+        "fields": []
+      },
+      "changes": {}
+    },
+    {
+      "name": "folder null clears it; type and notes change",
+      "item": {
+        "type": "note",
+        "name": "Wi-Fi",
+        "notes": "old",
+        "folder": "0192f000-0000-7000-8000-00000000f001",
+        "created_at": 1791000000000,
+        "updated_at": 1791000000000
+      },
+      "patch": { "type": "login", "folder": null, "notes": "" },
+      "changes": { "type": "login", "notes": "", "folder": null, "updated_at": 1791972000000 }
+    },
+    {
+      "name": "removing a field that is not there",
+      "item": {
+        "type": "login",
+        "name": "x",
+        "fields": [],
+        "created_at": 1791000000000,
+        "updated_at": 1791000000000
+      },
+      "patch": { "remove_fields": ["password"] },
+      "error": { "code": "bad_input", "message": "no field \"password\" to remove" }
+    },
+    {
+      "name": "fields and set_fields together",
+      "item": { "type": "login", "name": "x", "created_at": 1791000000000, "updated_at": 1791000000000 },
+      "patch": { "fields": [], "set_fields": [{ "name": "a", "value": "b" }] },
+      "error": {
+        "code": "bad_input",
+        "message": "give fields (the whole list) or set_fields and remove_fields, not both"
+      }
+    },
+    {
+      "name": "a patch may not empty the name",
+      "item": { "type": "login", "name": "x", "created_at": 1791000000000, "updated_at": 1791000000000 },
+      "patch": { "name": "" },
+      "error": { "code": "bad_input", "message": "a vault item needs a name" }
+    }
+  ],
+  "read": [
+    {
+      "name": "a stored item reads as it was written, and its summary leaves the values out",
+      "fields": {
+        "type": "login",
+        "name": "GitHub",
+        "fields": [
+          { "name": "username", "kind": "text", "value": "octo" },
+          { "name": "password", "kind": "hidden", "value": "pw" }
+        ],
+        "urls": ["https://github.com"],
+        "notes": "n",
+        "tags": ["dev"],
+        "folder": "0192f000-0000-7000-8000-00000000f001",
+        "favorite": true,
+        "history": [{ "field": "password", "value": "old", "changed_at": 5 }],
+        "created_at": 1,
+        "updated_at": 2
+      },
+      "item": {
+        "type": "login",
+        "name": "GitHub",
+        "fields": [
+          { "name": "username", "kind": "text", "value": "octo" },
+          { "name": "password", "kind": "hidden", "value": "pw" }
+        ],
+        "urls": ["https://github.com"],
+        "notes": "n",
+        "tags": ["dev"],
+        "folder": "0192f000-0000-7000-8000-00000000f001",
+        "favorite": true,
+        "history": [{ "field": "password", "value": "old", "changed_at": 5 }],
+        "created_at": 1,
+        "updated_at": 2,
+        "deleted_at": null
+      },
+      "summary": {
+        "type": "login",
+        "name": "GitHub",
+        "fields": [
+          { "name": "username", "kind": "text" },
+          { "name": "password", "kind": "hidden" }
+        ],
+        "urls": ["https://github.com"],
+        "tags": ["dev"],
+        "folder": "0192f000-0000-7000-8000-00000000f001",
+        "favorite": true,
+        "created_at": 1,
+        "updated_at": 2,
+        "deleted_at": null
+      }
+    },
+    {
+      "name": "malformed values read leniently: unknown kinds and types are kept, junk is dropped",
+      "fields": {
+        "type": 3,
+        "name": ["x"],
+        "fields": [
+          { "name": "pin", "kind": "passkey", "value": "1" },
+          { "name": "no value" },
+          "junk",
+          { "name": "plain", "value": "v" }
+        ],
+        "urls": ["https://a.example", 4],
+        "favorite": "yes",
+        "folder": 9,
+        "history": [{ "field": "pin", "value": "0", "changed_at": "x" }, { "value": "?" }],
+        "created_at": 7,
+        "deleted_at": 9
+      },
+      "item": {
+        "type": "login",
+        "name": "",
+        "fields": [
+          { "name": "pin", "kind": "passkey", "value": "1" },
+          { "name": "plain", "kind": "text", "value": "v" }
+        ],
+        "urls": ["https://a.example"],
+        "notes": "",
+        "tags": [],
+        "folder": null,
+        "favorite": false,
+        "history": [{ "field": "pin", "value": "0", "changed_at": 0 }],
+        "created_at": 7,
+        "updated_at": 0,
+        "deleted_at": 9
+      },
+      "summary": {
+        "type": "login",
+        "name": "",
+        "fields": [
+          { "name": "pin", "kind": "passkey" },
+          { "name": "plain", "kind": "text" }
+        ],
+        "urls": ["https://a.example"],
+        "tags": [],
+        "folder": null,
+        "favorite": false,
+        "created_at": 7,
+        "updated_at": 0,
+        "deleted_at": 9
+      }
+    }
+  ],
+  "resolve": [
+    {
+      "name": "by id, even in the trash",
+      "items": [
+        { "id": "0192f000-0000-7000-8000-000000000001", "name": "GitHub", "deleted_at": 5 },
+        { "id": "0192f000-0000-7000-8000-000000000002", "name": "AWS", "deleted_at": null }
+      ],
+      "ref": " 0192f000-0000-7000-8000-000000000001",
+      "id": "0192f000-0000-7000-8000-000000000001"
+    },
+    {
+      "name": "by name, case-insensitively, outside the trash",
+      "items": [
+        { "id": "0192f000-0000-7000-8000-000000000001", "name": "GitHub", "deleted_at": 5 },
+        { "id": "0192f000-0000-7000-8000-000000000003", "name": "github ", "deleted_at": null }
+      ],
+      "ref": "GITHUB",
+      "id": "0192f000-0000-7000-8000-000000000003"
+    },
+    {
+      "name": "an unknown reference",
+      "items": [{ "id": "0192f000-0000-7000-8000-000000000001", "name": "GitHub", "deleted_at": 5 }],
+      "ref": "GitHub",
+      "error": { "code": "unknown_vault_item", "message": "no vault item \"GitHub\"" }
+    },
+    {
+      "name": "a name two items share",
+      "items": [
+        { "id": "0192f000-0000-7000-8000-000000000009", "name": "AWS", "deleted_at": null },
+        { "id": "0192f000-0000-7000-8000-000000000002", "name": "aws", "deleted_at": null }
+      ],
+      "ref": "aws",
+      "error": {
+        "code": "ambiguous_vault_item",
+        "message": "\"aws\" names 2 vault items (0192f000-0000-7000-8000-000000000002, 0192f000-0000-7000-8000-000000000009); use an id"
+      }
+    }
+  ],
+  "field": [
+    {
+      "name": "a field by name, case-insensitively, value as stored",
+      "item": {
+        "name": "GitHub",
+        "fields": [
+          { "name": "username", "kind": "text", "value": "octo" },
+          { "name": "Password", "kind": "hidden", "value": " pw " }
+        ]
+      },
+      "field": "password",
+      "value": " pw "
+    },
+    {
+      "name": "a missing field names the ones there are",
+      "item": {
+        "name": "GitHub",
+        "fields": [
+          { "name": "username", "kind": "text", "value": "octo" },
+          { "name": "Password", "kind": "hidden", "value": "pw" }
+        ]
+      },
+      "field": "token",
+      "error": {
+        "code": "unknown_vault_field",
+        "message": "vault item \"GitHub\" has no field \"token\" (it has: username, Password)"
+      }
+    },
+    {
+      "name": "an item without fields",
+      "item": { "name": "Note" },
+      "field": "x",
+      "error": {
+        "code": "unknown_vault_field",
+        "message": "vault item \"Note\" has no field \"x\" (it has none)"
+      }
+    }
+  ]
+}

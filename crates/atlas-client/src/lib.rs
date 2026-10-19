@@ -10,8 +10,8 @@
 //!   with the client's conflict resolution, key scopes, the synced trust state, project key
 //!   hydration, the HTTP API and the sync cycle.
 //! - [`session`]: an API-token session of one app holding all of that.
-//! - [`client`], [`journal`]: what integrations call: todo's tasks, projects and labels, and
-//!   Atlas Journal's entries.
+//! - [`client`], [`journal`], [`vault`]: what integrations call: todo's tasks, projects and labels,
+//!   Atlas Journal's entries and Atlas Vault's items.
 
 pub mod api;
 pub mod client;
@@ -29,5 +29,6 @@ pub mod store;
 pub mod sync;
 pub mod testing;
 pub mod trust;
+pub mod vault;
 
 pub use error::{Error, Result};
