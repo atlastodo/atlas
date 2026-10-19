@@ -6,8 +6,8 @@
 // (build tools, tests) are not shipped or listed. The apps keep their own notices: the todo app's
 // release (atlastodo/atlas-todo) attaches its THIRD_PARTY_NOTICES.txt, which the server image
 // carries next to the web build (docker/Dockerfile). The
-// Rust side is the normal (non-dev, non-build) dependency closure of atlas-server and atlas-cli
-// for Linux, from `cargo metadata`.
+// Rust side is the normal (non-dev, non-build) dependency closure of atlas-server, atlas-cli and
+// atlas-secretspec for Linux, from `cargo metadata`.
 //
 // Usage:
 //   node scripts/third-party-licenses.mjs --check          # fail on a JS licence outside ALLOW
@@ -129,8 +129,9 @@ function rustPackages() {
   );
   const byId = new Map(meta.packages.map((p) => [p.id, p]));
   const nodes = new Map(meta.resolve.nodes.map((n) => [n.id, n]));
-  // The two Rust programs a release ships: the server and the `atlas` CLI.
-  const roots = meta.packages.filter((p) => p.name === "atlas-server" || p.name === "atlas-cli");
+  // The Rust programs a release ships: the server, the `atlas` CLI and the SecretSpec provider.
+  const shipped = ["atlas-server", "atlas-cli", "atlas-secretspec"];
+  const roots = meta.packages.filter((p) => shipped.includes(p.name));
   const seen = new Set();
   const queue = roots.map((p) => p.id);
   while (queue.length) {

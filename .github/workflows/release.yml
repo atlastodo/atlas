@@ -109,8 +109,9 @@ jobs:
       flavor: latest=auto
 
   # The `atlas` CLI (crates/atlas-cli) as one static binary per platform, named
-  # atlas-X.Y.Z-<target>[.exe]. Linux builds against musl with cargo-zigbuild (zig as the C
-  # toolchain for ring), so they run on any distribution, Alpine-based images such as n8n's included.
+  # atlas-X.Y.Z-<target>[.exe], and next to it the SecretSpec provider (crates/atlas-secretspec)
+  # as secretspec-provider-atlas-X.Y.Z-<target>[.exe]. Linux builds against musl with
+  # cargo-zigbuild (zig as the C toolchain for ring), so they run on any distribution, Alpine-based images such as n8n's included.
   # macOS and Windows build on their own hosted runners, which cost extra minutes in a private
   # repository: there only the Linux binaries are built.
   cli:
@@ -154,28 +155,35 @@ jobs:
           RUSTFLAGS: ${{ contains(matrix.target, 'windows') && '-C target-feature=+crt-static' || '' }}
         run: |
           if [ "$ZIG" = true ]; then
-            cargo zigbuild --release --locked -p atlas-cli --target "$TARGET"
+            cargo zigbuild --release --locked -p atlas-cli -p atlas-secretspec --target "$TARGET"
           else
-            cargo build --release --locked -p atlas-cli --target "$TARGET"
+            cargo build --release --locked -p atlas-cli -p atlas-secretspec --target "$TARGET"
           fi
           ext=""
           case "$TARGET" in *windows*) ext=".exe" ;; esac
           cp "target/$TARGET/release/atlas$ext" "atlas-$VERSION-$TARGET$ext"
+          cp "target/$TARGET/release/secretspec-provider-atlas$ext" \
+            "secretspec-provider-atlas-$VERSION-$TARGET$ext"
           echo "FILE=atlas-$VERSION-$TARGET$ext" >> "$GITHUB_ENV"
+          echo "PROVIDER=secretspec-provider-atlas-$VERSION-$TARGET$ext" >> "$GITHUB_ENV"
       - name: Check the binary
         env:
           RUN: ${{ matrix.run }}
         run: |
-          case "$TARGET" in
-            *linux-musl) file "$FILE" | tee /dev/stderr | grep -q 'statically linked' ;;
-          esac
-          if [ "$RUN" = true ]; then
-            "./$FILE" --version | grep -qx "$VERSION"
-          fi
+          for f in "$FILE" "$PROVIDER"; do
+            case "$TARGET" in
+              *linux-musl) file "$f" | tee /dev/stderr | grep -q 'statically linked' ;;
+            esac
+            if [ "$RUN" = true ]; then
+              "./$f" --version | grep -qx "$VERSION"
+            fi
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cli-${{ matrix.target }}
-          path: ${{ env.FILE }}
+          path: |
+            ${{ env.FILE }}
+            ${{ env.PROVIDER }}
           if-no-files-found: error
           retention-days: 7
 
@@ -239,6 +247,7 @@ jobs:
         with:
           subject-path: |
             dist/atlas-[0-9]*
+            dist/secretspec-provider-atlas-*
             dist/*.tgz
       - name: Create or update the release
         env:

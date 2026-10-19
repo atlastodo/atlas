@@ -45,6 +45,7 @@ exceptions = [
     { name = "atlas-server", allow = ["AGPL-3.0-only"] },
     { name = "atlas-client", allow = ["AGPL-3.0-only"] },
     { name = "atlas-cli", allow = ["AGPL-3.0-only"] },
+    { name = "atlas-secretspec", allow = ["AGPL-3.0-only"] },
 ]
 
 [bans]

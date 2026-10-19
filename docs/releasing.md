@@ -56,8 +56,9 @@ A `v*` tag runs `.github/workflows/release.yml`:
   tags `X.Y.Z`, `X.Y` and `latest`, an SBOM, BuildKit provenance and a GitHub build provenance
   attestation. The image's web app is the `todo` pin in `apps.lock.json`, which
   `docker/Dockerfile` downloads and checks against its SHA-256.
-- **CLI**: the `atlas` binary (`crates/atlas-cli`), one per target, as `atlas-X.Y.Z-<target>`.
-  Linux x86_64 and aarch64 build against musl with `cargo zigbuild` (zig from PyPI's `ziglang`),
+- **CLI**: the `atlas` binary (`crates/atlas-cli`), one per target, as `atlas-X.Y.Z-<target>`,
+  and the SecretSpec provider (`crates/atlas-secretspec`) next to it as
+  `secretspec-provider-atlas-X.Y.Z-<target>`. Linux x86_64 and aarch64 build against musl with `cargo zigbuild` (zig from PyPI's `ziglang`),
   so the binaries are static and run on Alpine; each is checked to be statically linked, and the
   x86_64 one to print the tag's version. macOS (`aarch64-apple-darwin`, `x86_64-apple-darwin`)
   and Windows (`x86_64-pc-windows-msvc`, static CRT) build on their own hosted runners once the

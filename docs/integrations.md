@@ -206,6 +206,144 @@ as private as the token. Token sign-ins share the per-IP `/auth/*`
 rate limit (`AUTH_RATE_LIMIT_MAX`, 30 a minute by default), so space out bursts of CLI calls from
 one machine, or raise the limit on your own server.
 
+## SecretSpec
+
+[SecretSpec](https://secretspec.dev) (0.21 or newer) declares the secrets a project needs in
+`secretspec.toml` and resolves them from a provider. `secretspec-provider-atlas` is a provider for
+Atlas Vault, an external one in SecretSpec's terms (its Secret Provider Protocol): SecretSpec runs
+it for every provider URI with the `atlas` scheme, and it signs in with a vault token, decrypts the
+vault on the machine it runs on and answers SecretSpec over a private pipe. Every release attaches
+it next to the CLI, as `secretspec-provider-atlas-X.Y.Z-<target>`. Put it somewhere only you can
+write and register it once per user (or, with `--system`, per machine):
+
+```sh
+install -m 755 secretspec-provider-atlas-X.Y.Z-x86_64-unknown-linux-musl ~/.local/bin/secretspec-provider-atlas
+secretspec-provider-atlas register    # writes ~/.config/secretspec/providers.d/atlas.secretspec.json
+```
+
+The registration names the binary and the environment SecretSpec passes it (`ATLAS_URL`,
+`ATLAS_TOKEN`, `ATLAS_STATE_DIR`; SecretSpec gives an external provider nothing else of the
+caller's environment). SecretSpec refuses a registration or binary that others can write, and it
+does not look for providers on `PATH`. `register --print` prints the registration instead.
+
+### Where secrets live
+
+A provider URI is `atlas://` (the server in `ATLAS_URL`) or `atlas://HOST[:PORT][/PATH]` (HTTPS;
+HTTP for `localhost`). It carries no token. SecretSpec's names map onto the vault like this:
+
+| SecretSpec                            | Atlas Vault                                                |
+| ------------------------------------- | ---------------------------------------------------------- |
+| project (`[project] name`)            | a folder of that name                                      |
+| profile (`development`, `production`) | an item of that name in the folder                         |
+| secret (`DATABASE_URL`)               | a field of that name in the item (`hidden` when set by it) |
+| `ref = { item, field }`               | the item of that name (or id) anywhere in the vault, field |
+| `ref = { vault, item, field }`        | the item of that name in the folder `vault`, field         |
+
+So the secrets of project `payments` are the folder **payments**, with an item per profile
+(**production**, **staging**) holding one field per secret, and you can keep them in the app or
+with the CLI:
+
+```sh
+atlas vault folders add payments
+atlas vault add --json - <<'EOF'
+{"name": "production", "type": "api_key", "folder": "payments",
+ "fields": [{"name": "DATABASE_URL", "kind": "hidden", "value": "postgres://…"}]}
+EOF
+```
+
+Names match case-insensitively and must be unique: two items of one name in a folder (or, for a
+`ref` without `vault`, in the vault) fail with `conflict` rather than picking one. A missing
+folder, item or field is a missing secret, which `secretspec check` reports as such. A `ref` needs
+a `field`; `section` and `version` are refused. `secretspec set` (with a token that may write)
+replaces the field's value, keeping the old one in the item's history as any change of a hidden
+field does, or adds the field, creating the folder and the item (an `api_key` item tagged
+`secretspec`) when they are missing.
+
+### Tokens
+
+Make a vault token as for any CI job (see [Vault tokens for CI](#vault-tokens-for-ci)): it
+expires (within a year) and reads only unless made with writes. The provider takes it from
+`ATLAS_TOKEN`, or, when that is not set, asks SecretSpec for its credential `token`, which
+`secretspec config provider login` stores in the system keyring or an alias's `credentials`
+table names. A read-only token resolves secrets and is refused `secretspec set` with
+`permission_denied` before you are asked for the value; keep a token with writes for whoever
+stores the secrets. `ATLAS_STATE_DIR` caches the vault between runs, as for the CLI.
+
+SecretSpec shows an external provider's errors by kind only, so `secretspec-provider-atlas status
+[URI]` signs in as SecretSpec would and says what is wrong in words (and, when nothing is, the
+server, whether the token may write and when it expires):
+
+| SecretSpec says        | Meaning                                                                     |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `interaction required` | no token, or it expired, was revoked or is not an Atlas API token: make one |
+| `permission denied`    | a write with a read-only token, or a token that is not for Atlas Vault      |
+| `conflict`             | two folders or items share the name the secret maps to                      |
+| `invalid params`       | a bad URI (a token in it, no server) or a `ref` without `field`             |
+| `unavailable`          | the server did not answer, or rate-limited the sign-in (retried)            |
+| `operation failed`     | anything else, e.g. a server without Atlas Vault: run `status`              |
+
+### Examples
+
+```toml
+# secretspec.toml
+[project]
+name = "payments"
+revision = "1.0"
+
+[providers]
+atlas_vault = "atlas://app.atlastodo.dev"
+
+[defaults]
+providers = ["atlas_vault"]
+
+[profiles.default]
+DATABASE_URL = { description = "Postgres", required = true }
+DEPLOY_TOKEN = { description = "Deploy key", required = true, ref = { item = "Deploy key", field = "token" } }
+
+[profiles.production]
+DATABASE_URL = { required = true }
+```
+
+```sh
+secretspec check --profile production
+secretspec run --profile production -- ./deploy.sh
+```
+
+In CI, give the job a read-only vault token as a secret variable, install and register the
+provider, and run the same commands:
+
+```yaml
+# .github/workflows/deploy.yml (excerpt)
+- run: |
+    curl -fsSLo /usr/local/bin/secretspec-provider-atlas \
+      https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/secretspec-provider-atlas-X.Y.Z-x86_64-unknown-linux-musl
+    chmod 755 /usr/local/bin/secretspec-provider-atlas
+    secretspec-provider-atlas register
+    secretspec run --profile production -- ./deploy.sh
+  env:
+    ATLAS_TOKEN: ${{ secrets.ATLAS_VAULT_TOKEN }}
+```
+
+With [devenv](https://devenv.sh), whose SecretSpec integration loads the declared secrets into the
+shell, select the provider and profile in `devenv.yaml` (devenv 2.4 embeds SecretSpec 0.21, the
+first to run external providers; register the provider as above):
+
+```yaml
+# devenv.yaml
+secretspec:
+  enable: true
+  provider: atlas://app.atlastodo.dev
+  profile: development
+```
+
+```nix
+# devenv.nix
+{ config, ... }:
+{
+  env.DATABASE_URL = config.secretspec.secrets.DATABASE_URL or "";
+}
+```
+
 ## n8n
 
 n8n runs the CLI with its **Execute Command** node. Recent n8n versions disable that node by
