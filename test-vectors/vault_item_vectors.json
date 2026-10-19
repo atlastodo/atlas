@@ -164,6 +164,14 @@
       }
     },
     {
+      "name": "a TOTP seed with a letter outside base32 (only ASCII is upper-cased)",
+      "input": { "name": "x", "fields": [{ "name": "totp", "kind": "totp", "value": "straße" }] },
+      "error": {
+        "code": "bad_input",
+        "message": "the totp field \"totp\" needs an otpauth:// URI or a base32 secret"
+      }
+    },
+    {
       "name": "urls must be strings",
       "input": { "name": "x", "urls": ["https://a.example", 7] },
       "error": { "code": "bad_input", "message": "urls must be a list of strings" }

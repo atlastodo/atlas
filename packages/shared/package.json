@@ -36,7 +36,8 @@
       "filter_vectors.json",
       "quick_add_vectors.json",
       "recurrence_vectors.json",
-      "task_rules_vectors.json"
+      "task_rules_vectors.json",
+      "vault_item_vectors.json"
     ]
   },
   "scripts": {

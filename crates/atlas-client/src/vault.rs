@@ -376,7 +376,9 @@ fn field_value(name: &str, kind: &str, value: &str) -> Result<String> {
         return Ok(value.to_owned());
     }
     let t = value.trim();
-    if t.len() >= 10 && t[..10].eq_ignore_ascii_case("otpauth://") {
+    if t.get(..10)
+        .is_some_and(|p| p.eq_ignore_ascii_case("otpauth://"))
+    {
         return Ok(t.to_owned());
     }
     let seed: String = t

@@ -57,6 +57,8 @@ export * from "./pomodoro";
 export * from "./focus";
 export * from "./countdown";
 
+export * from "./vault";
+
 export * from "./swipe";
 export * from "./hotkeys";
 export * from "./avatarColor";
