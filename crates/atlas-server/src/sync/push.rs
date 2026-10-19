@@ -299,6 +299,8 @@ fn may_fan_out(kind: EntityKind) -> bool {
         | EntityKind::HabitCheckin => false,
         // Journal v1 is personal: owner-only, no sharing.
         EntityKind::JournalEntry | EntityKind::JournalPreference => false,
+        // Vault v1 is personal too: a stolen password is worse than a leaked task.
+        EntityKind::VaultItem | EntityKind::VaultFolder | EntityKind::VaultPreference => false,
     }
 }
 
@@ -328,7 +330,10 @@ async fn project_of(
         | EntityKind::Habit
         | EntityKind::HabitCheckin
         | EntityKind::JournalEntry
-        | EntityKind::JournalPreference => Ok(None),
+        | EntityKind::JournalPreference
+        | EntityKind::VaultItem
+        | EntityKind::VaultFolder
+        | EntityKind::VaultPreference => Ok(None),
     }
 }
 
@@ -472,7 +477,10 @@ fn min_role_for_op(op: &Operation) -> Role {
         | EntityKind::Habit
         | EntityKind::HabitCheckin
         | EntityKind::JournalEntry
-        | EntityKind::JournalPreference => Role::Owner,
+        | EntityKind::JournalPreference
+        | EntityKind::VaultItem
+        | EntityKind::VaultFolder
+        | EntityKind::VaultPreference => Role::Owner,
     }
 }
 

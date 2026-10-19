@@ -45,11 +45,22 @@ pub enum EntityKind {
     /// An Atlas Journal setting. Personal, like [`EntityKind::JournalEntry`].
     #[serde(rename = "journal.preference")]
     JournalPreference,
+    /// An Atlas Vault item (`manifests/vault.json`): a login, note, card, identity, SSH key or API
+    /// key. Personal: never fanned out to another account, and the server reads none of its
+    /// fields, not even its type or folder.
+    #[serde(rename = "vault.item")]
+    VaultItem,
+    /// An Atlas Vault folder. Personal, like [`EntityKind::VaultItem`].
+    #[serde(rename = "vault.folder")]
+    VaultFolder,
+    /// An Atlas Vault setting. Personal, like [`EntityKind::VaultItem`].
+    #[serde(rename = "vault.preference")]
+    VaultPreference,
 }
 
 impl EntityKind {
     /// Every kind, in declaration order.
-    pub const ALL: [EntityKind; 16] = [
+    pub const ALL: [EntityKind; 19] = [
         EntityKind::Task,
         EntityKind::Project,
         EntityKind::Section,
@@ -66,6 +77,9 @@ impl EntityKind {
         EntityKind::Attachment,
         EntityKind::JournalEntry,
         EntityKind::JournalPreference,
+        EntityKind::VaultItem,
+        EntityKind::VaultFolder,
+        EntityKind::VaultPreference,
     ];
 
     /// The kind's wire name (its serde form), as the manifests and the op store key it.
@@ -87,6 +101,9 @@ impl EntityKind {
             EntityKind::Attachment => "attachment",
             EntityKind::JournalEntry => "journal.entry",
             EntityKind::JournalPreference => "journal.preference",
+            EntityKind::VaultItem => "vault.item",
+            EntityKind::VaultFolder => "vault.folder",
+            EntityKind::VaultPreference => "vault.preference",
         }
     }
 
@@ -322,6 +339,11 @@ mod tests {
             Some(EntityKind::JournalEntry)
         );
         assert_eq!(EntityKind::from_wire("entry"), None);
+        assert_eq!(
+            EntityKind::from_wire("vault.item"),
+            Some(EntityKind::VaultItem)
+        );
+        assert_eq!(EntityKind::from_wire("item"), None);
     }
 
     #[test]
