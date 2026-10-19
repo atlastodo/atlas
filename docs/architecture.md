@@ -107,10 +107,12 @@ ships their manifests, the server rules, the client-core helpers, the item rules
 commands.
 
 A manifest may also carry an `api_tokens` policy (`expiry_required`, `max_lifetime_days`,
-`write_by_default`; `TokenPolicy` in `atlas-core`, `tokenPolicyFor` in client-core) that the
+`write_by_default`, `exclusive`; `TokenPolicy` in `atlas-core`, `tokenPolicyFor` in client-core) that the
 server enforces for every API token that includes the app, taking the strictest when a token is
 for several. The vault's requires an expiry at most 365 days out and makes tokens read-only
-unless writes are opted in; see [API tokens](#api-tokens).
+unless writes are opted in, and is `exclusive`: a vault token is for the vault alone (400
+`api_token_app_exclusive` otherwise), so no other app's key travels with a vault secret and its
+write flag means one thing; see [API tokens](#api-tokens).
 
 #### App-scoped sessions
 
@@ -511,7 +513,9 @@ usage in [integrations.md](./integrations.md)).
     `POST /sync/ws-ticket`; anything else is 403 `api_token_read_only`, refused in `AuthUser`
     before any handler runs, so a write route added later is covered without change. The session
     response and the token list carry `expires_at` and `write`. An expired token stays listed
-    until revoked and no longer counts against the cap.
+    until revoked and no longer counts against the cap; an hourly sweep
+    (`api_tokens::spawn_expiry_sweep`) drops its key wraps, as revoking does, so they don't wait at
+    rest for a leak.
   - An account holds at most 25 live (unexpired) tokens.
 - **Revoking.** Revoking a token, recovering the account or scheduling its deletion sets
   `revoked_at` and nulls the wraps (`app_keys` too), so a token string that leaks afterwards opens nothing. A

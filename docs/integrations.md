@@ -331,9 +331,13 @@ capability:
   without sending anything.
 - **It is revoked like any token** (`DELETE /auth/api-tokens/:id`, or account recovery): its
   wrapped keys are dropped and its sessions end on their next request. An expired token stays in
-  the list (with `expires_at`) until it is revoked, but no longer counts against the 25.
-- A token for the vault and another app takes the strictest of their policies. Todo and journal
-  tokens may also be given an expiry or `"write": false`.
+  the list (with `expires_at`) until it is revoked, but no longer counts against the 25; within the
+  hour the server drops its wrapped keys.
+- **It is for the vault alone.** A token naming the vault and another app is 400
+  `api_token_app_exclusive`. Todo and journal tokens may also be given an expiry or
+  `"write": false`.
+- A password change does not revoke API tokens: they are separate credentials. Revoke them one by
+  one; recovering the account revokes them all.
 
 Make one read-only token per pipeline, scoped to `["vault"]`, and rotate it before it expires; a
 job that stores secrets gets its own token with writes. A vault token reaches every item of the

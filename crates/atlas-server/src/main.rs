@@ -50,6 +50,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Accounts past their deletion grace are purged here, not on next login (most never return).
     auth::account_purge::spawn(&state);
 
+    // API tokens past their expiry lose their copies of the account's keys.
+    auth::api_tokens::spawn_expiry_sweep(&state);
+
     // Partitions of members who left a shared project before leaving revoked all of it.
     {
         let state = state.clone();

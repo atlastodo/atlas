@@ -224,7 +224,8 @@ fn check_token_apps(req: &CreateApiTokenRequest) -> AppResult<Vec<String>> {
 /// The token's expiry and write access under the strictest policy of its `apps` (bundled ids),
 /// at `now`. Typed 400s: `api_token_expiry_required` when the policy needs an expiry and none is
 /// given, `api_token_expiry_in_past` for one not after `now`, `api_token_expiry_too_far` for one
-/// past the policy's longest lifetime.
+/// past the policy's longest lifetime, `api_token_app_exclusive` for a token naming an app that
+/// takes tokens of its own (the vault) together with another app.
 pub(crate) fn check_token_access(
     apps: &[String],
     expires_at: Option<i64>,
@@ -243,6 +244,19 @@ pub(crate) fn check_token_access(
             .collect::<Vec<_>>()
             .join(", ")
     };
+    if policy.exclusive && apps.len() > 1 {
+        let alone = apps
+            .iter()
+            .filter_map(|a| registry.app(a))
+            .filter(|m| m.api_tokens.exclusive)
+            .map(|m| m.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(AppError::ApiTokenPolicy {
+            code: "api_token_app_exclusive",
+            message: format!("a token for {alone} is for that app alone, not {}", names()),
+        });
+    }
     let expires_at = match expires_at {
         None if policy.expiry_required => {
             return Err(AppError::ApiTokenPolicy {
@@ -446,6 +460,41 @@ pub async fn revoke_all(
     Ok(())
 }
 
+/// How often [`spawn_expiry_sweep`] drops expired tokens' keys; the first pass fires at startup.
+const EXPIRY_SWEEP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Drop the key wraps of every token past its expiry, as revoking does: an expired token opens no
+/// session, so its copies of the account's keys only wait at rest for a leak. The row stays (it
+/// is still listed, as expired, until revoked). Returns how many tokens it scrubbed.
+pub async fn scrub_expired(pool: &sqlx::PgPool) -> AppResult<u64> {
+    let res = sqlx::query(
+        "UPDATE api_tokens
+            SET wrapped_dek = NULL, wrapped_private_key = NULL, app_keys = NULL
+          WHERE expires_at <= now()
+            AND (wrapped_dek IS NOT NULL OR wrapped_private_key IS NOT NULL
+                 OR app_keys IS NOT NULL)",
+    )
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected())
+}
+
+/// Run [`scrub_expired`] every [`EXPIRY_SWEEP_INTERVAL`].
+pub fn spawn_expiry_sweep(state: &AppState) -> tokio::task::JoinHandle<()> {
+    let state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(EXPIRY_SWEEP_INTERVAL);
+        loop {
+            interval.tick().await;
+            match scrub_expired(&state.pool).await {
+                Ok(0) => {}
+                Ok(scrubbed) => tracing::info!(scrubbed, "dropped expired API tokens' keys"),
+                Err(e) => tracing::warn!(error = ?e, "API token expiry sweep failed"),
+            }
+        }
+    })
+}
+
 /// `POST /auth/api-token/session`: open a session with a token. Every refusal (unknown, revoked,
 /// wrong auth) is a plain 401, except an expired token's 401 `api_token_expired` and a disabled
 /// or deletion-scheduled account's typed 403s, which only someone holding the token gets. IP rate-limited with the rest of `/auth/*`; the
@@ -586,7 +635,16 @@ mod tests {
             Err(AppError::ApiTokenPolicy { code, .. }) => code,
             other => panic!("{other:?}"),
         };
-        for a in [&["vault"][..], &["todo", "vault"]] {
+        // A vault token is for the vault alone.
+        let year = now + time::Duration::days(365);
+        for a in [&["todo", "vault"][..], &["journal", "vault"]] {
+            assert_eq!(
+                code(check_token_access(&apps(a), Some(ms(year)), None, now)),
+                "api_token_app_exclusive"
+            );
+        }
+        {
+            let a = &["vault"][..];
             assert_eq!(
                 code(check_token_access(&apps(a), None, None, now)),
                 "api_token_expiry_required"

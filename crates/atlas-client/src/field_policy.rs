@@ -61,12 +61,14 @@ mod tests {
                 (
                     policy.expiry_required,
                     policy.max_lifetime_days.map(u64::from),
-                    policy.write_by_default
+                    policy.write_by_default,
+                    policy.exclusive
                 ),
                 (
                     p["expiry_required"].as_bool().unwrap(),
                     p["max_lifetime_days"].as_u64(),
-                    p["write_by_default"].as_bool().unwrap()
+                    p["write_by_default"].as_bool().unwrap(),
+                    p["exclusive"].as_bool().unwrap()
                 ),
                 "{apps:?}"
             );
