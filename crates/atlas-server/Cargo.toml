@@ -45,7 +45,7 @@ futures-util = { version = "0.3", default-features = false, features = ["sink"] 
 object_store = { version = "0.14.2", default-features = false, features = ["aws"] }
 webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation", "conditional-ui"] }
 url = "2"
-p256 = { version = "0.13", features = ["ecdsa"], optional = true }
+p256 = { version = "0.14", features = ["ecdsa"], optional = true }
 ciborium = { version = "0.2", optional = true }
 
 [features]
