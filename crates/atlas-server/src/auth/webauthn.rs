@@ -440,7 +440,7 @@ pub mod soft {
         }
 
         fn cose_key(&self) -> Vec<u8> {
-            let point = self.key.verifying_key().to_encoded_point(false);
+            let point = self.key.verifying_key().to_sec1_point(false);
             let map = Cbor::Map(vec![
                 (Cbor::from(1), Cbor::from(2)),
                 (Cbor::from(3), Cbor::from(ALG_ES256)),
