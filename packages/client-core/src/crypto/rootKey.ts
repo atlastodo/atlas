@@ -24,6 +24,9 @@ import { bytesToHex, hexToBytes, randomBytes, utf8ToBytes } from "./utils";
 /** The app whose key is the account's original DEK. */
 export const TODO_APP = "todo";
 
+/** Atlas Journal: its key and identity are a row under the root (`enableApp`). */
+export const JOURNAL_APP = "journal";
+
 /** A key wrapped under another (root slot, app key, app identity). */
 export interface RootKeyWrap {
   v: 1;
