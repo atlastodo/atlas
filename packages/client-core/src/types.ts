@@ -392,7 +392,16 @@ export type EntityKind =
   | "habit"
   | "habit_checkin"
   /** Metadata only; ciphertext travels via `/attachments/blobs/:sha256`. */
-  | "attachment";
+  | "attachment"
+  /**
+   * Atlas Journal's kinds (`manifests/journal.json`), namespaced `<app>.<kind>` like every app's
+   * after todo. Personal and fully encrypted: no plaintext field, no project scope. A journal
+   * client syncs them in a journal-scoped session (`ApiClientOptions.apps`).
+   */
+  | JournalEntityKind;
+
+/** Atlas Journal's entity kinds: `journal.entry` (one entry) and `journal.preference` (a setting). */
+export type JournalEntityKind = "journal.entry" | "journal.preference";
 
 export interface CreateTaskInput {
   title: string;

@@ -21,8 +21,8 @@ export interface AppManifest {
 
 /**
  * The manifests bundled into this client, as the server bundles them. `EntityKind` (and so
- * {@link PLAINTEXT_FIELDS}) is todo's kinds: this store syncs todo. Another app's client reads its
- * kinds from its own manifest here (journal's encrypt every field).
+ * {@link PLAINTEXT_FIELDS}) holds every bundled app's kinds, as `atlas_core::EntityKind` does;
+ * which of them a client syncs is its session's app scope.
  */
 export const BUNDLED_MANIFESTS: readonly AppManifest[] = Object.freeze([
   todoManifest as unknown as AppManifest,
@@ -52,6 +52,8 @@ const ENTITY_KINDS: Record<EntityKind, true> = {
   habit: true,
   habit_checkin: true,
   attachment: true,
+  "journal.entry": true,
+  "journal.preference": true,
 };
 
 function loadTable(

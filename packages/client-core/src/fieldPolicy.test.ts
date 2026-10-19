@@ -4,25 +4,32 @@ import { describe, expect, it } from "vitest";
 import { BUNDLED_MANIFESTS, PLAINTEXT_FIELDS, appOfKind, shouldEncryptField } from "./index";
 import type { EntityKind } from "./types";
 
-const manifestPath = fileURLToPath(new URL("../../../manifests/todo.json", import.meta.url));
-const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+type Manifest = {
   app: string;
   version: number;
   kinds: Record<string, { plaintext_fields: string[] | "all" }>;
 };
+const readManifest = (app: string) =>
+  JSON.parse(
+    readFileSync(fileURLToPath(new URL(`../../../manifests/${app}.json`, import.meta.url)), "utf8"),
+  ) as Manifest;
+const manifest = readManifest("todo");
+const journalManifest = readManifest("journal");
 
 describe("field encryption policy", () => {
-  it("is exactly the todo manifest's plaintext_fields", () => {
-    const fromManifest = Object.fromEntries(
-      Object.entries(manifest.kinds).map(([kind, spec]) => [kind, spec.plaintext_fields]),
+  it("is exactly the bundled manifests' plaintext_fields, every kind of every app", () => {
+    const fromManifests = Object.fromEntries(
+      [manifest, journalManifest].flatMap((m) =>
+        Object.entries(m.kinds).map(([kind, spec]) => [kind, spec.plaintext_fields]),
+      ),
     );
-    expect(PLAINTEXT_FIELDS).toEqual(fromManifest);
+    expect(PLAINTEXT_FIELDS).toEqual(fromManifests);
   });
 
   it("bundles the todo and journal manifests and maps their kinds to them", () => {
     expect(BUNDLED_MANIFESTS.map((m) => m.app)).toEqual([manifest.app, "journal"]);
     expect(BUNDLED_MANIFESTS[0]!.version).toBe(manifest.version);
-    for (const kind of Object.keys(PLAINTEXT_FIELDS)) expect(appOfKind(kind)?.app).toBe("todo");
+    for (const kind of Object.keys(manifest.kinds)) expect(appOfKind(kind)?.app).toBe("todo");
     const journal = BUNDLED_MANIFESTS[1]!;
     expect(journal.name).toBe("Atlas Journal");
     expect(Object.keys(journal.kinds).sort()).toEqual(["journal.entry", "journal.preference"]);
@@ -73,6 +80,14 @@ describe("field encryption policy", () => {
     ["attachment", "meta"],
   ])("keeps %s.%s plaintext", (entity, field) => {
     expect(shouldEncryptField(entity, field)).toBe(false);
+  });
+
+  it("encrypts every field of the journal's kinds", () => {
+    for (const kind of ["journal.entry", "journal.preference"] as const) {
+      for (const field of ["date", "title", "body", "mood", "tags", "deleted_at", "project_id"]) {
+        expect(shouldEncryptField(kind, field)).toBe(true);
+      }
+    }
   });
 
   it("encrypts fields nothing has declared yet", () => {
