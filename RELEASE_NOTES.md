@@ -1,16 +1,16 @@
-## v0.1.11-rc.7
+## v0.1.11-rc.8
 
-This repository is now **atlastodo/atlas**, the Atlas core: the sync server, the Docker image, the `atlas` CLI and the `@atlastodo/*` packages. The todo app moved to [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo), and the image serves its pinned web build (v0.1.11-rc.6).
-
-- The image is now `ghcr.io/atlastodo/atlas` and `atlastodo/atlas` on Docker Hub. The old `atlas-todo` names keep receiving the same tags for now; switch when convenient.
-- NixOS: use `services.atlas` and `github:atlastodo/atlas` as the flake input. `services.atlas-todo` still works, with a warning.
-- The core packages are on npm: `@atlastodo/client-core`, `@atlastodo/shared`, `@atlastodo/sdk`.
+Atlas Vault arrives in core: enable it with `ATLAS_APPS=todo,vault` and use it with `atlas vault` (see `docs/integrations.md`). Vault API tokens must expire within a year and are read-only unless made with write access; the server enforces both. Existing API tokens are unchanged.
 
 ### Features
-- Rename the NixOS option to services.atlas
+- VaultClient for Atlas Vault tokens
+- Atlas Vault item rules at parity with the Rust client
+- Bundle the Atlas Vault manifest, its kinds and token policies
+- Atlas vault commands over a vault session
+- Atlas Vault items and folders over a vault session
+- API tokens that expire and read-only tokens, as app manifests ask
+- Bundle the Atlas Vault manifest, its kinds and API token policies
+- Type the journal's entity kinds
 
 ### Documentation
-- Describe core without the app, add docs/releasing.md
-
-### Maintenance
-- 7 maintenance commits (CI, build, tests) ([full list](https://github.com/atlastodo/atlas/compare/v0.1.11-rc.5...v0.1.11-rc.7))
+- Atlas Vault, its item schema, CLI commands and token policies
