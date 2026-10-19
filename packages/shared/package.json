@@ -1,6 +1,6 @@
 {
   "name": "@atlastodo/shared",
-  "version": "0.1.11-rc.8",
+  "version": "0.1.11-rc.9",
   "description": "Atlas shared logic: the portable task rules, recurrence, quick add, filters, i18n and theme used by every Atlas client",
   "license": "AGPL-3.0-only",
   "homepage": "https://github.com/atlastodo/atlas/tree/main/packages/shared",

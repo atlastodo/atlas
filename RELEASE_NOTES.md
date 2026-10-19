@@ -1,16 +1,17 @@
-## v0.1.11-rc.8
+## v0.1.11-rc.9
 
-Atlas Vault arrives in core: enable it with `ATLAS_APPS=todo,vault` and use it with `atlas vault` (see `docs/integrations.md`). Vault API tokens must expire within a year and are read-only unless made with write access; the server enforces both. Existing API tokens are unchanged.
+- **Vault tokens are for the vault alone:** a token naming the vault and another app is refused (`api_token_app_exclusive`). Expired tokens lose their stored keys within the hour.
+- **SecretSpec:** `secretspec-provider-atlas` binaries are attached to this release. They resolve `secretspec.toml` secrets from Atlas Vault; see `docs/integrations.md`.
+- **client-core:** `sealPersistence` encrypts a client's local store at rest, for apps that lock.
 
 ### Features
-- VaultClient for Atlas Vault tokens
-- Atlas Vault item rules at parity with the Rust client
-- Bundle the Atlas Vault manifest, its kinds and token policies
-- Atlas vault commands over a vault session
-- Atlas Vault items and folders over a vault session
-- API tokens that expire and read-only tokens, as app manifests ask
-- Bundle the Atlas Vault manifest, its kinds and API token policies
-- Type the journal's entity kinds
+- `sealPersistence`, a local op log encrypted at rest
+- `secretspec-provider-atlas`, a SecretSpec provider for Atlas Vault
+- Vault tokens are for the vault alone, and expired tokens lose their keys
 
 ### Documentation
-- Atlas Vault, its item schema, CLI commands and token policies
+- Sealed local stores
+- Resolve SecretSpec secrets from Atlas Vault
+
+### Maintenance
+- 1 maintenance commit (CI, build, tests) ([full list](https://github.com/atlastodo/atlas/compare/v0.1.11-rc.8...v0.1.11-rc.9))
