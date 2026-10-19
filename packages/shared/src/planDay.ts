@@ -1,4 +1,4 @@
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { addDays, dayOffset, endOfDay } from "./zonedTime";
 import { partitionToday, upcomingTasks } from "./smartLists";
 

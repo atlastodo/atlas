@@ -1,41 +1,25 @@
 {
   "name": "atlas-todo",
   "private": true,
-  "version": "0.1.10",
+  "version": "0.1.11",
   "license": "AGPL-3.0-only",
-  "homepage": "https://github.com/atlastodo/atlas-todo",
+  "homepage": "https://github.com/atlastodo/atlas",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/atlastodo/atlas-todo.git"
+    "url": "git+https://github.com/atlastodo/atlas.git"
   },
   "bugs": {
-    "url": "https://github.com/atlastodo/atlas-todo/issues"
+    "url": "https://github.com/atlastodo/atlas/issues"
   },
   "workspaces": [
-    "apps/*",
     "packages/*"
   ],
   "engines": {
     "node": ">=26"
   },
-  "//overrides": "Pins patched versions of vulnerable transitive build-tooling deps (expo, jest, tailwind); bun has no nested overrides, so each entry is one version for every consumer. js-yaml stays on 4.x (4.3.2) and decode-uri-component is forced to 0.5.0 (GHSA-vcc3-ghjq-m6fr, reachable through expo-router); @xmldom/xmldom is not overridden because 0.9.12 breaks @expo/plist. source-map-js (GHSA-68fv-2mgg-jv7q) and postcss-selector-parser (GHSA-rj75-hqrm-r3gf; postcss-nested under tailwind 3 asks for ^6, forced to 7.x) are overridden past their advisories; the web export CSS and JS were byte-identical before and after. Revisit when an SDK bump lets these resolve on their own.",
-  "//audit-known": "braces (GHSA-vfj7-8cjw-p6xm, <=3.0.3) and node-forge (GHSA-86w9-cpqp-85rv, <=1.4.0) are the `bun audit` findings no override can clear: each advisory covers the newest release, so there is nothing to pin. Both are build-time only (braces through micromatch in metro, jest and tailwind; node-forge in the Expo CLI and its code-signing certificate tooling), so the `Audit (JS)` job stays red on purpose; add an override once a patched release ships.",
-  "overrides": {
-    "postcss": "8.5.25",
-    "uuid": "11.1.1",
-    "nanoid": "3.3.18",
-    "js-yaml": "4.3.2",
-    "decode-uri-component": "0.5.0",
-    "browserslist": "4.29.0",
-    "baseline-browser-mapping": "2.11.25",
-    "source-map-js": "^1.2.2",
-    "postcss-selector-parser": "^7.1.6"
-  },
   "devDependencies": {
     "eslint": "^10.11.0",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "playwright-core": "^1.63.0",
-    "prettier": "3.9.9",
+    "prettier": "3.9.10",
     "typescript-eslint": "^8.71.1"
   }
 }

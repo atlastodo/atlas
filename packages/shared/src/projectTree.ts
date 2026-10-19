@@ -1,4 +1,4 @@
-import type { Project } from "@atlas/client-core";
+import type { Project } from "@atlastodo/client-core";
 import { rankBetween } from "./rank";
 
 /**

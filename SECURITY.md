@@ -4,12 +4,25 @@
 
 Please report vulnerabilities privately, not in a public issue or pull request.
 
-[Open a private advisory](https://github.com/atlastodo/atlas-todo/security/advisories/new) through
+[Open a private advisory](https://github.com/atlastodo/atlas/security/advisories/new) through
 GitHub's private vulnerability reporting.
 
-Include a description, the affected version or commit, and steps or a proof of concept. You will
-get an acknowledgement. Once a fix is released, you are credited in the release notes if you
-want to be.
+Include a description, the affected version or commit, and steps or a proof of concept. Once a fix
+is released, you are credited in the release notes and the advisory if you want to be.
+
+### What happens next
+
+Atlas Todo has one maintainer, who reads every report.
+
+- **Within 7 days:** an acknowledgement in the advisory.
+- **Within 14 days:** an assessment: whether it is a vulnerability, how severe (CVSS), and a plan.
+- **The fix** ships in a patch release (a new Docker tag, CLI binaries and packages here; an APK
+  and desktop tarball from [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo) when
+  the app is affected). The advisory
+  is then published on GitHub, with a CVE requested through GitHub when it applies, and linked
+  from the release notes. Self-hosters learn of it there and from GitHub's security alerts.
+- **Disclosure:** please keep the details private until the fix is released, or for 90 days from
+  your report, whichever comes first. If a fix needs longer, we agree on a date in the advisory.
 
 ## Supported versions
 
@@ -20,25 +33,34 @@ The design and the code have not had an independent security audit.
 
 ## Verifying a release
 
-Release files (APK, AAB, desktop tarball) and the container image carry GitHub build provenance
-attestations, which show they were built by this repository's release workflow from the tagged
-commit:
+Release files (the CLI binaries and the package tarballs) and the container image carry GitHub
+build provenance attestations, which show they were built by this repository's release workflow
+from the tagged commit. The app files (APK, AAB, desktop tarball, web tarball) are released and
+attested by the app repository:
 
 ```sh
+gh attestation verify oci://ghcr.io/atlastodo/atlas:X.Y.Z --repo atlastodo/atlas
+gh attestation verify atlas-X.Y.Z-x86_64-unknown-linux-musl --repo atlastodo/atlas
 gh attestation verify atlas-todo-X.Y.Z.apk --repo atlastodo/atlas-todo
-gh attestation verify oci://ghcr.io/atlastodo/atlas-todo:X.Y.Z --repo atlastodo/atlas-todo
 ```
 
 The attestation is on the GitHub Container Registry image; the Docker Hub mirror is the same
-image but carries none. Each release also lists `SHA256SUMS.txt`, which the desktop app checks before it installs an
-update, and the image carries an SBOM. Releases before 0.1.10 have no attestations.
+image but carries none. The web app inside the image is a release of the app repository, pinned
+by its SHA-256 in `apps.lock.json`. This repository was `atlastodo/atlas-todo` until it was
+renamed to `atlastodo/atlas`. `--repo` names the repository that built the file: anything
+released before the rename verifies with `atlastodo/atlas-todo`, and an app file this repository
+released between the rename and the split with `atlastodo/atlas`. Each release also lists
+`SHA256SUMS.txt`, and the image carries an SBOM. Releases before 0.1.10 have no attestations.
 
 ## Scope
 
 - The server (`crates/atlas-server`): authentication and sessions, key distribution, sync,
   attachments and the admin API.
-- The clients: local stores, the sync client and the encryption (`packages/client-core`,
-  `apps/mobile`, `apps/electron`).
+- The client core: local stores, the sync client and the encryption (`packages/client-core`,
+  `crates/atlas-client`), and the `atlas` CLI.
+- The apps (`apps/mobile`, `apps/electron` in
+  [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo)): report them there, or here if
+  you are not sure which side a problem is on.
 - The container image and compose setup (`docker/`, `compose.yaml`).
 
 ## Threat model
@@ -84,7 +106,13 @@ This page lists what it protects.
 
 ### Fields that stay plaintext, and why
 
-The list lives in [`test-vectors/plaintext_fields.json`](./test-vectors/plaintext_fields.json).
+The list lives in the `plaintext_fields` of each kind in
+[`manifests/todo.json`](./manifests/todo.json), the todo app manifest that the server and the
+clients both bundle. Atlas Journal's manifest ([`manifests/journal.json`](./manifests/journal.json))
+lists none: every journal field is encrypted, and journal data never leaves your own account's
+partition (journal has no sharing). Atlas Vault's ([`manifests/vault.json`](./manifests/vault.json))
+lists none either: the server sees no vault item's name, type, folder, URLs, tags, timestamps or
+secrets, only that an item with some id changed, and vault data has no sharing yet.
 The client encrypts by it, and the server checks that every field value it reads is on it.
 
 | Entity         | Plaintext fields                                          | Why                                                                          |
@@ -135,6 +163,79 @@ member would not be noticed. Safety numbers close that gap: compare the number t
 shows with the member in person or on a call, then mark them verified. The mark is dropped if
 their keys change. A member you have not verified is only as trustworthy as the server was when
 you first saw them.
+
+### API tokens
+
+An API token (Settings → API tokens) holds a key that opens your account's DEK, so whoever
+holds it can read and change everything you can, as plaintext, on their own machine. The server
+still cannot. It stores only a hash of the token's auth value and the keys wrapped under a secret
+it never receives.
+
+- A token cannot reach the account-critical routes: password, recovery, sessions, tokens,
+  deletion, export and admin.
+- Revoking a token, recovering the account or scheduling its deletion drops its wrapped keys at
+  once.
+- Someone who copied a token's wrapped keys and its secret before the revocation keeps what they
+  decrypted, as with any device that had your data.
+- Treat a token like your password. See [docs/integrations.md](./docs/integrations.md).
+- A token opens only the apps it was made for (todo unless you chose otherwise). It carries a
+  copy of those apps' keys and no other, never the account root key, and its sessions are refused
+  sync for any other app. Token sessions are refused on every route that reads or writes the root
+  or the app keys.
+- A token may expire and may be read-only, and an app's manifest can require both: an Atlas
+  Vault token always expires, at most a year after it is made, and only reads unless it was made
+  with write access. The server enforces this, not only the client: an expired token opens no
+  session and its open sessions are refused on their next request; a read-only token's sessions
+  reach only the read routes. Read-only limits what a leaked token can change, not what it can
+  read: it still decrypts every item of the vault, so grant CI a token of its own and revoke it
+  when the job no longer needs it.
+
+### Account root key
+
+Your password and your recovery phrase each unlock one account root key, a random key that the
+server only ever stores wrapped. The root key in turn wraps one key per Atlas app; the todo app's
+key is the data key your account always had, so nothing was re-encrypted when the root key was
+introduced. Details in [docs/architecture.md](./docs/architecture.md#account-root-key).
+
+- Enabling another app (Atlas Journal, Atlas Vault) creates that app's key and X25519 identity on
+  your device and stores them wrapped under the root key. The todo key never wraps another app's
+  key, so a todo API token cannot open journal or vault data.
+- Each app's client syncs only its own app's data (`x-atlas-sync-apps`). This limits what each
+  app holds on a device; it is not a boundary against the server, which stores every app's
+  ciphertext in one log per account.
+
+- Accounts created before the root key get one on their next sign-in or unlock, on the device.
+  The recovery phrase is not needed for that: the device seals the root key to your phrase's
+  public key, which only the phrase can open. Because anyone can seal to a public key, recovery
+  accepts that root only if it opens the same data key the phrase itself recovers, so a server
+  cannot slip in a root key of its own.
+- Accounts without a phrase-derived recovery key (very old accounts that have not confirmed their
+  phrase) have no recovery copy of the root key until they confirm it. Recovering such an account
+  creates a new root key over the same data key.
+- Until all supported clients know the root key, the data key and your X25519 key are also still
+  stored wrapped directly under your password and phrase (the pre-root-key layout). Those copies
+  are deprecated and will be removed in a later release.
+
+### Passkeys
+
+When the server has passkeys on, a passkey can sign you in and unlock your data, next to or
+instead of a password. Details in [docs/architecture.md](./docs/architecture.md#passkeys).
+
+- A passkey unlocks through the WebAuthn PRF extension: your device derives a key from the
+  passkey's PRF output and the root key is stored wrapped under it. The PRF output never leaves
+  the device, so the server holds a passkey's public key and a wrapped root it cannot open.
+  Passkeys without PRF are refused.
+- A passkey-only account has no password at all. Its recovery phrase is the fallback, and a
+  recovery sets a password. Where passkeys do not work (iOS and the desktop app today), such an
+  account cannot sign in.
+- Actions that need your password (changing it, a new recovery phrase, deleting the account,
+  adding or removing a passkey) take a fresh passkey confirmation instead: a single-use proof that
+  expires after five minutes. A session opened with an API token cannot reach any passkey route.
+- Adding a passkey needs the password or another passkey, so a stolen session alone cannot add a
+  way into the account.
+- Recovery and a scheduled deletion remove every passkey; remove them from your password manager
+  too.
+- Attestation is not checked: the server does not restrict which authenticator holds a passkey.
 
 ### Upgrading from a pre-public build
 

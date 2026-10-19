@@ -24,9 +24,23 @@ import type {
   ReplaceRecoveryKeyPayload,
   SaltResponse,
   SessionView,
+  ApiTokenView,
+  ApiTokenSessionResponse,
+  CreateApiTokenPayload,
   UserPublicKeyResponse,
   SigningKeyResponse,
   ChangePasswordPayload,
+  AppKeyRow,
+  MigrateRootKeyPayload,
+  PutRecoveryRootKeyPayload,
+  RootKeyResponse,
+  AccountProof,
+  PasskeyAssertionResponse,
+  PasskeyCreationOptions,
+  PasskeyReauthResponse,
+  PasskeyRegistrationPayload,
+  PasskeyRequestOptions,
+  PasskeyView,
 } from "./types";
 import {
   DEK_KEY_ID,
@@ -42,6 +56,7 @@ import {
   type WrappedProjectKey,
 } from "./crypto";
 import { SYNC_PROTOCOL, buildSyncWsUrl } from "./realtime";
+import { LEGACY_DISCOVERY, parseDiscovery, type ServerDiscovery } from "./discovery";
 import { shouldEncryptField } from "./fieldPolicy";
 import {
   EMPTY_SCOPE_STORE,
@@ -314,6 +329,10 @@ const CREDENTIAL_PATHS = new Set([
   "/auth/recovery-keys",
   "/auth/salt",
   "/auth/account/cancel-deletion",
+  "/auth/api-token/session",
+  "/auth/passkeys/login",
+  "/auth/passkeys/login/options",
+  "/auth/passkeys/signup/options",
 ]);
 
 const SUPERSEDED_WAITS = 8;
@@ -342,6 +361,31 @@ export interface ApiClientOptions {
   onUpgradeRequired?: (info: { minProtocol?: number }) => void;
   /** The refresh token was rejected: terminal. A 403 `reason` says why (e.g. `account_disabled`). */
   onAuthExpired?: (reason: ApiError) => void;
+  /**
+   * For a session without a refresh token that can open itself again (an API token): called on
+   * a 401, resolves a new access token, and the request is retried once with it.
+   */
+  reauthenticate?: () => Promise<string>;
+  /**
+   * The apps this client syncs ({@link SYNC_APPS_HEADER} on every request): pull, the snapshot,
+   * the socket and the export then carry only their ops, and push refuses any other. Omitted, the
+   * server treats the client as todo, as every client predating app-scoped sync. A cursor is only
+   * good for the scope it was pulled under: changing it means re-bootstrapping from the snapshot.
+   * Needs the server's `app_scoped_sync` capability.
+   */
+  apps?: readonly string[];
+}
+
+/** Header naming a request's app scope (`apps.rs` in the server). */
+export const SYNC_APPS_HEADER = "x-atlas-sync-apps";
+
+/** `GET /auth/apps` entry: an app the instance offers, and whether the account has it enabled. */
+export interface AccountAppView {
+  id: string;
+  name: string;
+  version: number;
+  enabled: boolean;
+  enabled_at?: number;
 }
 
 export class ApiClient {
@@ -359,10 +403,17 @@ export class ApiClient {
   private readonly onAuthExpired?: (reason: ApiError) => void;
   private readonly tokenStore?: TokenStore;
   private readonly onUpgradeRequired?: (info: { minProtocol?: number }) => void;
+  private readonly reauthenticate?: () => Promise<string>;
+  private reauthenticating: Promise<string> | null = null;
   private refreshing: Promise<void> | null = null;
   private readonly consumed = new Set<string>();
+  private readonly syncApps?: string;
 
   constructor(opts: ApiClientOptions) {
+    if (opts.apps !== undefined) {
+      if (opts.apps.length === 0) throw new Error("an app scope names at least one app");
+      this.syncApps = [...new Set(opts.apps)].sort().join(",");
+    }
     this.baseUrl = opts.baseUrl.replace(/\/$/, "");
     this.token = opts.token;
     this.refreshToken = opts.refreshToken;
@@ -374,6 +425,7 @@ export class ApiClient {
     this.onAuthExpired = opts.onAuthExpired;
     this.tokenStore = opts.tokenStore;
     this.onUpgradeRequired = opts.onUpgradeRequired;
+    this.reauthenticate = opts.reauthenticate;
   }
 
   setKeyring(keyring: Keyring | null): void {
@@ -426,6 +478,7 @@ export class ApiClient {
 
   private baseHeaders(): Record<string, string> {
     const headers: Record<string, string> = { "x-atlas-sync-protocol": String(SYNC_PROTOCOL) };
+    if (this.syncApps) headers[SYNC_APPS_HEADER] = this.syncApps;
     if (this.token) headers["authorization"] = `Bearer ${this.token}`;
     return headers;
   }
@@ -485,6 +538,20 @@ export class ApiClient {
         !CREDENTIAL_PATHS.has(path.split("?")[0]!)
       ) {
         await this.doRefresh();
+        return this.rawRequest<T>(method, path, body);
+      }
+      if (
+        err instanceof ApiError &&
+        err.status === 401 &&
+        !this.refreshToken &&
+        this.reauthenticate &&
+        !CREDENTIAL_PATHS.has(path.split("?")[0]!)
+      ) {
+        // Concurrent 401s share one exchange.
+        this.reauthenticating ??= this.reauthenticate().finally(() => {
+          this.reauthenticating = null;
+        });
+        this.token = await this.reauthenticating;
         return this.rawRequest<T>(method, path, body);
       }
       throw err;
@@ -638,6 +705,20 @@ export class ApiClient {
     return { size, chunks: reader ? readerChunks(reader) : wholeBody(res) };
   }
 
+  /**
+   * `GET /discovery`, public. A server that predates it (a 404, or the web app's HTML in its
+   * place) is {@link LEGACY_DISCOVERY}; network and server errors still throw.
+   */
+  async getDiscovery(): Promise<ServerDiscovery> {
+    try {
+      return parseDiscovery(await this.rawRequest("GET", "/discovery"));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return LEGACY_DISCOVERY;
+      if (err instanceof SyntaxError) return LEGACY_DISCOVERY;
+      throw err;
+    }
+  }
+
   /** A server too old to answer counts as enabled with `maxBlobBytes: null`. */
   async getAttachmentConfig(): Promise<{ enabled: boolean; maxBlobBytes: number | null }> {
     let body: unknown;
@@ -659,7 +740,10 @@ export class ApiClient {
 
   signup(req: {
     email: string;
-    password: string;
+    /** The auth hash; absent for a passkey signup (`passkey`). */
+    password?: string;
+    /** Sign up with a passkey instead of a password (after `passkeySignupOptions`). */
+    passkey?: Omit<PasskeyRegistrationPayload, "current_password" | "reauth_token">;
     displayName?: string;
     invite?: string;
     deviceName?: string;
@@ -668,17 +752,27 @@ export class ApiClient {
     salt: string;
     publicKey: string;
     recoveryPublicKey: string;
-    encryptedDek: { iv: string; ct: string };
-    encryptedPrivateKey: { iv: string; ct: string };
+    /** The legacy MEK wraps; absent for a passkey signup. */
+    encryptedDek?: { iv: string; ct: string };
+    encryptedPrivateKey?: { iv: string; ct: string };
     recoveryEncryptedDek: { iv: string; ct: string };
     recoveryEncryptedPrivateKey: { iv: string; ct: string };
     kdf?: PasswordKdf;
     signingPublicKey?: string;
     encryptedSigningKey?: { v?: number; iv: string; ct: string };
+    /** The account root key (see `newAccountRoot`): the client-chosen id its wraps bind, its slots and app keys. */
+    root?: {
+      userId: string;
+      /** The password slot; absent for a passkey signup, whose slot is the passkey's. */
+      encryptedRootKey?: { v: 1; iv: string; ct: string };
+      recoveryEncryptedRootKey: { v: 1; iv: string; ct: string };
+      appKeys: AppKeyRow[];
+    };
   }): Promise<AuthResponse> {
     return this.request("POST", "/auth/signup", {
       email: req.email,
       password: req.password,
+      passkey: req.passkey,
       display_name: req.displayName ?? "",
       invite: req.invite,
       device_name: req.deviceName,
@@ -693,6 +787,14 @@ export class ApiClient {
       ...(req.kdf ? kdfToWire(req.kdf) : {}),
       signing_public_key: req.signingPublicKey,
       encrypted_signing_key: req.encryptedSigningKey,
+      ...(req.root
+        ? {
+            user_id: req.root.userId,
+            encrypted_root_key: req.root.encryptedRootKey,
+            recovery_encrypted_root_key: req.root.recoveryEncryptedRootKey,
+            app_keys: req.root.appKeys,
+          }
+        : {}),
     });
   }
   /** `installKey` survives a reinstall; the server replaces this install's older sessions. */
@@ -727,6 +829,33 @@ export class ApiClient {
   changePassword(payload: ChangePasswordPayload): Promise<void> {
     return this.request("POST", "/auth/change-password", payload);
   }
+  /** The account's root key password slot and app keys (interactive sessions only). */
+  getRootKey(): Promise<RootKeyResponse> {
+    return this.request("GET", "/auth/root-key");
+  }
+  /** Set once: 409 `root_key_exists` when another device migrated the account first. */
+  migrateRootKey(payload: MigrateRootKeyPayload): Promise<void> {
+    return this.request("POST", "/auth/root-key", payload);
+  }
+  /** Fill an empty recovery slot; 409 `key_already_stored` when one is set. */
+  putRecoveryRootKey(payload: PutRecoveryRootKeyPayload): Promise<void> {
+    return this.request("PUT", "/auth/root-key/recovery", payload);
+  }
+  /** Store a new app's key under the root key; set once (409 `key_already_stored`). */
+  putAppKey(
+    app: string,
+    wrapped: Pick<AppKeyRow, "wrapped_key" | "wrapped_private_key">,
+  ): Promise<void> {
+    return this.request("PUT", `/auth/app-keys/${encodeURIComponent(app)}`, wrapped);
+  }
+  /** The instance's apps and whether this account has each enabled (interactive sessions only). */
+  async listAccountApps(): Promise<AccountAppView[]> {
+    return (await this.request<{ apps: AccountAppView[] }>("GET", "/auth/apps")).apps;
+  }
+  /** Enable an app for the account; idempotent. Use `enableApp` (rootKey.ts), which keys it first. */
+  enableAccountApp(app: string): Promise<AccountAppView> {
+    return this.request("PUT", `/auth/apps/${encodeURIComponent(app)}`);
+  }
   getUserPublicKey(email: string): Promise<UserPublicKeyResponse> {
     return this.request("GET", `/users/public-key?email=${encodeURIComponent(email)}`);
   }
@@ -744,9 +873,90 @@ export class ApiClient {
     if (!refreshToken) return Promise.resolve();
     return this.request("POST", "/auth/logout", { refresh_token: refreshToken });
   }
-  /** Needs the current auth hash: a bearer token alone must not schedule a deletion. */
-  deleteAccount(password: string): Promise<void> {
-    return this.request("DELETE", "/auth/account", { password });
+  /**
+   * Needs the current auth hash, or a passkey proof: a bearer token alone must not schedule a
+   * deletion. The server drops the account's passkeys with it.
+   */
+  deleteAccount(proof: string | AccountProof): Promise<void> {
+    const body =
+      typeof proof === "string"
+        ? { password: proof }
+        : "reauth_token" in proof
+          ? { reauth_token: proof.reauth_token }
+          : { password: proof.current_password };
+    return this.request("DELETE", "/auth/account", body);
+  }
+  /** Make the account passkey-only; 409 `last_unlock_method` without a passkey. */
+  removePassword(proof: AccountProof): Promise<void> {
+    return this.request("DELETE", "/auth/password", proof);
+  }
+
+  /** Begin a passkey signup for the account id the signup will use. */
+  async passkeySignupOptions(req: {
+    userId: string;
+    email: string;
+    displayName?: string;
+  }): Promise<PasskeyCreationOptions> {
+    const res: { options: PasskeyCreationOptions } = await this.request(
+      "POST",
+      "/auth/passkeys/signup/options",
+      { user_id: req.userId, email: req.email, display_name: req.displayName ?? "" },
+    );
+    return res.options;
+  }
+  /** Begin adding a passkey to the signed-in account. */
+  async passkeyRegisterOptions(): Promise<PasskeyCreationOptions> {
+    const res: { options: PasskeyCreationOptions } = await this.request(
+      "POST",
+      "/auth/passkeys/register/options",
+    );
+    return res.options;
+  }
+  /** Finish adding a passkey; needs a proof (`current_password` or `reauth_token`). */
+  registerPasskey(payload: PasskeyRegistrationPayload): Promise<PasskeyView> {
+    return this.request("POST", "/auth/passkeys", payload);
+  }
+  listPasskeys(): Promise<PasskeyView[]> {
+    return this.request("GET", "/auth/passkeys");
+  }
+  renamePasskey(id: string, name: string): Promise<void> {
+    return this.request("PATCH", `/auth/passkeys/${id}`, { name });
+  }
+  /** 409 `last_unlock_method` for the last passkey of an account without a password. */
+  removePasskey(id: string, proof: AccountProof): Promise<void> {
+    return this.request("DELETE", `/auth/passkeys/${id}`, proof);
+  }
+  /** Begin a passkey sign-in: discoverable, or naming the account's passkeys for `email`. */
+  async passkeyLoginOptions(email?: string): Promise<PasskeyRequestOptions> {
+    const res: { options: PasskeyRequestOptions } = await this.request(
+      "POST",
+      "/auth/passkeys/login/options",
+      email ? { email } : {},
+    );
+    return res.options;
+  }
+  /** Finish a passkey sign-in: a session, plus `passkey` (the root key under its slot). */
+  passkeyLogin(req: {
+    credential: PasskeyAssertionResponse;
+    deviceName?: string;
+    installKey?: string;
+  }): Promise<AuthResponse> {
+    return this.request("POST", "/auth/passkeys/login", {
+      credential: req.credential,
+      device_name: req.deviceName,
+      install_key: req.installKey,
+    });
+  }
+  async passkeyReauthOptions(): Promise<PasskeyRequestOptions> {
+    const res: { options: PasskeyRequestOptions } = await this.request(
+      "POST",
+      "/auth/passkeys/reauth/options",
+    );
+    return res.options;
+  }
+  /** A single-use, five-minute proof that stands in for the current password. */
+  passkeyReauth(credential: PasskeyAssertionResponse): Promise<PasskeyReauthResponse> {
+    return this.request("POST", "/auth/passkeys/reauth", { credential });
   }
   cancelAccountDeletion(payload: {
     email: string;
@@ -774,6 +984,21 @@ export class ApiClient {
   }
   exportData(): Promise<unknown> {
     return this.request("GET", "/auth/export");
+  }
+
+  listApiTokens(): Promise<ApiTokenView[]> {
+    return this.request("GET", "/auth/api-tokens");
+  }
+  /** Build the payload with `generateApiToken` and `wrapKeysForApiToken`. */
+  createApiToken(payload: CreateApiTokenPayload): Promise<ApiTokenView> {
+    return this.request("POST", "/auth/api-tokens", payload);
+  }
+  revokeApiToken(id: string): Promise<void> {
+    return this.request("DELETE", `/auth/api-tokens/${id}`);
+  }
+  /** Open a session with a token's id and auth value (`deriveApiTokenKeys`); no bearer needed. */
+  openApiTokenSession(tokenId: string, auth: string): Promise<ApiTokenSessionResponse> {
+    return this.request("POST", "/auth/api-token/session", { token_id: tokenId, auth });
   }
 
   listProjectKeys(): Promise<ProjectKeysResponse> {

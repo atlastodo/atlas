@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { strToU8, zipSync } from "fflate";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore } from "@atlastodo/client-core";
 import { importBundle } from "./dataTransfer";
 import {
   parseTodoistDate,
@@ -400,5 +400,35 @@ describe("parseTodoistDate", () => {
 
   it("returns null for no date", () => {
     expect(parse("  ")).toBeNull();
+  });
+});
+
+describe("Todoist parsing on hostile input", () => {
+  const NOW = Date.UTC(2026, 9, 14, 12);
+  const linear = (run: () => void) => {
+    const start = performance.now();
+    run();
+    expect(performance.now() - start).toBeLessThan(500);
+  };
+
+  it("strips a project id from a file name in linear time", () => {
+    linear(() => todoistProjectName(`Work${" ".repeat(50_000)}x.csv`));
+    linear(() => todoistProjectName(`${"[".repeat(50_000)}.csv`));
+    expect(todoistProjectName("Work [1] [2].csv")).toBe("Work [1]");
+    expect(todoistProjectName("Work [a[b] .csv")).toBe("Work");
+    expect(todoistProjectName("[]")).toBe("");
+    expect(todoistProjectName("Work].csv")).toBe("Work]");
+  });
+
+  it("reads long due strings in linear time", () => {
+    for (const raw of [
+      `${" ".repeat(50_000)}x`,
+      `every ${"monday ".repeat(10_000)}x`,
+      `every ${" , ".repeat(20_000)}x`,
+      `every day ${"from ".repeat(10_000)}x`,
+      `every ${"at 9 ".repeat(10_000)}x`,
+    ]) {
+      linear(() => parseTodoistDate(raw, NOW, "UTC"));
+    }
   });
 });

@@ -18,8 +18,8 @@ The server applies database migrations every time it starts. The API answers at 
 You need Docker with Compose v2.24 or later. (On NixOS, use the [module](#nixos) instead.)
 
 ```sh
-git clone https://github.com/atlastodo/atlas-todo.git
-cd atlas-todo
+git clone https://github.com/atlastodo/atlas.git
+cd atlas
 cp .env.example .env
 ```
 
@@ -33,7 +33,7 @@ JWT_SECRET=<openssl rand -hex 32>
 Then start it:
 
 ```sh
-docker compose up -d            # pulls ghcr.io/atlastodo/atlas-todo:latest
+docker compose up -d            # pulls ghcr.io/atlastodo/atlas:latest
 docker compose up -d --build    # or: builds the image from this checkout
 docker compose logs -f server   # follow the logs
 ```
@@ -43,15 +43,33 @@ Run all `docker compose` commands from the repository root. The root `compose.ya
 every variable in it. A `docker/.env` is read too, if it exists, for tools that run
 `docker compose -f docker/docker-compose.yml` and write their env file there.
 
-In production, pin a version: `ATLAS_IMAGE=ghcr.io/atlastodo/atlas-todo:X.Y.Z`. The same image is
-on Docker Hub as `atlastodo/atlas-todo`. It is built for linux/amd64 and linux/arm64 (a 64-bit OS
+In production, pin a version: `ATLAS_IMAGE=ghcr.io/atlastodo/atlas:X.Y.Z`. The same image is
+on Docker Hub as `atlastodo/atlas`. It is built for linux/amd64 and linux/arm64 (a 64-bit OS
 on a Raspberry Pi works; 32-bit ARM does not).
 
-To try unreleased changes, `ATLAS_IMAGE=ghcr.io/atlastodo/atlas-todo:dev` follows the `dev` branch:
+To try unreleased changes, `ATLAS_IMAGE=ghcr.io/atlastodo/atlas:dev` follows the `dev` branch:
 it is rebuilt after every change there that passes CI. Use it with a database you can lose or
 restore. A `dev` image may apply database migrations that no release has yet, and a release image
 refuses to start against a database with a migration it does not know, so going back means waiting
 for the next release that includes it, or restoring a backup taken before switching.
+
+### Image renamed
+
+The repository was renamed from `atlastodo/atlas-todo` to `atlastodo/atlas`, and the image with
+it: it is now `ghcr.io/atlastodo/atlas` (Docker Hub: `atlastodo/atlas`). The old names,
+`ghcr.io/atlastodo/atlas-todo` and `atlastodo/atlas-todo`, keep receiving the same tags for a
+deprecation period, then stop getting new ones. Switch now:
+
+- Set `ATLAS_IMAGE=ghcr.io/atlastodo/atlas:latest` (or a pinned `X.Y.Z`) in `.env` if you set
+  it to the old name; the compose default already uses the new one.
+- Point an existing clone at the new repository, because `atlastodo/atlas-todo` will hold the
+  todo app rather than the server:
+  `git remote set-url origin https://github.com/atlastodo/atlas.git`.
+- On NixOS, change the flake input to `github:atlastodo/atlas` (or
+  `git+https://github.com/atlastodo/atlas.git`), import `nixosModules.atlas` and rename
+  `services.atlas-todo` to `services.atlas`. The old option and module names still evaluate,
+  with a deprecation warning, and the service keeps its unit, user, data directory and database
+  (all still called `atlas-todo`).
 
 ## NixOS
 
@@ -60,14 +78,14 @@ runs the server, and optionally the database, as native services instead of the 
 
 ```nix
 # flake input
-atlas-todo.url = "git+https://github.com/atlastodo/atlas-todo.git";
-# No `inputs.nixpkgs.follows`: the packages build with the flake's own pinned nixpkgs, the Bun
-# and Node versions CI tests (a stable channel can carry an older Bun).
+atlas.url = "git+https://github.com/atlastodo/atlas.git";
+# No `inputs.nixpkgs.follows`: the server builds with the flake's own pinned nixpkgs, the
+# toolchain CI tests.
 
 # configuration
-imports = [ inputs.atlas-todo.nixosModules.atlas-todo ];
+imports = [ inputs.atlas.nixosModules.atlas ]; # also exported as nixosModules.server
 
-services.atlas-todo = {
+services.atlas = {
   enable = true;
   # Attachment blobs live under <dataDir>/blobs. Back this up together with the database.
   dataDir = "/var/lib/atlas-todo";
@@ -83,6 +101,10 @@ services.atlas-todo = {
 };
 ```
 
+- Names: the option is `services.atlas` and the module `nixosModules.atlas`. The pre-rename
+  `services.atlas-todo` and `nixosModules.atlas-todo` still work, with a deprecation warning
+  ([Image renamed](#image-renamed)). The system names below stay `atlas-todo`, so a rename never
+  moves the data.
 - Database: by default the module creates the `atlas-todo` database and user on the host's
   `services.postgresql`, which is additive: an existing cluster keeps its version and settings.
   It connects over the unix socket, with no password. Migrations run when the service starts. For
@@ -95,10 +117,13 @@ services.atlas-todo = {
   module adds no defaults of its own. Secrets never go there, because env values land in the nix
   store, and `JWT_SECRET` in `settings` is rejected explicitly.
 - The web app: `staticDir` points the server at a web export and it serves SPA and API on
-  one port, like the container. The repository flake builds the export from source as
-  `packages.<system>.web-dist`, from the same revision as the server, so a flake update ships
-  both together (`staticDir = inputs.atlas-todo.packages.${pkgs.system}.web-dist;`). No API URL
-  is baked into it, so each browser types the API URL once on the sign-in screen.
+  one port, like the container. The repository flake provides it as `packages.<system>.web-dist`
+  (`staticDir = inputs.atlas.packages.${pkgs.system}.web-dist;`): the same released Atlas Todo
+  web build the image serves, pinned by version and hash in `apps.lock.json`, so a flake update
+  ships the server and its matching web app together. It calls the API at `/api` on its own
+  origin, which the server serves. The app itself is built in
+  [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo); the desktop app's NixOS and
+  Home Manager modules (`programs.atlas-desktop`) moved to that repository's flake.
 - The service runs as the system user `atlas-todo` with a hardened unit (`ProtectSystem=strict`,
   only `dataDir` writable). It listens on 0.0.0.0:8080 by default (`bindAddress`, `port`);
   `openFirewall` opens the port when nothing proxies in front.
@@ -148,56 +173,128 @@ startup:
 
 These are read by compose, not by the server.
 
-| Variable            | Default                               | Notes                                                                                                                         |
-| ------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `POSTGRES_PASSWORD` | none, required                        | Database password. It goes into a URL, so use URL-safe characters. PostgreSQL only reads it when the volume is first created. |
-| `POSTGRES_USER`     | `atlas`                               | Database user.                                                                                                                |
-| `POSTGRES_DB`       | `atlas`                               | Database name.                                                                                                                |
-| `PORT_BIND`         | `127.0.0.1:8080`                      | Host address and port. Localhost only by default; `8080` listens on every interface. Inside, the server always uses 8080.     |
-| `ATLAS_IMAGE`       | `ghcr.io/atlastodo/atlas-todo:latest` | Image to pull, or the name to tag a local build with.                                                                         |
-| `ATLAS_DB_VOLUME`   | `docker_atlas_db`                     | Name of the database volume. The default keeps the name older installs already have.                                          |
+| Variable            | Default                          | Notes                                                                                                                         |
+| ------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `POSTGRES_PASSWORD` | none, required                   | Database password. It goes into a URL, so use URL-safe characters. PostgreSQL only reads it when the volume is first created. |
+| `POSTGRES_USER`     | `atlas`                          | Database user.                                                                                                                |
+| `POSTGRES_DB`       | `atlas`                          | Database name.                                                                                                                |
+| `PORT_BIND`         | `127.0.0.1:8080`                 | Host address and port. Localhost only by default; `8080` listens on every interface. Inside, the server always uses 8080.     |
+| `ATLAS_IMAGE`       | `ghcr.io/atlastodo/atlas:latest` | Image to pull, or the name to tag a local build with.                                                                         |
+| `ATLAS_DB_VOLUME`   | `docker_atlas_db`                | Name of the database volume. The default keeps the name older installs already have.                                          |
 
 Compose builds `DATABASE_URL` from the `POSTGRES_*` values and pins `PORT=8080` and
 `BIND_ADDR=0.0.0.0`. A `DATABASE_URL` in `.env` or in your shell is ignored.
 
 ### Server settings
 
-| Variable                                                        | Default                                                 | Notes                                                                                                                                                                                                                                                                |
-| --------------------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                  | none, required                                          | Set by compose. Needed when you run the binary yourself.                                                                                                                                                                                                             |
-| `DB_MAX_CONNECTIONS`                                            | `10`                                                    | PostgreSQL connections the server pools. Raise it for many concurrent users, within the database's own `max_connections`.                                                                                                                                            |
-| `JWT_SECRET`                                                    | none, required                                          | Signs access tokens and account-recovery challenges. At least 32 bytes, not a placeholder.                                                                                                                                                                           |
-| `PORT`                                                          | `8080`                                                  | Listening port.                                                                                                                                                                                                                                                      |
-| `BIND_ADDR`                                                     | `0.0.0.0`                                               | Listening address, any IPv4 or IPv6 address: `127.0.0.1` for localhost only, `::` for every interface (IPv4 too, unless the host sets `net.ipv6.bindv6only`). Pinned to `0.0.0.0` under compose; use `PORT_BIND` there.                                              |
-| `RUST_LOG`                                                      | `info` in the image, `atlas_server=info,warn` otherwise | Log filter, in `tracing` EnvFilter syntax.                                                                                                                                                                                                                           |
-| `STATIC_DIR`                                                    | `/app/dist` if that directory exists                    | The web app to serve. The image sets it. Without it the server is API only.                                                                                                                                                                                          |
-| `CORS_ALLOWED_ORIGINS`                                          | any origin                                              | Comma-separated exact origins. Auth uses a bearer header, not cookies, so any origin is safe. If you set a list, include `app://atlas-todo` for the desktop app.                                                                                                     |
-| `ACCESS_TOKEN_TTL_SECONDS`                                      | `900`                                                   | Access token lifetime (15 minutes).                                                                                                                                                                                                                                  |
-| `REFRESH_TOKEN_TTL_SECONDS`                                     | `2592000`                                               | Refresh token lifetime (30 days).                                                                                                                                                                                                                                    |
-| `SIGNUP_ENABLED`                                                | `true`                                                  | `false` refuses new accounts. Existing accounts can still sign in, and a signup invite still admits one person. Once the admin panel's toggle has been used, it overrides this value.                                                                                |
-| `ADMIN_EMAILS`                                                  | none                                                    | Comma-separated. At every startup, the listed accounts that exist are promoted to admin. It never demotes and never applies at signup.                                                                                                                               |
-| `BUG_REPORTS_ENABLED`                                           | `true`                                                  | `false` removes the anonymous `POST /reports` endpoint.                                                                                                                                                                                                              |
-| `AUTH_RATE_LIMIT_TRUST_FORWARDED`                               | `false`                                                 | Use `X-Forwarded-For` for the per-IP limits. Turn it on behind a reverse proxy, and only if the proxy is the only way in.                                                                                                                                            |
-| `TRUSTED_PROXY_HOPS`                                            | `1`                                                     | How many proxies append to `X-Forwarded-For`. At least 1.                                                                                                                                                                                                            |
-| `AUTH_RATE_LIMIT_MAX` / `AUTH_RATE_LIMIT_WINDOW_SECS`           | `30` / `60`                                             | Requests per client IP to the `/auth/*` endpoints.                                                                                                                                                                                                                   |
-| `AUTH_ACCOUNT_FAILURE_MAX` / `AUTH_ACCOUNT_FAILURE_WINDOW_SECS` | `10` / `900`                                            | Failed password checks per account and client address (an IPv6 address counts by its /64), across login, recovery and cancelling a deletion. Across all addresses an account closes at five times this, so locking its owner out takes failures from five addresses. |
-| `SYNC_RATE_LIMIT_MAX` / `SYNC_RATE_LIMIT_WINDOW_SECS`           | `60` / `60`                                             | Sync pushes per user.                                                                                                                                                                                                                                                |
-| `SYNC_READ_RATE_LIMIT_MAX` / `SYNC_READ_RATE_LIMIT_WINDOW_SECS` | `600` / `60`                                            | Sync reads (pull, snapshot, WebSocket tickets) per user.                                                                                                                                                                                                             |
-| `REPORT_RATE_LIMIT_MAX` / `REPORT_RATE_LIMIT_WINDOW_SECS`       | `10` / `300`                                            | Bug reports per client IP.                                                                                                                                                                                                                                           |
-| `INVITE_RATE_LIMIT_MAX` / `INVITE_RATE_LIMIT_WINDOW_SECS`       | `60` / `3600`                                           | Project invites per user. Each one shows whether an email has an account.                                                                                                                                                                                            |
-| `UPLOAD_RATE_LIMIT_MAX` / `UPLOAD_RATE_LIMIT_WINDOW_SECS`       | `60` / `60`                                             | Attachment uploads per user.                                                                                                                                                                                                                                         |
-| `DOWNLOAD_RATE_LIMIT_MAX` / `DOWNLOAD_RATE_LIMIT_WINDOW_SECS`   | `600` / `60`                                            | Attachment downloads per user (a separate budget from uploads).                                                                                                                                                                                                      |
-| `MAX_PUSH_BYTES`                                                | `2097152`                                               | Largest sync push body (2 MiB). A larger one gets 413.                                                                                                                                                                                                               |
-| `OP_RETENTION_DAYS`                                             | `30`                                                    | Days of sync history to keep. `0` keeps everything.                                                                                                                                                                                                                  |
-| `REFRESH_TOKEN_RETENTION_DAYS`                                  | `30`                                                    | Days to keep expired or revoked refresh tokens, for reuse detection. `0` or less keeps them.                                                                                                                                                                         |
-| `ATTACHMENTS_ENABLED`                                           | `true`                                                  | `false` turns attachments off: `/attachments/*` answers 404 and the apps hide the feature.                                                                                                                                                                           |
-| `BLOB_BACKEND`                                                  | `fs`                                                    | `fs` stores blobs under `BLOB_DIR`; `s3` stores them in a bucket. See [S3 storage](#s3-storage).                                                                                                                                                                     |
-| `BLOB_DIR`                                                      | `/app/data/blobs`                                       | Where blobs are stored. In Docker, keep it under `/app/data`, the volume; anything else is lost when the container is recreated. With `s3`, only uploads in progress.                                                                                                |
-| `S3_BUCKET` / `S3_PREFIX`                                       | unset / empty                                           | With `BLOB_BACKEND=s3`: the bucket (required) and a key prefix.                                                                                                                                                                                                      |
-| `MAX_BLOB_BYTES`                                                | `26214400`                                              | Largest attachment (25 MiB).                                                                                                                                                                                                                                         |
-| `BLOB_QUOTA_BYTES`                                              | `1073741824`                                            | Total attachment storage per user (1 GiB).                                                                                                                                                                                                                           |
-| `MAX_BLOB_TRANSFERS`                                            | `16`                                                    | Attachment uploads and downloads in progress at once, across all users. One more gets 503 and the app tries again shortly. Bodies stream to and from disk, so this bounds open files and disk load rather than memory.                                               |
-| `BLOB_GC_GRACE_DAYS`                                            | `30`                                                    | Days an unreferenced blob is kept before it is deleted, counted from its last upload and from when it lost its last reference. Never less than `OP_RETENTION_DAYS`, so a deleted attachment can still be restored. `0` disables the collection.                      |
+| Variable                                                        | Default                                                 | Notes                                                                                                                                                                                                                                                                                  |
+| --------------------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                  | none, required                                          | Set by compose. Needed when you run the binary yourself.                                                                                                                                                                                                                               |
+| `DB_MAX_CONNECTIONS`                                            | `10`                                                    | PostgreSQL connections the server pools. Raise it for many concurrent users, within the database's own `max_connections`.                                                                                                                                                              |
+| `JWT_SECRET`                                                    | none, required                                          | Signs access tokens and account-recovery challenges. At least 32 bytes, not a placeholder.                                                                                                                                                                                             |
+| `PORT`                                                          | `8080`                                                  | Listening port.                                                                                                                                                                                                                                                                        |
+| `BIND_ADDR`                                                     | `0.0.0.0`                                               | Listening address, any IPv4 or IPv6 address: `127.0.0.1` for localhost only, `::` for every interface (IPv4 too, unless the host sets `net.ipv6.bindv6only`). Pinned to `0.0.0.0` under compose; use `PORT_BIND` there.                                                                |
+| `RUST_LOG`                                                      | `info` in the image, `atlas_server=info,warn` otherwise | Log filter, in `tracing` EnvFilter syntax.                                                                                                                                                                                                                                             |
+| `STATIC_DIR`                                                    | `/app/dist` if that directory exists                    | The web app to serve. The image sets it. Without it the server is API only.                                                                                                                                                                                                            |
+| `CORS_ALLOWED_ORIGINS`                                          | any origin                                              | Comma-separated exact origins. Auth uses a bearer header, not cookies, so any origin is safe. If you set a list, include `app://atlas-todo` for the desktop app.                                                                                                                       |
+| `ACCESS_TOKEN_TTL_SECONDS`                                      | `900`                                                   | Access token lifetime (15 minutes).                                                                                                                                                                                                                                                    |
+| `REFRESH_TOKEN_TTL_SECONDS`                                     | `2592000`                                               | Refresh token lifetime (30 days).                                                                                                                                                                                                                                                      |
+| `SIGNUP_ENABLED`                                                | `true`                                                  | `false` refuses new accounts. Existing accounts can still sign in, and a signup invite still admits one person. Once the admin panel's toggle has been used, it overrides this value.                                                                                                  |
+| `ADMIN_EMAILS`                                                  | none                                                    | Comma-separated. At every startup, the listed accounts that exist are promoted to admin. It never demotes and never applies at signup.                                                                                                                                                 |
+| `BUG_REPORTS_ENABLED`                                           | `true`                                                  | `false` removes the anonymous `POST /reports` endpoint.                                                                                                                                                                                                                                |
+| `ATLAS_APPS`                                                    | `todo`                                                  | Comma-separated Atlas apps this instance offers, from those bundled in the release (`todo`, `journal`, `vault`). An app the release lacks stops the server at start-up. Sync refuses and hides the data of an app left out. `GET /discovery` lists what is offered. See [Apps](#apps). |
+| `WEBAUTHN_RP_ID`                                                | unset (passkeys off)                                    | The domain passkeys belong to, normally the one serving the web app. Setting it turns passkeys on. Changing it later orphans every registered passkey. See [Passkeys](#passkeys).                                                                                                      |
+| `WEBAUTHN_ORIGINS`                                              | `https://<WEBAUTHN_RP_ID>`                              | Comma-separated exact origins a passkey ceremony may come from: https on that domain or a subdomain (`http://localhost` only with `WEBAUTHN_RP_ID=localhost`), or `android:apk-key-hash:` origins.                                                                                     |
+| `WEBAUTHN_RP_NAME`                                              | `Atlas Todo`                                            | The name an authenticator shows next to the passkey.                                                                                                                                                                                                                                   |
+| `ANDROID_APP_PACKAGE` / `ANDROID_APP_CERT_SHA256`               | unset                                                   | Both or neither. Serve `/.well-known/assetlinks.json` for the Android app (package name and comma-separated SHA-256 signing-certificate fingerprints), so it can use this domain's passkeys; the fingerprints also become allowed origins.                                             |
+| `AUTH_RATE_LIMIT_TRUST_FORWARDED`                               | `false`                                                 | Use `X-Forwarded-For` for the per-IP limits. Turn it on behind a reverse proxy, and only if the proxy is the only way in.                                                                                                                                                              |
+| `TRUSTED_PROXY_HOPS`                                            | `1`                                                     | How many proxies append to `X-Forwarded-For`. At least 1.                                                                                                                                                                                                                              |
+| `AUTH_RATE_LIMIT_MAX` / `AUTH_RATE_LIMIT_WINDOW_SECS`           | `30` / `60`                                             | Requests per client IP to the `/auth/*` endpoints.                                                                                                                                                                                                                                     |
+| `AUTH_ACCOUNT_FAILURE_MAX` / `AUTH_ACCOUNT_FAILURE_WINDOW_SECS` | `10` / `900`                                            | Failed password checks per account and client address (an IPv6 address counts by its /64), across login, recovery and cancelling a deletion. Across all addresses an account closes at five times this, so locking its owner out takes failures from five addresses.                   |
+| `SYNC_RATE_LIMIT_MAX` / `SYNC_RATE_LIMIT_WINDOW_SECS`           | `60` / `60`                                             | Sync pushes per user.                                                                                                                                                                                                                                                                  |
+| `SYNC_READ_RATE_LIMIT_MAX` / `SYNC_READ_RATE_LIMIT_WINDOW_SECS` | `600` / `60`                                            | Sync reads (pull, snapshot, WebSocket tickets) per user.                                                                                                                                                                                                                               |
+| `REPORT_RATE_LIMIT_MAX` / `REPORT_RATE_LIMIT_WINDOW_SECS`       | `10` / `300`                                            | Bug reports per client IP.                                                                                                                                                                                                                                                             |
+| `INVITE_RATE_LIMIT_MAX` / `INVITE_RATE_LIMIT_WINDOW_SECS`       | `60` / `3600`                                           | Project invites per user. Each one shows whether an email has an account.                                                                                                                                                                                                              |
+| `UPLOAD_RATE_LIMIT_MAX` / `UPLOAD_RATE_LIMIT_WINDOW_SECS`       | `60` / `60`                                             | Attachment uploads per user.                                                                                                                                                                                                                                                           |
+| `DOWNLOAD_RATE_LIMIT_MAX` / `DOWNLOAD_RATE_LIMIT_WINDOW_SECS`   | `600` / `60`                                            | Attachment downloads per user (a separate budget from uploads).                                                                                                                                                                                                                        |
+| `MAX_PUSH_BYTES`                                                | `2097152`                                               | Largest sync push body (2 MiB). A larger one gets 413.                                                                                                                                                                                                                                 |
+| `OP_RETENTION_DAYS`                                             | `30`                                                    | Days of sync history to keep. `0` keeps everything.                                                                                                                                                                                                                                    |
+| `REFRESH_TOKEN_RETENTION_DAYS`                                  | `30`                                                    | Days to keep expired or revoked refresh tokens, for reuse detection. `0` or less keeps them.                                                                                                                                                                                           |
+| `ATTACHMENTS_ENABLED`                                           | `true`                                                  | `false` turns attachments off: `/attachments/*` answers 404 and the apps hide the feature.                                                                                                                                                                                             |
+| `BLOB_BACKEND`                                                  | `fs`                                                    | `fs` stores blobs under `BLOB_DIR`; `s3` stores them in a bucket. See [S3 storage](#s3-storage).                                                                                                                                                                                       |
+| `BLOB_DIR`                                                      | `/app/data/blobs`                                       | Where blobs are stored. In Docker, keep it under `/app/data`, the volume; anything else is lost when the container is recreated. With `s3`, only uploads in progress.                                                                                                                  |
+| `S3_BUCKET` / `S3_PREFIX`                                       | unset / empty                                           | With `BLOB_BACKEND=s3`: the bucket (required) and a key prefix.                                                                                                                                                                                                                        |
+| `MAX_BLOB_BYTES`                                                | `26214400`                                              | Largest attachment (25 MiB).                                                                                                                                                                                                                                                           |
+| `BLOB_QUOTA_BYTES`                                              | `1073741824`                                            | Total attachment storage per user (1 GiB).                                                                                                                                                                                                                                             |
+| `MAX_BLOB_TRANSFERS`                                            | `16`                                                    | Attachment uploads and downloads in progress at once, across all users. One more gets 503 and the app tries again shortly. Bodies stream to and from disk, so this bounds open files and disk load rather than memory.                                                                 |
+| `BLOB_GC_GRACE_DAYS`                                            | `30`                                                    | Days an unreferenced blob is kept before it is deleted, counted from its last upload and from when it lost its last reference. Never less than `OP_RETENTION_DAYS`, so a deleted attachment can still be restored. `0` disables the collection.                                        |
+
+### Apps
+
+Atlas is growing into a suite of end-to-end encrypted apps that share one server and one account.
+Each app is described by a manifest that ships inside the server release; you cannot add one
+from disk. `ATLAS_APPS` picks which of the bundled apps your instance offers. The release bundles
+`todo` (the default), `journal` (Atlas Journal, daily encrypted journal entries) and `vault`
+(Atlas Vault, an encrypted password manager); their apps ship separately. Set
+`ATLAS_APPS=todo,journal,vault` to offer both. The server reads none of a vault item's fields,
+not even its name, type or folder, and an API token for the vault always expires (within a year)
+and only reads unless it was made with write access; the server enforces both.
+
+Every account has `todo` enabled, existing ones included. Apps added to a release later are
+switched on per account from the app, once you list them in `ATLAS_APPS`. Leaving an app out
+of `ATLAS_APPS` hides its data from sync without deleting it; adding the app back brings the
+data back.
+
+`GET /discovery` (also under `/api`) is public and tells clients the server version, its sync
+protocol, its capabilities and the apps it offers. The apps read it before signing in, so a server
+too old for an app says so instead of failing later.
+
+### Passkeys
+
+Passkeys let people sign in, and unlock their end-to-end encrypted data, with a fingerprint, face
+or device PIN instead of a password. They are off until you set `WEBAUTHN_RP_ID` to the domain
+the web app is served from:
+
+```sh
+WEBAUTHN_RP_ID=todo.example.com
+# WEBAUTHN_ORIGINS=https://todo.example.com   # the default
+```
+
+A passkey is bound to that domain (the WebAuthn "relying party ID") for good: changing it later
+leaves every registered passkey unusable, and their owners sign in with a password or the recovery
+phrase instead. Every web origin that offers passkeys must be `https://` on that domain or a
+subdomain, and must be listed in `WEBAUTHN_ORIGINS` when it is not the domain itself. For local
+development, `WEBAUTHN_RP_ID=localhost` with `WEBAUTHN_ORIGINS=http://localhost:8081` works over
+plain HTTP. `GET /discovery` lists the `passkeys` capability while they are on; the apps offer
+passkeys only then.
+
+Only passkeys that support the WebAuthn PRF extension are accepted, since the passkey also
+unlocks the account's keys: current Chrome, Edge, Safari and Firefox with Google Password Manager,
+iCloud Keychain, Windows Hello (Windows 11), 1Password, Bitwarden or a FIDO2 security key. The app
+says so when an authenticator cannot. The server never sees the key material.
+
+**Desktop app.** The desktop app runs from its own `app://atlas-todo` origin, which no WebAuthn
+relying party can match, so it does not offer passkeys: sign in there with the password (an
+account can have both). **iOS** is not supported yet; a passkey-only account cannot sign in on
+iOS.
+
+**Android.** The Android app uses Credential Manager, which only lets an app use a domain's
+passkeys when the domain vouches for the app through Digital Asset Links. Set both:
+
+```sh
+ANDROID_APP_PACKAGE=dev.sejder.atlastodo
+ANDROID_APP_CERT_SHA256=AB:CD:…:EF
+```
+
+The server then serves `https://<WEBAUTHN_RP_ID>/.well-known/assetlinks.json` (make sure your
+proxy passes it through, and that `WEBAUTHN_RP_ID` is the very domain it is served on) and accepts
+the app's `android:apk-key-hash:` origin. For the official Play Store build use the app signing
+key's SHA-256 shown in the Play Console under Setup → App signing; for an APK you signed yourself,
+`keytool -list -v -keystore <keystore>` prints it. List several fingerprints, comma-separated, to
+accept more than one build.
+
+Rate limits are those of every `/auth/*` route. A passkey ceremony must finish within five
+minutes, and each challenge answers once.
 
 ### S3 storage
 
@@ -231,11 +328,23 @@ under the prefix is the same as the directory layout under `BLOB_DIR`, so for ex
 
 Only for `docker compose up -d --build` or `docker build`:
 
-| Argument         | Default                                   | Notes                                                                                                                                             |
-| ---------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PUBLIC_API_URL` | `/api`                                    | API URL baked into the web app. `/api` means the same origin.                                                                                     |
-| `REPO_URL`       | `https://github.com/atlastodo/atlas-todo` | The source link on the web app's About screen. If you run modified code, point it at that code: the AGPL asks you to offer your users its source. |
-| `BUN_VERSION`    | `1.4.2`                                   | Bun used to build the web app.                                                                                                                    |
+The image does not build the web app: it serves a released Atlas Todo web build (an
+`atlas-todo-web-X.Y.Z.tar.gz` asset of [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo/releases)),
+downloaded during the build and checked against its SHA-256. By default that is the `todo` pin in
+`apps.lock.json`, together with that release's `THIRD_PARTY_NOTICES.txt` (in the image as
+`/usr/share/doc/atlas-todo/web/THIRD_PARTY_NOTICES.txt`). The arguments serve another build:
+
+| Argument                  | Default           | Notes                                                                                              |
+| ------------------------- | ----------------- | -------------------------------------------------------------------------------------------------- |
+| `TODO_WEB_URL`            | the pin's URL     | An `atlas-todo-web-X.Y.Z.tar.gz` (one top-level directory of static files with an `index.html`).   |
+| `TODO_WEB_SHA256`         | the pin's SHA-256 | That file's SHA-256, required with `TODO_WEB_URL`; the build fails on a mismatch.                  |
+| `TODO_WEB_NOTICES_URL`    | the pin's notices | With `TODO_WEB_URL`: the web build's third-party notices, optional (left out, the image has none). |
+| `TODO_WEB_NOTICES_SHA256` | the pin's SHA-256 | That file's SHA-256, required with `TODO_WEB_NOTICES_URL`.                                         |
+
+The released web build calls its API at `/api` on its own origin. A build with another API URL,
+or of modified app code, is built in the app repository (`scripts/web-release-tarball.sh`) and passed
+here; if you run modified code, its About screen should link to that code, since the AGPL asks you
+to offer your users its source.
 
 ## Reverse proxy
 
@@ -439,6 +548,7 @@ already has.
 Run them with `docker compose exec server atlas-server <command>`.
 
 `GET /health` answers 200 when the server is up; the image's health check uses it.
+`GET /discovery` answers with the server version and the apps it offers.
 
 ## Running without Docker
 
@@ -446,9 +556,14 @@ The container and the NixOS module are the supported setups; the parts are ordin
 
 ```sh
 cargo build --release -p atlas-server            # the server binary
-(cd apps/mobile && EXPO_PUBLIC_API_URL=/api bun run export:web)   # the web app, in apps/mobile/dist
+curl -fsSLo web.tar.gz "$(jq -r .todo.url apps.lock.json)"     # the pinned web app
+echo "$(jq -r .todo.sha256 apps.lock.json)  web.tar.gz" | sha256sum -c -
+mkdir web && tar -xzf web.tar.gz -C web --strip-components=1
 ```
 
+The server links OpenSSL (for passkey verification): building needs its headers and
+`pkg-config` (`libssl-dev` on Debian and Ubuntu), and running needs the library (`libssl3`).
+
 Run `target/release/atlas-server` with `DATABASE_URL`, `JWT_SECRET` and
-`STATIC_DIR=apps/mobile/dist`, and set `BLOB_DIR` to a directory the server can write. The
+`STATIC_DIR=web`, and set `BLOB_DIR` to a directory the server can write. The
 project is tested against PostgreSQL 16.

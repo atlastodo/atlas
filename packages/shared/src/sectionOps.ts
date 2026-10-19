@@ -1,4 +1,4 @@
-import type { LocalStore, Section, Task } from "@atlas/client-core";
+import type { LocalStore, Section, Task } from "@atlastodo/client-core";
 import { toSection } from "./sectionMapper";
 import { allTasks } from "./taskOps";
 

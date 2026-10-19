@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use super::entity_from_str;
 use super::pull::partition_head;
+use crate::apps::{RequestedApps, SessionApps};
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -84,9 +85,11 @@ impl SnapshotResume {
 pub(super) async fn snapshot(
     State(state): State<AppState>,
     user: AuthUser,
+    requested: RequestedApps,
     Query(q): Query<SnapshotQuery>,
 ) -> AppResult<Json<SnapshotResponse>> {
     let caller = user.user_id;
+    let apps = SessionApps::for_request(&state, &user, requested).await?;
     let limit = q.limit.clamp(1, MAX_SNAPSHOT_KEYS_PER_PAGE);
     let resume = SnapshotResume::parse(&q)?;
 
@@ -101,13 +104,14 @@ pub(super) async fn snapshot(
         .map(|r| (r.entity.as_str(), r.id))
         .unwrap_or(("", Uuid::nil()));
 
-    // One key past the page, to know whether a next page exists.
+    // One key past the page, to know whether a next page exists. Only the session's enabled
+    // apps' kinds are read.
     let mut keys: Vec<(String, Uuid)> = sqlx::query_as(
         "SELECT entity, entity_id FROM entity_fields
-          WHERE user_id = $1 AND (entity, entity_id) > ($2, $3)
+          WHERE user_id = $1 AND (entity, entity_id) > ($2, $3) AND entity = ANY($5)
          UNION
          SELECT entity, entity_id FROM entity_tombstones
-          WHERE user_id = $1 AND (entity, entity_id) > ($2, $3)
+          WHERE user_id = $1 AND (entity, entity_id) > ($2, $3) AND entity = ANY($5)
          ORDER BY entity, entity_id
          LIMIT $4",
     )
@@ -115,20 +119,21 @@ pub(super) async fn snapshot(
     .bind(after_entity)
     .bind(after_id)
     .bind(limit + 1)
+    .bind(apps.kinds())
     .fetch_all(&state.pool)
     .await?;
     let more = keys.len() as i64 > limit;
     keys.truncate(limit as usize);
 
-    let operations = keys_ops(&mut *state.pool.acquire().await?, caller, &keys).await?;
-
-    // The token names the last emitted key, not the peeked one, so nothing between pages is skipped.
+    // The token names the last key of the page, not the peeked one, so nothing between pages is
+    // skipped.
     let next = if more {
         keys.last()
             .map(|(entity, id)| SnapshotResume::token(entity, *id, cursor))
     } else {
         None
     };
+    let operations = keys_ops(&mut *state.pool.acquire().await?, caller, &keys).await?;
     Ok(Json(SnapshotResponse {
         operations,
         cursor,
@@ -136,16 +141,22 @@ pub(super) async fn snapshot(
     }))
 }
 
-/// The user's full materialized state as snapshot-shaped ops, unpaged, for `GET /auth/export`.
-pub(crate) async fn partition_ops(pool: &sqlx::PgPool, user: Uuid) -> AppResult<Vec<Operation>> {
+/// The user's materialized state of the kinds named `kinds` as snapshot-shaped ops, unpaged, for
+/// `GET /auth/export`.
+pub(crate) async fn partition_ops(
+    pool: &sqlx::PgPool,
+    user: Uuid,
+    kinds: &[String],
+) -> AppResult<Vec<Operation>> {
     let keys: Vec<(String, Uuid)> = sqlx::query_as(
         "SELECT entity, entity_id FROM entity_fields
-          WHERE user_id = $1
+          WHERE user_id = $1 AND entity = ANY($2)
          UNION
          SELECT entity, entity_id FROM entity_tombstones
-          WHERE user_id = $1",
+          WHERE user_id = $1 AND entity = ANY($2)",
     )
     .bind(user)
+    .bind(kinds)
     .fetch_all(pool)
     .await?;
     keys_ops(&mut *pool.acquire().await?, user, &keys).await

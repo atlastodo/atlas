@@ -50,6 +50,9 @@ async fn make_state() -> AppState {
         blob_quota_bytes: 1024 * 1024 * 1024,
         blob_gc_grace_days: 7,
         max_blob_transfers: 16,
+        apps: vec!["todo".into()],
+        passkeys: None,
+        android_asset_links: None,
         static_dir: None,
     };
     AppState::new(pool, config)
@@ -449,7 +452,11 @@ async fn a_lagging_socket_is_closed() {
     for _ in 0..1000 {
         state.hub.publish(
             user,
-            json!({ "operations": [], "cursor": 0, "from": 0 }).to_string(),
+            atlas_server::sync::PullResponse {
+                operations: Vec::new(),
+                cursor: 0,
+                from: 0,
+            },
         );
     }
     let closed = tokio::time::timeout(Duration::from_secs(5), async {
@@ -629,7 +636,11 @@ async fn sockets_close_on_request_per_device_or_per_user() {
     // The other device keeps streaming.
     state.hub.publish(
         user,
-        json!({ "operations": [], "cursor": 0, "from": 0 }).to_string(),
+        atlas_server::sync::PullResponse {
+            operations: Vec::new(),
+            cursor: 0,
+            from: 0,
+        },
     );
     assert!(next_payload(&mut laptop_ws, 5).await.is_some());
 

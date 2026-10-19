@@ -12,9 +12,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-use super::hub::{SocketHandle, Subscription, WS_TICKET_TTL};
+use super::hub::{SocketHandle, Subscription, TicketScope, WS_TICKET_TTL};
 use super::pull::{ops_page, MAX_PULL_LIMIT};
 use super::{PullResponse, SyncError};
+use crate::apps::{RequestedApps, SessionApps};
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -39,16 +40,26 @@ pub struct WsTicketResponse {
 /// [`WS_TICKET_TTL`]. An access token in the socket URL would sit in proxy logs. The ticket is
 /// bound to the caller's user and device, the socket closes when the access token expires, and
 /// each connect costs this request from the caller's read budget.
+///
+/// The socket's app scope is the ticket request's ([`RequestedApps`]), checked here so a refused
+/// scope answers this request rather than failing the upgrade.
 pub(super) async fn ws_ticket(
     State(state): State<AppState>,
     user: AuthUser,
+    requested: RequestedApps,
 ) -> AppResult<Json<WsTicketResponse>> {
+    SessionApps::for_request(&state, &user, requested.clone()).await?;
+    let scope = TicketScope {
+        requested: requested.0,
+        token_apps: user.token_apps.clone(),
+    };
     let ticket = state
         .hub
-        .issue_ticket(
+        .issue_scoped_ticket(
             user.user_id,
             user.device_id,
             user.token_expires_at,
+            scope,
             Instant::now(),
         )
         .ok_or(AppError::TooManyRequests)?;
@@ -124,7 +135,19 @@ pub(super) async fn ws_handler(
     }
     // Subscribe before the backfill read so nothing committed in between is missed.
     let subscription = Subscription::new(&state.hub, user);
-    let first = match ops_page(&state.pool, user, params.since, MAX_PULL_LIMIT).await {
+    let scope = ticket.scope;
+    let apps = match SessionApps::resolve(
+        &state,
+        user,
+        scope.token_apps.as_deref(),
+        scope.requested,
+    )
+    .await
+    {
+        Ok(apps) => apps,
+        Err(e) => return e.into_response(),
+    };
+    let first = match ops_page(&state.pool, &apps, user, params.since, MAX_PULL_LIMIT).await {
         Ok(page) => page,
         Err(e) => return e.into_response(),
     };
@@ -136,7 +159,7 @@ pub(super) async fn ws_handler(
         subscription,
         handle,
     };
-    ws.on_upgrade(move |socket| handle_socket(socket, state, session, first))
+    ws.on_upgrade(move |socket| handle_socket(socket, state, session, apps, first))
 }
 
 fn close_message(code: u16, reason: &'static str) -> Message {
@@ -152,10 +175,33 @@ fn payload_message(page: &PullResponse) -> Option<Message> {
         .map(|s| Message::Text(s.into()))
 }
 
+/// A live payload narrowed to the session's apps. Its `from` and `cursor` stay, so a client whose
+/// apps had nothing in it still moves its cursor past the other apps' ops without a gap.
+fn live_message(apps: &SessionApps, payload: &PullResponse) -> Option<Message> {
+    if payload
+        .operations
+        .iter()
+        .all(|op| apps.allows_kind(op.entity.as_str()))
+    {
+        return payload_message(payload);
+    }
+    payload_message(&PullResponse {
+        operations: payload
+            .operations
+            .iter()
+            .filter(|op| apps.allows_kind(op.entity.as_str()))
+            .cloned()
+            .collect(),
+        cursor: payload.cursor,
+        from: payload.from,
+    })
+}
+
 async fn handle_socket(
     socket: WebSocket,
     state: AppState,
     session: WsSession,
+    apps: SessionApps,
     first: PullResponse,
 ) {
     let WsSession {
@@ -179,7 +225,7 @@ async fn handle_socket(
         if !full {
             break;
         }
-        page = match ops_page(&state.pool, user, cursor, MAX_PULL_LIMIT).await {
+        page = match ops_page(&state.pool, &apps, user, cursor, MAX_PULL_LIMIT).await {
             Ok(next) if next.operations.is_empty() => break,
             Ok(next) => next,
             Err(e) => {
@@ -212,7 +258,8 @@ async fn handle_socket(
             broadcast = subscription.recv() => {
                 match broadcast {
                     Ok(payload) => {
-                        if sender.send(Message::Text(payload.into())).await.is_err() {
+                        let Some(msg) = live_message(&apps, &payload) else { continue };
+                        if sender.send(msg).await.is_err() {
                             break None;
                         }
                     }

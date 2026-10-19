@@ -1,0 +1,17 @@
+{
+  "_doc": "The Atlas Vault app manifest: a password manager, end-to-end encrypted, held to a stricter threat model than todo. Its kinds are namespaced `vault.<kind>`. Vault v1 is personal: the server never fans its ops out to another account and reads none of their fields, so every field value is encrypted (no plaintext_fields), including the item type, its folder and its timestamps. `vault.item` is one item (login, note, card, identity, ssh_key, api_key: name, typed fields, urls, notes, tags, folder, favorite, secret field history), `vault.folder` one folder, `vault.preference` one of the app's settings. `api_tokens` is the policy for API tokens that include the app, which the server enforces: an expiry is required, at most `max_lifetime_days` after creation, a token is read-only unless its creator opts in to writes, and it is for the vault alone (`exclusive`: no other app's key travels with a vault secret). Bump `version` whenever the kinds, their plaintext fields or the token policy change.",
+  "app": "vault",
+  "name": "Atlas Vault",
+  "version": 2,
+  "kinds": {
+    "vault.item": { "plaintext_fields": [] },
+    "vault.folder": { "plaintext_fields": [] },
+    "vault.preference": { "plaintext_fields": [] }
+  },
+  "api_tokens": {
+    "expiry_required": true,
+    "max_lifetime_days": 365,
+    "write_by_default": false,
+    "exclusive": true
+  }
+}

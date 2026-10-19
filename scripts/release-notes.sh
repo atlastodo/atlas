@@ -88,10 +88,33 @@ if (deps + maintenance > 0) {
   if (deps) parts.push(`${deps} dependency update${deps === 1 ? "" : "s"}`);
   if (maintenance) parts.push(`${maintenance} maintenance commit${maintenance === 1 ? "" : "s"} (CI, build, tests)`);
   const compare = prev
-    ? ` ([full list](https://github.com/atlastodo/atlas-todo/compare/${prev}...v${version}))`
+    ? ` ([full list](https://github.com/atlastodo/atlas/compare/${prev}...v${version}))`
     : "";
   lines.push("### Maintenance", `- ${parts.join(", ")}${compare}`, "");
 }
+// Thank everyone but the maintainers (CODEOWNERS, and whoever runs this) and bots by name, as their
+// GitHub handle when the commit email is a GitHub noreply address.
+const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+let self = "";
+try {
+  self = git("config", "user.email").toLowerCase();
+} catch {}
+const owners = new Set(
+  (fs.existsSync(".github/CODEOWNERS") ? fs.readFileSync(".github/CODEOWNERS", "utf8") : "")
+    .match(/@[A-Za-z0-9-]+/g)
+    ?.map((h) => h.toLowerCase()) ?? [],
+);
+const thanks = [];
+for (const line of git("log", "--no-merges", "--format=%an%x09%ae%x09%s", range).split("\n")) {
+  const [name, email = "", subject = ""] = line.split("\t");
+  if (!name || subject.startsWith("chore(release):")) continue;
+  if (name.endsWith("[bot]") || email.toLowerCase() === self || email === "noreply@anthropic.com") continue;
+  const handle = email.match(/^(?:\d+\+)?([A-Za-z0-9-]+)@users\.noreply\.github\.com$/i)?.[1];
+  const who = handle ? `@${handle}` : name;
+  if (owners.has(who.toLowerCase()) || thanks.includes(who)) continue;
+  thanks.push(who);
+}
+if (thanks.length) lines.push("### Thanks", `- ${thanks.join(", ")}`, "");
 if (lines.length === 2) {
   // Nothing but the heading -- e.g. a manifest-only re-release.
   lines.push("Maintenance release.", "");

@@ -54,6 +54,9 @@ async fn setup() -> (AppState, Router, std::net::SocketAddr) {
             blob_quota_bytes: 1024 * 1024 * 1024,
             blob_gc_grace_days: 7,
             max_blob_transfers: 16,
+            apps: vec!["todo".into()],
+            passkeys: None,
+            android_asset_links: None,
             static_dir: None,
         },
     );
@@ -200,7 +203,11 @@ async fn close_code(ws: &mut Ws) -> Option<u16> {
 async fn still_open(state: &AppState, user: Uuid, ws: &mut Ws) -> bool {
     state.hub.publish(
         user,
-        json!({ "operations": [], "cursor": 0, "from": 0 }).to_string(),
+        atlas_server::sync::PullResponse {
+            operations: Vec::new(),
+            cursor: 0,
+            from: 0,
+        },
     );
     next_text(ws, 5).await
 }

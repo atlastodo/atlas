@@ -46,8 +46,16 @@ export const MAX_INTERVAL = 1000;
 
 // ASCII-only case folding and trimming, so a rule reads the same in every locale: `toUpperCase`
 // folds "ı" to "I" and `trim` strips a BOM.
-const ASCII_WS = /^[ \t\n\f\r]+|[ \t\n\f\r]+$/g;
-const trimAscii = (s: string) => s.replace(ASCII_WS, "");
+// A scan, not a `/^\s+|\s+$/` replace: the trailing alternative backtracks quadratically through a
+// long whitespace run in the middle of a rule another member synced.
+const isAsciiWs = (c: number) => c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0c || c === 0x0d;
+function trimAscii(s: string): string {
+  let start = 0;
+  let end = s.length;
+  while (start < end && isAsciiWs(s.charCodeAt(start))) start++;
+  while (end > start && isAsciiWs(s.charCodeAt(end - 1))) end--;
+  return s.slice(start, end);
+}
 const upperAscii = (s: string) => s.replace(/[a-z]+/g, (m) => m.toUpperCase());
 
 export function parseRule(input: string): Rule | null {

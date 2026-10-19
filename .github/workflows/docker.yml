@@ -15,6 +15,15 @@ on:
         required: false
         type: string
         default: latest=false
+      image-aliases:
+        description: >-
+          Extra image names (whitespace-separated ghcr.io/<owner>/<name> or docker.io/<owner>/<name>,
+          e.g. ghcr.io/atlastodo/atlas-todo) that get the same tags as ghcr.io/<owner>/<repo>.
+          Empty falls back to the IMAGE_ALIASES repository variable; both empty (the default)
+          pushes the usual names only.
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -24,6 +33,8 @@ defaults:
     shell: bash
 
 env:
+  NODE_VERSION: "26"
+  BUN_VERSION: "1.4.2"
   # OCI labels and annotations for the server image; GHCR shows the description and licence.
   IMAGE_METADATA: |
     org.opencontainers.image.title=Atlas Todo server
@@ -33,10 +44,40 @@ env:
     org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}/blob/main/docs/self-hosting.md
 
 jobs:
+  # The licences of the third-party code core ships (the server's and the CLI's crates, the core
+  # packages' dependencies), as /usr/share/doc/atlas-todo/THIRD_PARTY_NOTICES.txt. A release also
+  # attaches it. The web app's notices come from its own release (docker/Dockerfile puts them in
+  # /usr/share/doc/atlas-todo/web/).
+  notices:
+    name: Third-party notices
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      # Only the package.json files are read: no install scripts. Cargo comes with the runner.
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: node scripts/third-party-licenses.mjs --notices THIRD_PARTY_NOTICES.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: third-party-notices
+          path: THIRD_PARTY_NOTICES.txt
+          retention-days: 7
+
   # One image per architecture, pushed by digest; merge tags the multi-arch index. arm64 hosted
   # runners are free only for public repositories, so a private repo builds amd64 alone.
   build:
     name: Docker image (${{ matrix.arch }})
+    needs: notices
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -48,11 +89,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: third-party-notices
       - name: Image name
         id: image
         # GHCR names must be lowercase (Owner/Repo -> ghcr.io/owner/repo); a fork
         # publishes under its own owner automatically.
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      # The web app is the "todo" pin in apps.lock.json (a release of atlastodo/atlas-todo), which
+      # docker/Dockerfile downloads and verifies itself.
+      - name: Web app pin
+        run: |
+          jq -er '"Web app: the pinned todo \(.todo.version) web build (\(.todo.url))"' apps.lock.json >> "$GITHUB_STEP_SUMMARY"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -82,11 +131,8 @@ jobs:
           # BuildKit's SLSA provenance (with the build's full inputs) and an SBOM, attached to the image.
           provenance: mode=max
           sbom: true
-          # The web app's About screen links to the source it was built from.
-          build-args: |
-            REPO_URL=${{ github.server_url }}/${{ github.repository }}
           # Registry cache, not type=gha: Actions caches written on a tag ref are invisible to the
-          # next tag, so only a registry cache carries the cargo/bun layers between builds. Release
+          # next tag, so only a registry cache carries the cargo layers between builds. Release
           # and dev builds share it.
           cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.arch }},mode=max,ignore-error=true
@@ -111,10 +157,15 @@ jobs:
       id-token: write
       attestations: write
     env:
-      # Optional Docker Hub mirror: the DOCKERHUB_IMAGE variable (e.g. `atlastodo/atlas-todo`) plus the
+      # Optional Docker Hub mirror: the DOCKERHUB_IMAGE variable (e.g. `atlastodo/atlas`) plus the
       # DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets. Skipped while the repository is private,
       # because Docker Hub creates a new repository as public.
       DOCKERHUB_IMAGE: ${{ !github.event.repository.private && vars.DOCKERHUB_IMAGE || '' }}
+      # Optional extra names for the same image (the image-aliases input, else the IMAGE_ALIASES
+      # variable): since the repository was renamed to atlastodo/atlas it keeps publishing the old
+      # ghcr.io/atlastodo/atlas-todo (and docker.io/atlastodo/atlas-todo) names next to its own
+      # for a deprecation period (docs/repo-split.md). Unset, nothing changes.
+      IMAGE_ALIASES: ${{ inputs.image-aliases || vars.IMAGE_ALIASES || '' }}
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -123,7 +174,32 @@ jobs:
           merge-multiple: true
       - name: Image name
         id: image
-        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+        run: |
+          name="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          # The aliases, checked: lowercase ghcr.io/ or docker.io/ names, never the primary name
+          # again. A docker.io one needs the Docker Hub mirror's login (DOCKERHUB_IMAGE set, a
+          # public repository); without it the alias is skipped like the mirror is.
+          aliases=()
+          for alias in $IMAGE_ALIASES; do
+            if [[ ! "$alias" =~ ^(ghcr|docker)\.io/[a-z0-9._-]+/[a-z0-9._/-]+$ ]]; then
+              echo "::error::Image alias '$alias' is not a lowercase ghcr.io/<owner>/<name> or docker.io/<owner>/<name>."
+              exit 1
+            fi
+            if [[ "$alias" == docker.io/* && -z "$DOCKERHUB_IMAGE" ]]; then
+              echo "::warning::Skipping the alias $alias: the Docker Hub mirror is off (DOCKERHUB_IMAGE unset or a private repository)."
+              continue
+            fi
+            [ "$alias" = "$name" ] || [ "$alias" = "docker.io/$DOCKERHUB_IMAGE" ] || aliases+=("$alias")
+          done
+          {
+            echo "aliases<<ALIASES"
+            if [ "${#aliases[@]}" -gt 0 ]; then printf '%s\n' "${aliases[@]}"; fi
+            echo "ALIASES"
+          } >> "$GITHUB_OUTPUT"
+          if [ "${#aliases[@]}" -gt 0 ]; then
+            echo "Also tagged as: ${aliases[*]}" >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -142,6 +218,7 @@ jobs:
         with:
           images: |
             ${{ steps.image.outputs.name }}
+            ${{ steps.image.outputs.aliases }}
             ${{ env.DOCKERHUB_IMAGE && format('docker.io/{0}', env.DOCKERHUB_IMAGE) || '' }}
           tags: ${{ inputs.tags }}
           flavor: ${{ inputs.flavor }}
@@ -159,7 +236,7 @@ jobs:
           version="$(jq -r '.labels["org.opencontainers.image.version"]' <<<"$DOCKER_METADATA_OUTPUT_JSON")"
           docker buildx imagetools inspect "$IMAGE:$version"
           echo "digest=$(docker buildx imagetools inspect "$IMAGE:$version" --format '{{.Manifest.Digest}}')" >> "$GITHUB_OUTPUT"
-      # Verify with: gh attestation verify oci://ghcr.io/atlastodo/atlas-todo:<tag> --repo atlastodo/atlas-todo
+      # Verify with: gh attestation verify oci://ghcr.io/atlastodo/atlas:<tag> --repo atlastodo/atlas
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.image.outputs.name }}

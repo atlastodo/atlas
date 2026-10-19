@@ -1,4 +1,4 @@
-import type { CreateTaskInput, Priority } from "@atlas/client-core";
+import type { CreateTaskInput, Priority } from "@atlastodo/client-core";
 import {
   DEFAULT_DUE_HOUR,
   DEFAULT_DUE_MINUTE,

@@ -1,4 +1,4 @@
-import { isProjectShared, type LocalStore } from "@atlas/client-core";
+import { isProjectShared, type LocalStore } from "@atlastodo/client-core";
 import type { BundleEntity, ExportBundle } from "./dataTransfer";
 import { derivedUuidV1, derivedUuidV2 } from "./ids";
 import { DEFAULT_PROJECT_ICON, defaultColorForIndex } from "./projectStyle";

@@ -5,6 +5,7 @@
 
 pub mod admin;
 pub mod admin_users;
+pub mod apps;
 pub mod attachments;
 pub mod audit;
 pub mod auth;
@@ -127,6 +128,7 @@ pub fn app(state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(health))
         .merge(auth_routes)
+        .merge(apps::routes())
         .merge(projects::routes())
         .merge(members::routes(invite_rl))
         .merge(sync_routes)
@@ -141,8 +143,17 @@ pub fn app(state: AppState) -> Router {
         )
     };
 
+    // Digital Asset Links for the Android app, only when configured: otherwise a file of that name
+    // in STATIC_DIR stays reachable.
+    let well_known = if state.config.android_asset_links.is_some() {
+        Router::new().route("/.well-known/assetlinks.json", get(asset_links))
+    } else {
+        Router::new()
+    };
+
     Router::new()
         .merge(api.clone())
+        .merge(well_known)
         .nest("/api", api.fallback(api_404))
         .fallback(static_fallback_handler)
         .layer(axum::middleware::from_fn_with_state(
@@ -171,6 +182,25 @@ pub fn app(state: AppState) -> Router {
                 .on_failure(DefaultOnFailure::new().level(tracing::Level::ERROR)),
         )
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+}
+
+/// `GET /.well-known/assetlinks.json`: the statement Android checks before it lets the app use this
+/// domain's passkeys (`delegate_permission/common.get_login_creds`), from `ANDROID_APP_PACKAGE` and
+/// `ANDROID_APP_CERT_SHA256`.
+async fn asset_links(State(state): State<AppState>) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    match &state.config.android_asset_links {
+        Some(links) => Json(json!([{
+            "relation": ["delegate_permission/common.get_login_creds"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": links.package,
+                "sha256_cert_fingerprints": links.cert_fingerprints,
+            },
+        }]))
+        .into_response(),
+        None => axum::http::StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 /// The admin API shares `/admin/*` with what used to be the web app's admin pages (now a Settings
@@ -312,13 +342,14 @@ fn cors_layer() -> CorsLayer {
 /// origin). Split out so it is testable without mutating process-global env.
 fn cors_layer_from(allowed: Option<String>) -> CorsLayer {
     // A wildcard allow-headers does not cover `Authorization` per the Fetch spec, so list it,
-    // `Content-Type` and the sync protocol header explicitly.
+    // `Content-Type` and the sync protocol and app-scope headers explicitly.
     let base = CorsLayer::new()
         .allow_methods(Any)
         .allow_headers([
             AUTHORIZATION,
             CONTENT_TYPE,
             HeaderName::from_static(sync::SYNC_PROTOCOL_HEADER),
+            HeaderName::from_static(apps::SYNC_APPS_HEADER),
         ])
         // Not CORS-safelisted; without it a cross-origin client cannot read a 429's back-off.
         .expose_headers([RETRY_AFTER]);
@@ -394,6 +425,9 @@ mod tests {
             blob_quota_bytes: 1024 * 1024 * 1024,
             blob_gc_grace_days: 7,
             max_blob_transfers: 16,
+            apps: vec!["todo".into()],
+            passkeys: None,
+            android_asset_links: None,
             static_dir,
         }
     }
@@ -559,6 +593,7 @@ mod tests {
             .unwrap()
             .to_ascii_lowercase();
         assert!(allowed.contains(sync::SYNC_PROTOCOL_HEADER), "{allowed}");
+        assert!(allowed.contains(apps::SYNC_APPS_HEADER), "{allowed}");
     }
 
     #[tokio::test]

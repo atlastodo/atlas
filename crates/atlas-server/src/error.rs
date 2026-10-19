@@ -36,6 +36,25 @@ pub enum AppError {
     InviteInvalid,
     #[error("forbidden: {0}")]
     Forbidden(String),
+    /// An API-token session on a route only a signed-in device may use.
+    #[error("this needs a signed-in device, not an API token")]
+    InteractiveSessionRequired,
+    /// An op or request naming an app (`manifests/<app>.json`) that is not enabled for this
+    /// instance (`ATLAS_APPS`) or account (`account_apps`). 403 with `code: app_not_enabled`.
+    #[error("the {app} app is not enabled for this {scope}")]
+    AppNotEnabled { app: String, scope: &'static str },
+    /// An API token past its `expires_at`, at the exchange or on a request of a session it opened.
+    /// 401 with `code: api_token_expired`: only a new token helps, so the holder must not retry.
+    #[error("this API token has expired")]
+    ApiTokenExpired,
+    /// A write (anything but a read route) from a session of a token made without write access.
+    /// 403 with `code: api_token_read_only`.
+    #[error("this API token is read-only")]
+    ApiTokenReadOnly,
+    /// `POST /auth/api-tokens` with an expiry the policy of the token's apps refuses (missing,
+    /// past, or too far out). 400 with the given `code`.
+    #[error("{message}")]
+    ApiTokenPolicy { code: &'static str, message: String },
     #[error("{0} already exists")]
     Conflict(String),
     /// `PUT /auth/recovery-key` naming a key other than the one already registered.
@@ -44,12 +63,36 @@ pub enum AppError {
     /// `PUT /auth/signing-key` naming a key other than the one already stored.
     #[error("a different signing key is already stored")]
     SigningKeyAlreadySet,
+    /// `POST /auth/root-key` for an account that already has a root key (another device migrated
+    /// it first): the client fetches the stored one instead.
+    #[error("the account already has a root key")]
+    RootKeyExists,
+    /// A write of a key that is set once (`PUT /auth/root-key/recovery`, `PUT /auth/app-keys/:app`)
+    /// when one is already stored.
+    #[error("{0} is already stored")]
+    KeyAlreadyStored(&'static str),
+    /// A credential or recovery write without the root-key slot, from a client predating root
+    /// keys, on an account holding app keys that dropping the root would orphan.
+    #[error("this account needs an app version that knows the account root key")]
+    RootKeyRequired,
     /// `POST /projects/:id/key-rotation` with no rotation outstanding, or one another owner completed.
     #[error("no key rotation is pending for this project")]
     RotationNotPending,
     /// An invite naming someone already an active member; roles change via `PATCH`.
     #[error("already a member of this project")]
     AlreadyMember,
+    /// A passkey route on an instance without `WEBAUTHN_RP_ID`: 404 `passkeys_disabled`.
+    #[error("passkeys are not enabled on this server")]
+    PasskeysDisabled,
+    /// A passkey registration whose credential has no PRF (it could sign in but not unlock).
+    #[error("this passkey does not support the PRF extension, which unlocking the account needs")]
+    PasskeyPrfUnsupported,
+    /// A WebAuthn response that does not verify, or a ceremony that is unknown or expired.
+    #[error("passkey verification failed: {0}")]
+    PasskeyInvalid(String),
+    /// Removing the password or a passkey that is the account's last way to sign in.
+    #[error("this is the account's last way to sign in")]
+    LastUnlockMethod,
     #[error("not found")]
     NotFound,
     /// A filesystem operation failed (blob store I/O); surfaced as `internal error`, logged with path context.
@@ -76,7 +119,9 @@ impl AppError {
     fn status(&self) -> StatusCode {
         match self {
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
-            AppError::Unauthorized => StatusCode::UNAUTHORIZED,
+            AppError::Unauthorized | AppError::ApiTokenExpired => StatusCode::UNAUTHORIZED,
+            AppError::ApiTokenReadOnly => StatusCode::FORBIDDEN,
+            AppError::ApiTokenPolicy { .. } => StatusCode::BAD_REQUEST,
             AppError::InvalidCredentials => StatusCode::FORBIDDEN,
             AppError::RefreshSuperseded => StatusCode::UNAUTHORIZED,
             AppError::AccountScheduledDeletion { .. } => StatusCode::FORBIDDEN,
@@ -85,13 +130,23 @@ impl AppError {
             AppError::AccountDisabled => StatusCode::FORBIDDEN,
             AppError::LegacyAccount => StatusCode::FORBIDDEN,
             AppError::InviteInvalid => StatusCode::FORBIDDEN,
-            AppError::Forbidden(_) => StatusCode::FORBIDDEN,
+            AppError::Forbidden(_)
+            | AppError::InteractiveSessionRequired
+            | AppError::AppNotEnabled { .. } => StatusCode::FORBIDDEN,
             AppError::Conflict(_)
             | AppError::RecoveryKeyAlreadySet
             | AppError::SigningKeyAlreadySet
+            | AppError::RootKeyExists
+            | AppError::KeyAlreadyStored(_)
+            | AppError::RootKeyRequired
             | AppError::RotationNotPending
             | AppError::AlreadyMember => StatusCode::CONFLICT,
             AppError::NotFound => StatusCode::NOT_FOUND,
+            AppError::PasskeysDisabled => StatusCode::NOT_FOUND,
+            AppError::PasskeyPrfUnsupported | AppError::PasskeyInvalid(_) => {
+                StatusCode::BAD_REQUEST
+            }
+            AppError::LastUnlockMethod => StatusCode::CONFLICT,
             AppError::Filesystem(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             AppError::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
@@ -111,8 +166,20 @@ impl AppError {
             AppError::RefreshSuperseded => Some("refresh_superseded"),
             AppError::RecoveryKeyAlreadySet => Some("recovery_key_already_set"),
             AppError::SigningKeyAlreadySet => Some("signing_key_already_set"),
+            AppError::RootKeyExists => Some("root_key_exists"),
+            AppError::KeyAlreadyStored(_) => Some("key_already_stored"),
+            AppError::RootKeyRequired => Some("root_key_required"),
             AppError::RotationNotPending => Some("rotation_not_pending"),
             AppError::AlreadyMember => Some("already_member"),
+            AppError::InteractiveSessionRequired => Some("interactive_session_required"),
+            AppError::AppNotEnabled { .. } => Some("app_not_enabled"),
+            AppError::ApiTokenExpired => Some("api_token_expired"),
+            AppError::ApiTokenReadOnly => Some("api_token_read_only"),
+            AppError::ApiTokenPolicy { code, .. } => Some(code),
+            AppError::PasskeysDisabled => Some("passkeys_disabled"),
+            AppError::PasskeyPrfUnsupported => Some("passkey_prf_unsupported"),
+            AppError::PasskeyInvalid(_) => Some("passkey_invalid"),
+            AppError::LastUnlockMethod => Some("last_unlock_method"),
             _ => None,
         }
     }
@@ -131,6 +198,18 @@ impl IntoResponse for AppError {
                 Json(json!({
                     "error": "account_scheduled_deletion",
                     "days_remaining": days_remaining
+                })),
+            )
+                .into_response();
+        }
+        if let AppError::AppNotEnabled { app, scope } = &self {
+            return (
+                status,
+                Json(json!({
+                    "error": self.to_string(),
+                    "code": "app_not_enabled",
+                    "app": app,
+                    "scope": scope,
                 })),
             )
                 .into_response();

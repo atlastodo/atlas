@@ -1,4 +1,4 @@
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 
 export interface ClipboardContext {
   originOf?: (task: Task) => { project?: string; section?: string } | undefined;

@@ -1,0 +1,52 @@
+{
+  "_doc": "What the bundled app manifests (manifests/*.json) decide, asserted by packages/client-core/src/fieldPolicy.test.ts and crates/atlas-client (field_policy.rs). `fields`: whether a value of `entity`.`field` leaves the device end-to-end encrypted (`encrypted`); a kind no manifest names, and any field a manifest does not list, is encrypted. Todo keeps only the ids the server routes and checks access by in plaintext; journal and vault keep nothing, so the server sees no vault item's type, name, folder, URL, timestamp or secret. `token_policies`: the API token policy of a token for `apps`, the strictest of their manifests' `api_tokens` (`max_lifetime_days` null is no limit; `exclusive`: the server refuses a token naming such an app with any other).",
+  "fields": [
+    { "entity": "task", "field": "title", "encrypted": true },
+    { "entity": "task", "field": "project_id", "encrypted": false },
+    { "entity": "task", "field": "assignee_id", "encrypted": false },
+    { "entity": "task", "field": "a_field_nobody_declared", "encrypted": true },
+    { "entity": "comment", "field": "task_id", "encrypted": false },
+    { "entity": "attachment", "field": "blob_sha", "encrypted": false },
+    { "entity": "project_member", "field": "anything", "encrypted": false },
+    { "entity": "journal.entry", "field": "body", "encrypted": true },
+    { "entity": "journal.entry", "field": "date", "encrypted": true },
+    { "entity": "journal.entry", "field": "project_id", "encrypted": true },
+    { "entity": "vault.item", "field": "type", "encrypted": true },
+    { "entity": "vault.item", "field": "name", "encrypted": true },
+    { "entity": "vault.item", "field": "fields", "encrypted": true },
+    { "entity": "vault.item", "field": "urls", "encrypted": true },
+    { "entity": "vault.item", "field": "notes", "encrypted": true },
+    { "entity": "vault.item", "field": "tags", "encrypted": true },
+    { "entity": "vault.item", "field": "folder", "encrypted": true },
+    { "entity": "vault.item", "field": "favorite", "encrypted": true },
+    { "entity": "vault.item", "field": "history", "encrypted": true },
+    { "entity": "vault.item", "field": "created_at", "encrypted": true },
+    { "entity": "vault.item", "field": "updated_at", "encrypted": true },
+    { "entity": "vault.item", "field": "deleted_at", "encrypted": true },
+    { "entity": "vault.item", "field": "project_id", "encrypted": true },
+    { "entity": "vault.item", "field": "task_id", "encrypted": true },
+    { "entity": "vault.folder", "field": "name", "encrypted": true },
+    { "entity": "vault.folder", "field": "deleted_at", "encrypted": true },
+    { "entity": "vault.preference", "field": "value", "encrypted": true },
+    { "entity": "notes.note", "field": "body", "encrypted": true },
+    { "entity": "notes.note", "field": "project_id", "encrypted": true }
+  ],
+  "token_policies": [
+    {
+      "apps": ["todo"],
+      "policy": { "expiry_required": false, "max_lifetime_days": null, "write_by_default": true, "exclusive": false }
+    },
+    {
+      "apps": ["journal"],
+      "policy": { "expiry_required": false, "max_lifetime_days": null, "write_by_default": true, "exclusive": false }
+    },
+    {
+      "apps": ["vault"],
+      "policy": { "expiry_required": true, "max_lifetime_days": 365, "write_by_default": false, "exclusive": true }
+    },
+    {
+      "apps": ["todo", "journal", "vault"],
+      "policy": { "expiry_required": true, "max_lifetime_days": 365, "write_by_default": false, "exclusive": true }
+    }
+  ]
+}

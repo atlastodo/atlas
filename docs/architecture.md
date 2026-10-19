@@ -11,16 +11,24 @@ records why the main choices were made.
 
 ## Components
 
-| Path                   | Language              | Role                                                                                                                                     |
-| ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `crates/atlas-core`    | Rust                  | The hybrid logical clock and the op log types. No I/O.                                                                                   |
-| `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.          |
-| `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                            |
-| `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client.                                                      |
-| `packages/shared`      | TypeScript            | Pure logic for every client: recurrence, quick-add parsing, filters, habits, stats, ordering, TickTick/Todoist import, i18n catalogs.    |
-| `apps/mobile`          | React Native + Expo   | The only UI. Runs natively on Android and iOS and in the browser through react-native-web.                                               |
-| `apps/electron`        | TypeScript (Electron) | Desktop shell that loads the web export from an `app://` origin.                                                                         |
-| `test-vectors/`        | JSON                  | Shared fixtures. The conflict and plaintext-field vectors are read by both the Rust and TypeScript tests; recurrence is TypeScript only. |
+The apps (`apps/mobile`, `apps/electron`) live in their own repository,
+[atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo), on the core packages of this one;
+every `apps/` path on this page is in that repository. The server image and the flake serve a
+pinned release of its web build (`apps.lock.json`).
+
+| Path                   | Language              | Role                                                                                                                                                                                           |
+| ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/atlas-core`    | Rust                  | The hybrid logical clock, the op log types and the bundled app manifest registry. No I/O.                                                                                                      |
+| `manifests/`           | JSON                  | One manifest per app of the suite (`todo.json`): its entity kinds and their plaintext fields. Compiled into the server, bundled by the clients.                                                |
+| `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.                                                                |
+| `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                                                                                  |
+| `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client.                                                                                                            |
+| `packages/shared`      | TypeScript            | Pure logic for every client: recurrence, quick-add parsing, filters, habits, stats, ordering, TickTick/Todoist import, i18n catalogs.                                                          |
+| `apps/mobile`          | React Native + Expo   | The only UI. Runs natively on Android and iOS and in the browser through react-native-web.                                                                                                     |
+| `apps/electron`        | TypeScript (Electron) | Desktop shell that loads the web export from an `app://` origin.                                                                                                                               |
+| `crates/atlas-client`  | Rust                  | A headless client for integrations: API-token sessions, the end-to-end encryption, sync and the task rules of `packages/client-core` and `packages/shared`, kept at parity by `test-vectors/`. |
+| `crates/atlas-cli`     | Rust                  | The `atlas` command line over `atlas-client`, released as one static binary per platform.                                                                                                      |
+| `test-vectors/`        | JSON                  | Shared fixtures (crypto, conflicts, recurrence, task rules, quick add, filters, CLI runs), read by both the Rust and the TypeScript tests.                                                     |
 
 ## How the clients share code
 
@@ -34,7 +42,8 @@ build time. Session storage and notifications work this way.
   the app calls the API at `/api` on the same origin. The local store persists to IndexedDB.
 - Desktop is Electron around the web export. It adds a tray icon, deep links
   (`atlastodo://`), single-instance handling and a hardened protocol handler. See
-  [apps/electron/README.md](../apps/electron/README.md).
+  [apps/electron/README.md](https://github.com/atlastodo/atlas-todo/blob/main/apps/electron/README.md)
+  in the app repository.
 
 All of them use `packages/client-core` for data, sync and encryption, and `packages/shared` for
 domain logic. Neither package depends on React.
@@ -62,6 +71,141 @@ Clients never update rows in place. Every change is an operation:
 
 An operation either sets one field or deletes the entity (`"op": "delete"`, a tombstone). The
 op id makes pushes idempotent.
+
+## Apps and manifests
+
+Atlas is becoming a suite of end-to-end encrypted apps (todo, journal and the vault now; notes
+later) on one generic server and one account. Each app has a first-party manifest in
+`manifests/<app>.json`: its id, a display name, a version, and its entity kinds with the fields
+of each that travel in plaintext. The manifests are part of the release: `atlas-core` compiles
+them in (`manifest.rs`, the `Registry`), and `packages/client-core` bundles the same files
+(`fieldPolicy.ts`), so server and clients read one table. Operators never load a manifest from
+disk. Bump a manifest's `version` whenever its kinds or plaintext fields change.
+
+Todo's kinds keep their original bare wire names (`task`, `project`, …); every later app must
+namespace its kinds as `<app>.<kind>` (`notes.note`), which the registry enforces. The registry
+maps each kind to its app by wire name. The Rust `EntityKind` enum stays closed: authorization
+and fan-out match on todo's kinds exhaustively, and an open kind would let an op of an unknown
+kind slip past those matches. A new app adds its kinds as variants with an explicit
+`#[serde(rename = "notes.note")]` next to its manifest; a test fails until every variant is in
+exactly one manifest and every manifest kind is a variant.
+
+Enablement has two levels:
+
+- Instance: `ATLAS_APPS` (default `todo`; `todo,journal,vault` to offer Atlas Journal and Atlas Vault) names the bundled apps the server offers. An id the
+  release does not bundle stops the server at startup.
+- Account: the `account_apps` table (`user_id`, `app`, `enabled_at`). A trigger gives every new
+  user row `todo`, and the migration backfilled existing accounts. `GET /auth/apps` lists the
+  instance's apps with the caller's enablement and `PUT /auth/apps/:app` enables one; both take
+  an interactive session (an API token gets `403 interactive_session_required`).
+
+The release bundles `todo`, `journal` (Atlas Journal: `journal.entry`, `journal.preference`,
+every field encrypted) and `vault` (Atlas Vault: `vault.item`, `vault.folder`,
+`vault.preference`, every field encrypted). Their clients are separate apps; this repository
+ships their manifests, the server rules, the client-core helpers, the item rules
+(`packages/shared/src/vault.ts`, `crates/atlas-client/src/vault.rs`) and the CLI and SDK
+commands.
+
+A manifest may also carry an `api_tokens` policy (`expiry_required`, `max_lifetime_days`,
+`write_by_default`, `exclusive`; `TokenPolicy` in `atlas-core`, `tokenPolicyFor` in client-core) that the
+server enforces for every API token that includes the app, taking the strictest when a token is
+for several. The vault's requires an expiry at most 365 days out and makes tokens read-only
+unless writes are opted in, and is `exclusive`: a vault token is for the vault alone (400
+`api_token_app_exclusive` otherwise), so no other app's key travels with a vault secret and its
+write flag means one thing; see [API tokens](#api-tokens).
+
+#### App-scoped sessions
+
+All of an account's apps share one partition and one sequence, but each client syncs only its
+own apps: a request names them in `x-atlas-sync-apps` (`apps.rs`, `SessionApps`), and a request
+without the header is a todo session, which every client predating the header is. A session's
+apps are its scope intersected with the apps enabled for the instance and the account.
+
+- Pull, the snapshot, the WebSocket backfill and live stream, and `GET /auth/export` serve only
+  the session's apps. Pull and the snapshot filter in SQL on the kinds of those apps. A pull that
+  is caught up answers the partition head as its cursor, read before the ops (every seq up to the
+  head is committed, see [One lock for sync writes](#one-lock-for-sync-writes)), so a Journal
+  client's cursor moves past todo's ops and the reverse.
+- The hub broadcasts each partition's live batch once; every socket narrows it to its session's
+  apps and keeps `from` and `cursor`, so a batch of another app's ops arrives as an empty message
+  that moves the cursor without a gap. The socket's scope is the one its ticket request named.
+- Push refuses an op outside the scope with 403 `app_not_enabled`, scope `session`; an app the
+  instance or account has off is scope `instance` or `account`.
+- An app named in the header must be enabled, or the request is 403: a cursor that walked past
+  the app's ops unseen would lose them for that client. A request without the header keeps the
+  older behaviour of hiding a switched-off todo silently. Hidden data is kept and comes back,
+  from the snapshot, once the app is enabled again.
+- A cursor belongs to the scope it was pulled under. A client changing its scope bootstraps from
+  the snapshot again.
+- Fan-out to a shared project's members skips members whose account lacks the op's app.
+- The scope needs no protocol bump: it is optional and defaults to todo. Clients detect it by the
+  `app_scoped_sync` capability.
+
+#### Journal is personal
+
+Journal v1 has no sharing. Push resolves fan-out through `may_fan_out` and the project matches in
+`sync/push.rs`, which list every `EntityKind` with no wildcard arm: journal kinds are owner-only,
+the server reads none of their fields (not even one named `project_id`), and they never reach
+another partition. A new kind fails to compile until it chooses.
+
+The vault is personal in v1 too, for the same reasons and the same way: its kinds are owner-only
+in those matches and the server reads none of their fields, so it sees an item's id and the
+times it changed, never its type, name, folder or URLs. Item, folder and field names are
+encrypted like the secrets. Sharing a collection of items with a person or a machine (on the
+project-key machinery) is later work.
+
+#### Enabling an app
+
+`enableApp` in `packages/client-core/src/rootKey.ts` generates the app's 32-byte key and X25519
+identity, wraps them under the root ([Account root key](#account-root-key)), stores them with
+`PUT /auth/app-keys/:app` and then enables the app with `PUT /auth/apps/:app`. The key is set once:
+a device that loses a race gets 409 `key_already_stored`, loads the stored row from
+`GET /auth/root-key` and opens it, so both devices end with one key. It needs the unlocked root:
+an account from before root keys migrates at its next password sign-in or unlock (`ensureRootKey`)
+and can enable apps after that. Both routes are interactive only, and both take only an app this
+build bundles and the instance offers: `PUT /auth/app-keys/:app` answers 400 for an unbundled id
+and 403 `app_not_enabled` (scope `instance`) for one `ATLAS_APPS` leaves out (`PUT /auth/apps/:app`
+answers 404 and 403), so no key row lands under the root for an app nothing can use. The
+`app_keys` of signup, migration and recovery must name bundled apps too.
+
+### Discovery
+
+`GET /discovery` is public and reads no database (here with `ATLAS_APPS=todo,journal,vault`):
+
+```json
+{
+  "service": "atlas-server",
+  "version": "0.1.11",
+  "protocol_version": 6,
+  "min_protocol_version": 6,
+  "capabilities": [
+    "api_tokens",
+    "app_manifests",
+    "account_apps",
+    "root_key",
+    "app_scoped_sync",
+    "app_scoped_api_tokens",
+    "api_token_policies"
+  ],
+  "apps": [
+    { "id": "todo", "name": "Atlas Todo", "version": 1 },
+    { "id": "journal", "name": "Atlas Journal", "version": 1 },
+    { "id": "vault", "name": "Atlas Vault", "version": 1 }
+  ]
+}
+```
+
+It sits next to every other route (at `/` and under `/api`), not at `/.well-known/atlas`: clients
+know the server by its API base URL, which may be a path such as `https://host/api` behind a
+proxy, and a well-known path at the origin root could belong to something else there.
+`protocol_version` is the newest sync protocol the server speaks (`SYNC_PROTOCOL`),
+`min_protocol_version` the oldest client it accepts. Capabilities are only ever added.
+
+`ApiClient.getDiscovery()` in client-core reads it. A server that predates the endpoint answers
+404, or the web app's HTML in its place, and counts as legacy: protocol 1, no capabilities, todo.
+`assertServerCompatible` checks a minimum protocol, capabilities and apps and throws
+`ServerIncompatibleError`; the app runs it before signing in or up (`auth/serverCompat.ts`) and
+says the server must be updated, or does not offer the app.
 
 ## Hybrid logical clock and last-writer-wins
 
@@ -327,6 +471,56 @@ The client takes care not to trip this itself (`packages/client-core/src/api.ts`
   is dropped, so a dead token cannot loop into the auth rate limit. A 429 or a network failure is
   transient and leaves the session alone.
 
+### API tokens
+
+Integrations sign in with a personal API token instead of a password
+(`crates/atlas-server/src/auth/api_tokens.rs`, `packages/client-core/src/crypto/apiToken.ts`;
+usage in [integrations.md](./integrations.md)).
+
+- **Creating a token.** The app generates it: a 16-byte id and a 32-byte secret. HKDF over the
+  secret gives an auth value and a wrapping key. The app uploads the id, the auth value and the
+  DEK and X25519 private key wrapped under that key (`POST /auth/api-tokens`). The server stores
+  the auth value's SHA-256 and the wraps (`api_tokens`), and never sees the secret. A token is
+  one more key slot, like the recovery wraps, and only its holder can open it.
+- **Opening a session.** `POST /auth/api-token/session` checks the id and auth value and returns
+  an access token with `kind: "api_token"` and `did` set to the token id, plus the wraps. There is
+  no refresh token: the holder exchanges again. `authenticate_bearer` treats such a session as
+  live while its `api_tokens` row is unrevoked.
+- **Limits.**
+  - `InteractiveAuthUser` refuses a token session with 403 `interactive_session_required` on the
+    account-critical routes: credentials, recovery, sessions, API tokens, account deletion,
+    export, the signing-key upload, the account root key and app keys, and admin.
+  - A token is scoped to apps (`api_tokens.apps`, `{todo}` for every token made before scopes
+    and whenever the client names none). It carries a copy of each of their keys: todo's as
+    before (`wrapped_dek`, `wrapped_private_key`, sent exactly when the token is for todo),
+    every other app's key and identity in `app_keys`, one entry per app with `wrapped_key` and
+    `wrapped_private_key` (associated data slots `app_key:<app>` and `app_private_key:<app>`,
+    `wrapAppKeysForApiToken`). Creating one needs the app enabled and keyed for the account.
+    It never carries the account root key.
+  - A token session syncs only its token's apps: a scope naming another app, or the implicit
+    todo scope of a token without todo, is 403 `app_not_enabled` with scope `token`. The session
+    response lists the token's `apps`. The app's settings screen still makes todo tokens only.
+  - Sync, project keys, members and attachments accept token sessions.
+  - A token may expire (`expires_at`, unix ms) and may be read-only (`write: false`), both chosen
+    at creation within its apps' manifest policies (`api_token_policies` capability, migration
+    `20261019000001_api_token_access.sql`: `api_tokens.expires_at`, `can_write`). A vault token
+    needs an expiry at most 365 days out (400 `api_token_expiry_required`,
+    `api_token_expiry_in_past`, `api_token_expiry_too_far`) and is read-only unless `write: true`;
+    todo and journal tokens default to no expiry and write access, as before. Past its expiry the
+    exchange answers 401 `api_token_expired` and so does every request of a session it opened
+    (`authenticate_bearer` checks it on each one); the access token it hands out ends no later
+    than the token. A read-only token's sessions reach only `GET`/`HEAD` routes and
+    `POST /sync/ws-ticket`; anything else is 403 `api_token_read_only`, refused in `AuthUser`
+    before any handler runs, so a write route added later is covered without change. The session
+    response and the token list carry `expires_at` and `write`. An expired token stays listed
+    until revoked and no longer counts against the cap; an hourly sweep
+    (`api_tokens::spawn_expiry_sweep`) drops its key wraps, as revoking does, so they don't wait at
+    rest for a leak.
+  - An account holds at most 25 live (unexpired) tokens.
+- **Revoking.** Revoking a token, recovering the account or scheduling its deletion sets
+  `revoked_at` and nulls the wraps (`app_keys` too), so a token string that leaks afterwards opens nothing. A
+  password change leaves tokens alone, since the DEK does not change.
+
 ### Where a web session is stored
 
 Native apps keep the session in the OS keychain (`expo-secure-store`). The browser build, which
@@ -353,29 +547,162 @@ ciphertext and wrapped keys.
 ```
 password + salt ── Argon2id (or PBKDF2) ── HKDF ──┬── auth hash ──► server (stored as Argon2id)
                                                   └── MEK (master encryption key, device only)
-                                                         │ wraps
-                               ┌─────────────────────────┴──────────────┐
-                               DEK (personal data key)            X25519 private key
-                               │ encrypts                              │ opens
-                               personal fields                   PEKs sealed to this user
-                               │ wraps                                 │
-                               ├── Ed25519 identity key: signs PEK deliveries
-                               │ wraps (own copy)                      │
-                               PEK (one per shared project) ◄──────────┘
+                                                         │ wraps (password slot)
+recovery phrase ── recovery key ─── wraps (recovery slot) ──┐
+                                                         ▼
+                                    account root key (random 256-bit)
+                                                         │ wraps, one per app (account_app_keys)
+                               ┌─────────────────────────┴──────────── … notes, vault (later)
+                               todo app key = the DEK (personal data key)
+                               │ encrypts                    │ wraps
+                               personal fields               X25519 private key (todo identity)
+                               │ wraps                       │ opens
+                               ├── Ed25519 identity key      PEKs sealed to this user
+                               │   (signs PEK deliveries)    │
+                               │ wraps (own copy)            │
+                               PEK (one per shared project) ◄┘
                                │ encrypts
                                fields of the project's tasks, sections, comments, …
 
-recovery phrase (24 words, BIP-39) ── HKDF ──┬── recovery key: wraps a second copy of the DEK and private key
+recovery phrase (24 words, BIP-39) ── HKDF ──┬── recovery key: wraps the root key (recovery slot)
                                              └── recovery X25519 keypair: answers the recovery challenge
 ```
+
+Deprecated, still written for clients predating the root key: the DEK and the X25519 private key
+wrapped directly under the MEK (`users.encrypted_dek`, `users.encrypted_private_key`) and under
+the recovery key (`users.recovery_encrypted_dek`, `users.recovery_encrypted_private_key`). See
+[Account root key](#account-root-key).
 
 - The DEK is a random 256-bit key that encrypts personal data.
 - Each shared project has a random 256-bit project key (PEK).
 - Each account has an X25519 key (deliveries are sealed to it) and an Ed25519 signing key,
   created at signup and wrapped under the DEK, so password changes and recovery leave them
   alone. Accounts that predate the signing key get one on their first unlock.
-- A password change re-wraps the DEK and private key under the new MEK on the device. The DEK
-  itself does not change.
+- A password change re-wraps the root key (and the deprecated DEK and private key wraps) under the
+  new MEK on the device. Neither the root nor the DEK changes.
+
+### Account root key
+
+Atlas is becoming a suite of apps on one account. Each app gets its own key, and one account root
+key sits above them (`crates/atlas-server/src/auth/root_key.rs`,
+`packages/client-core/src/crypto/rootKey.ts` for the formats, `packages/client-core/src/rootKey.ts`
+for the flows; vectors in `test-vectors/root_key_vectors.json`).
+
+- **Slots.** An unlock slot is the root wrapped under that slot's 32-byte key with AES-256-GCM:
+  `{ "v": 1, "iv", "ct" }`, associated data `["atlas-root-key", 1, user_id, slot]`. The slots
+  today are `password` (under the MEK, `users.encrypted_root_key`) and `recovery` (under the
+  phrase's recovery key, `users.recovery_encrypted_root_key`). `users.root_key_created_at` says
+  whether the root exists; no slot does, so an account without a password slot is possible.
+- **App keys.** `account_app_keys(user_id, app, wrapped_key, wrapped_private_key)`: the app's key
+  under the root, associated data `["atlas-app-key", 1, user_id, app]`, and the app's X25519
+  identity under the app key (`["atlas-app-identity", 1, user_id, app, "x25519"]`). The account's
+  existing DEK is the `todo` key, unchanged, and its existing keypairs are the todo identity, so
+  no data was re-encrypted: field values, PEK copies under the DEK, the signing key and API token
+  wraps all keep working. `PUT /auth/app-keys/:app` adds a new app's key, once.
+- **Hard rule.** Nothing belonging to another app, and never the root, is wrapped under the old
+  DEK (the todo key): API tokens carry a copy of it. Every route that reads or writes the root or
+  an app key row (`/auth/root-key`, `/auth/root-key/recovery`, `/auth/app-keys/:app`, and the
+  credential routes) is `InteractiveAuthUser`, so a token session gets 403
+  `interactive_session_required`. A token session opens as before and never receives the root.
+- **Opening.** Sign-in, refresh and cancelling a deletion return `encrypted_root_key`, `app_keys`,
+  `has_root_key`, `has_recovery_root_key` and `recovery_public_key`. The client opens root, then
+  the todo key, then the todo identity, and falls back to the legacy MEK wraps when the account
+  has no root or the slot does not open.
+- **Signup.** The client picks the account id (`user_id`, a v4 UUID, since the wraps bind it),
+  generates the root, and sends the password slot, the recovery slot (under the phrase's recovery
+  key) and the todo key with the legacy wraps.
+- **Migration.** An account from before root keys migrates on its next password sign-in or
+  unlock, on the device: a new root, the DEK as the todo key under it, the root under the MEK, and
+  `POST /auth/root-key` with the current auth hash. The phrase is not at hand then, so the
+  recovery slot is the root **sealed** to the account's recovery public key (ephemeral X25519,
+  HKDF info `atlas-root-seal-v1`, associated data
+  `["atlas-root-key", 1, user_id, "recovery-sealed", recovery_public_key]`, wire form
+  `{ "v", "epk", "iv", "ct" }`). An account with no phrase-derived recovery key (version 1) gets
+  no recovery slot until it registers one; the next sign-in or unlock then seals one
+  (`PUT /auth/root-key/recovery`, also used after a phrase replaced by an old client). The server
+  sets the root once, in a transaction: a second device gets 409 `root_key_exists` and loads the
+  stored root (`GET /auth/root-key`). A failed migration leaves the legacy path working and is
+  retried at the next sign-in.
+- **Credential changes.** Password change and KDF upgrade send the root re-wrapped under the new
+  MEK; phrase replacement sends it wrapped under the new phrase. Each lands in the `UPDATE` that
+  swaps the credential, together with the legacy wraps.
+- **Recovery.** `GET /auth/recovery-keys` adds the account id, the recovery slot and the todo
+  key, with same-shaped dummies when absent (the slot is always padded with an `epk`, and the
+  client tries both forms). The client opens the slot with the phrase and keeps that root only if
+  it opens the todo key to the DEK the phrase recovered from the legacy recovery wrap: anyone can
+  seal to the recovery public key, so an unchecked sealed slot could hold a root the server chose.
+  It then re-wraps the root under the new MEK and writes the slot in the phrase-wrapped form. When
+  there is no usable slot (an account without a recovery key, or not migrated), the client sends
+  a new root and todo key instead (`app_keys`), which the server accepts only while the account
+  has no recovery slot.
+- **Older clients.** Clients predating root keys keep signing in on the legacy wraps, which every
+  write keeps current. Their password change, KDF upgrade or recovery carries no root slot, so the
+  stored one would no longer open: the server drops the root and its app keys
+  (`drop_for_legacy_write`), and the next current client re-creates them. If an app other than
+  `todo` holds a key, that would lose it, so the server refuses such a write with 409
+  `root_key_required` instead. Their phrase replacement empties the recovery slot. The legacy
+  wraps go once no supported client needs them; the recovery check above must then rely on the
+  phrase-wrapped form.
+- **Passkeys.** A passkey is one more slot, `passkey:<credential id>`, in a table of its own (see
+  [Passkeys](#passkeys)). A passkey-only account has no password slot; `root_key_created_at`
+  still marks the root.
+
+### Passkeys
+
+Passkeys sign in and unlock (`crates/atlas-server/src/auth/passkeys.rs` for the routes,
+`auth/webauthn.rs` for the relying party, `packages/client-core/src/crypto/passkey.ts` and
+`passkeys.ts` on the client; vectors in `test-vectors/passkey_vectors.json`). They are on when
+the server has `WEBAUTHN_RP_ID`, which adds the `passkeys` capability to discovery.
+
+- **PRF is required.** Every ceremony asks for the WebAuthn PRF extension with one fixed input,
+  SHA-256 of `atlas-passkey-prf-v1`: a discoverable sign-in cannot know which passkey will answer,
+  so it cannot name a per-credential input. Outputs still differ per passkey (the authenticator's
+  PRF secret is per credential). The slot key is HKDF-SHA256 over the 32-byte output, salt = the
+  raw credential id, info `atlas-passkey-slot-v1`; it wraps the root like any slot. A registration
+  whose `create()` returns no PRF output is followed by one `get()` of the new credential (some
+  authenticators only evaluate PRF on assertions); none at all is refused. The client strips the
+  output from every response, and the server refuses a response that carries `prf.results`. The
+  server stores the input per credential (`passkeys.prf_salt`) so a later scheme can differ.
+- **Storage.** `passkeys` holds the credential id (base64url), the credential as webauthn-rs
+  stores it (`Passkey`: public key, algorithm, counter, flags), copies of the signature counter, transports, backup flags, name, created and last-used times, and the
+  wrapped root. Challenges live in `webauthn_challenges` (purpose, account, the ceremony state webauthn-rs
+  verifies against, expiry), each spent by
+  the `DELETE … RETURNING` that answers it, within six minutes.
+- **Verification.** webauthn-rs (`auth/webauthn.rs` adapts it): `clientDataJSON` type, challenge
+  and exact origin (`WEBAUTHN_ORIGINS`, plus the Android app's `android:apk-key-hash:` origin), the
+  RP ID hash, user presence and user verification, the signature (ES256, RS256) and a counter
+  that must increase unless both sides are zero (synced passkeys keep none). Attestation is not
+  verified: options ask for `none`. webauthn-rs does not model PRF, so the extension is added to
+  the options JSON; registration options also ask for a discoverable credential, and a modal
+  discoverable sign-in drops the conditional mediation webauthn-rs sets. It links OpenSSL.
+- **Ceremonies.** `POST /auth/passkeys/signup/options` (unauthenticated, for the client-chosen
+  account id, which is the passkey's user handle) then `POST /auth/signup` with `passkey` and no
+  password: the account gets the passkey's slot and the recovery slot, no password slot, no
+  `password_hash` and no MEK-wrapped legacy keys. `POST /auth/passkeys/register/options` and
+  `POST /auth/passkeys` add one to a signed-in account, with the current password or a passkey
+  proof. `POST /auth/passkeys/login/options` (discoverable, or email-first with each credential
+  named; an unknown email gets a stand-in) and `POST /auth/passkeys/login` open a normal session
+  plus `passkey`: the credential and its wrapped root, from which the client opens the todo key and
+  identity.
+- **Re-authentication.** `POST /auth/passkeys/reauth/options` and `POST /auth/passkeys/reauth`
+  answer a single-use proof valid five minutes (only its SHA-256 is stored, in
+  `passkey_reauth_proofs`), and the passkey's slot, so a re-authentication also unlocks a locked
+  session. Every route that took `current_password` takes `reauth_token` instead: password change
+  (which is how a passkey-only account adds a password), recovery-key registration and
+  replacement, account deletion, the root-key routes, adding and removing passkeys and
+  `DELETE /auth/password`. API token creation never asked for the password and does not now.
+- **Lifecycle.** Passkeys can be renamed and removed; the last way in (the last passkey of an
+  account without a password, or the password of an account without passkeys) cannot be removed
+  (409 `last_unlock_method`). A password change keeps the passkeys (the root is unchanged). A
+  recovery, a scheduled deletion and a dropped root delete them. Recovery of a passkey-only
+  account sets a password; the user adds passkeys again afterwards. Cancelling a deletion takes
+  the password, so a passkey-only account recovers first.
+- **Platforms.** The web app uses `navigator.credentials`; Android uses Credential Manager through
+  the app's `modules/atlas-passkeys`, which passes WebAuthn JSON through unchanged and needs the
+  domain's Digital Asset Links (`/.well-known/assetlinks.json`, served from
+  `ANDROID_APP_PACKAGE` / `ANDROID_APP_CERT_SHA256`). The desktop app runs from `app://atlas-todo`,
+  an origin no relying party ID can match, so it offers no passkeys; iOS has no support yet. Every
+  route here except sign-up and sign-in is `InteractiveAuthUser`.
 
 ### Login and the password KDF
 
@@ -645,13 +972,14 @@ Downloads are decrypted chunk by chunk and the hash is checked again.
 ### Recovery
 
 `POST /auth/recover` requires answering a challenge sealed to the recovery keypair, which only
-the 24-word phrase can derive. The client then unwraps its keys with the recovery key and sets a
-new password.
+the 24-word phrase can derive. The client then unwraps its keys with the recovery key, recovers
+the root key (see [Account root key](#account-root-key)) and sets a new password. It deletes the account's passkeys; a passkey-only account comes out of recovery with a
+password.
 
 A signed-in user can replace the phrase from Settings. The client generates a new one, derives
-its recovery key and keypair as signup does, and sends the recovery public key with the DEK and
-private key wrapped under the new key to `POST /auth/recovery-key/replace`. That checks the
-current password and swaps all three in one `UPDATE`. Challenges are bound to the key they were
+its recovery key and keypair as signup does, and sends the recovery public key with the root,
+the DEK and the private key wrapped under the new key to `POST /auth/recovery-key/replace`. That
+checks the current password and swaps them in one `UPDATE`. Challenges are bound to the key they were
 sealed to, so the old phrase stops working at once.
 
 ### Key storage on the client
@@ -680,12 +1008,26 @@ The sealed format has two versions: version 1 is AES-GCM under the browser wrapp
 sealed by the browser wrap is sealed again with the OS key store when next saved, or right after
 loading (`session.web.ts`).
 
+### Sealed local stores
+
+The persistent op log holds what the store merged, values already decrypted. A client that
+locks, such as a password manager, must not leave them readable on disk while locked, so
+client-core offers `sealPersistence(inner, key)` (`packages/client-core/src/sealedPersistence.ts`):
+any backend (SQLite, IndexedDB, memory) with each `set` op's value, and each stored bootstrap
+repair's, kept as a v2 field envelope under `key` with the key id `local-v1` (never a wire key id,
+and bound to its entity, field and scope like a wire envelope). Op ids, entities, entity ids, field
+names, clocks and the cursor stay as they are: the metadata the server sees anyway. The key comes
+from `deriveLocalStoreKey(appKey, userId)` (HKDF-SHA256, info `atlas-local-store-v1`), so it is
+held only while the app key is, and a locked client cannot read its own store. A store that does
+not open under the key (another key, tampering, or written unsealed) fails to load with
+`SealedStoreError`; the client starts it over. Attachment queue rows are not sealed.
+
 ## What stays plaintext
 
-A field is encrypted unless it is listed in `test-vectors/plaintext_fields.json`. Those are the
-ids the server needs for routing and access checks (`project_id`, `task_id`, `assignee_id`,
-`actor_id`), the attachment blob hashes, and the already-encrypted attachment `wrapped_key` and
-`meta`. The client encrypts by this list, and the server only reads fields on it. See
+A field is encrypted unless its app manifest lists it in `plaintext_fields`
+(`manifests/todo.json`; `manifests/journal.json` lists none). Those are the ids the server needs for routing and access checks
+(`project_id`, `task_id`, `assignee_id`, `actor_id`), the attachment blob hashes, and the
+already-encrypted attachment `wrapped_key` and `meta`. The client encrypts by this list, and the server only reads fields on it. See
 [SECURITY.md](../SECURITY.md#fields-that-stay-plaintext-and-why) for the table.
 
 ## Server surfaces
@@ -701,5 +1043,7 @@ ids the server needs for routing and access checks (`project_id`, `task_id`, `as
 | `/reports`                                                                                         | anonymous bug and crash reports                                               |
 | `/admin/*`                                                                                         | users, signup invites, reports, instance settings, audit log                  |
 | `/health`                                                                                          | liveness                                                                      |
+| `/discovery`                                                                                       | public: server version, sync protocol, capabilities, offered apps             |
+| `/auth/apps`, `/auth/apps/:app`                                                                    | the account's apps: list, enable (interactive sessions only)                  |
 
 Every route is mounted both at `/` and under `/api`. Other paths serve the web app.

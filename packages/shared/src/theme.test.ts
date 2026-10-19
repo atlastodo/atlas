@@ -39,7 +39,7 @@ describe("accent presets", () => {
     const vars = accentVars("emerald");
     expect(vars["--accent-600"]).toBe(ACCENTS.emerald[600]);
     expect(vars["--accent-50"]).toBe(ACCENTS.emerald[50]);
-    expect(vars["--accent-600-rgb"]).toBe("5 150 105"); // #059669
+    expect(vars["--accent-600-rgb"]).toBe("4 120 87"); // #047857
     expect(vars["--accent-50-rgb"]).toBe("236 253 245"); // #ecfdf5
     expect(Object.keys(vars)).toHaveLength(20);
   });
@@ -63,5 +63,39 @@ describe("accent presets", () => {
     expect(isAccentName("chartreuse")).toBe(false);
     expect(isThemePref("system")).toBe(true);
     expect(isThemePref("solar")).toBe(false);
+  });
+});
+
+// WCAG 2 contrast ratio between two sRGB hex colours.
+function contrast(a: string, b: string): number {
+  const luminance = (hex: string) => {
+    const [r = 0, g = 0, b = 0] = hexToRgbTriad(hex)
+      .split(" ")
+      .map((c) => {
+        const s = Number(c) / 255;
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [la, lb] = [luminance(a), luminance(b)];
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+describe("accent contrast", () => {
+  it("measures known pairs", () => {
+    expect(contrast("#ffffff", "#000000")).toBeCloseTo(21, 5);
+    expect(contrast("#ffffff", "#ffffff")).toBeCloseTo(1, 5);
+  });
+
+  it("keeps white text on accent-600 and accent-700, and those shades as text on white, at 4.5:1", () => {
+    for (const name of ACCENT_NAMES) {
+      for (const shade of [600, 700] as const) {
+        expect({ name, shade, ratio: contrast(ACCENTS[name][shade], "#ffffff") >= 4.5 }).toEqual({
+          name,
+          shade,
+          ratio: true,
+        });
+      }
+    }
   });
 });

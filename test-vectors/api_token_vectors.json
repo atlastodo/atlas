@@ -1,0 +1,55 @@
+{
+  "vectors": [
+    {
+      "name": "fixed id and counting secret",
+      "id": "0b5f4b7e-2c1a-4d3e-9f60-7a8b9c0d1e2f",
+      "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "user_id": "01920000-0000-7000-8000-000000000001",
+      "token": "atlas_pat_C19LfiwaTT6fYHqLnA0eLwABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f",
+      "auth": "cf73c0df3fe44d70c503d1e1bddc3ad3bbdb1baf2ddc9263377d954512fa8a94",
+      "wrap_key": "a912280203c4daac60d9e7046bde87f463ce96aaa3cd1a64e6e1e8dacb0a947f",
+      "dek": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "private_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "wrapped_dek": {
+        "v": 1,
+        "iv": "jm7av11hfjRv2HXx",
+        "ct": "dGMmpK1Ws617ZNfkPYLYW8KlOv/ogaAStNfwnSBYTpPbkLSlmo/+42//lDrqOPXZ"
+      },
+      "wrapped_private_key": {
+        "v": 1,
+        "iv": "l2nPRSjQZoO56UnU",
+        "ct": "MIFrDSJAYkDsdJMpOMkj3Ver17WcnHifP5S6kC9tn1vCmzTl2riDGn/PyWXBcbNZ"
+      },
+      "app_keys": {
+        "journal": {
+          "app_key": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "app_private_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "wrapped_key": {
+            "v": 1,
+            "iv": "Ik58StGQ4pLCppDT",
+            "ct": "PEZttIofCrKjGnN0i2f6Y53/RpxDTpR0oFMcuRLIYYC2t0DGU/SVmnhsx2HWL+Zq"
+          },
+          "wrapped_private_key": {
+            "v": 1,
+            "iv": "dXrtP9iobV/5dQK7",
+            "ct": "YVQDhrVqw2A7XxrJ1DBI/qTTTVQ0FlPSaGNiMxAE5GyMh3JDOvj6Sl4JjdNi0xQY"
+          }
+        },
+        "vault": {
+          "app_key": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "app_private_key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "wrapped_key": {
+            "v": 1,
+            "iv": "wm+GsbI61xROnC8+",
+            "ct": "3wMTljSLoopA53SXjhbdhPFksiuOdMXNmj7HGqiU+ByMqb794Vb57+NVh0Br9FZv"
+          },
+          "wrapped_private_key": {
+            "v": 1,
+            "iv": "/QKoOwtHubDapdW1",
+            "ct": "UFyTM//C7trgffAR2i0JDdLwtRf6I/9l+eq6oixMefK3KtXZixSE6RF5Flrdzf7C"
+          }
+        }
+      }
+    }
+  ]
+}

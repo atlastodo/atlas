@@ -8,6 +8,7 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::{entity_from_str, PullResponse, SyncError, SyncResult};
+use crate::apps::{RequestedApps, SessionApps};
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -75,28 +76,42 @@ pub(super) async fn partition_head(conn: &mut PgConnection, user: Uuid) -> AppRe
 
 /// Fetch a user's ops after `since` (ordered, bounded), for `/sync/pull` and WS backfill.
 ///
+/// Only ops of the session's enabled apps ([`SessionApps`]) are read; the cursor still moves past
+/// the others. A page shorter than `limit` means caught up, and its cursor is the partition head
+/// read before the ops: every seq up to it is committed ([`SYNC_WRITE_LOCK`](super::SYNC_WRITE_LOCK)),
+/// so the filtered read saw all of them, and a client whose app has no new ops is not left behind
+/// another app's (a live message it cannot apply without a gap).
+///
 /// Answers [`SyncError::CursorExpired`] when retention purged ops above a non-zero `since`; the
 /// watermark is read after the ops so any purge that thinned the page is visible.
 pub(super) async fn ops_page(
     pool: &sqlx::PgPool,
+    apps: &SessionApps,
     user: Uuid,
     since: i64,
     limit: i64,
 ) -> SyncResult<PullResponse> {
     let limit = limit.clamp(1, MAX_PULL_LIMIT);
+    let head = partition_head(&mut *pool.acquire().await?, user).await?;
     let rows = sqlx::query_as::<_, OpRow>(
         "SELECT server_seq, op_id, entity, entity_id, field, value, is_delete,
                 hlc_wall_ms, hlc_counter, hlc_node
          FROM operations
-         WHERE user_id = $1 AND server_seq > $2
+         WHERE user_id = $1 AND server_seq > $2 AND server_seq <= $3 AND entity = ANY($4)
          ORDER BY server_seq
-         LIMIT $3",
+         LIMIT $5",
     )
     .bind(user)
     .bind(since)
+    .bind(head)
+    .bind(apps.kinds())
     .bind(limit)
     .fetch_all(pool)
     .await?;
+    let cursor = match rows.last() {
+        Some(last) if rows.len() as i64 >= limit => last.server_seq,
+        _ => head.max(since),
+    };
 
     if since > 0 {
         let watermark: Option<i64> =
@@ -109,7 +124,6 @@ pub(super) async fn ops_page(
         }
     }
 
-    let cursor = rows.last().map(|r| r.server_seq).unwrap_or(since);
     let operations = rows
         .into_iter()
         .map(OpRow::into_operation)
@@ -127,9 +141,11 @@ pub(super) const MAX_PULL_LIMIT: i64 = 1000;
 pub(super) async fn pull(
     State(state): State<AppState>,
     user: AuthUser,
+    requested: RequestedApps,
     Query(q): Query<PullQuery>,
 ) -> SyncResult<Json<PullResponse>> {
+    let apps = SessionApps::for_request(&state, &user, requested).await?;
     Ok(Json(
-        ops_page(&state.pool, user.user_id, q.since, q.limit).await?,
+        ops_page(&state.pool, &apps, user.user_id, q.since, q.limit).await?,
     ))
 }

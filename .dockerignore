@@ -1,41 +1,28 @@
 # Allowlist: ignore everything, then re-include exactly what docker/Dockerfile COPYs. Anything
-# new stays out of the build context by default -- keystores, .env files, the Android SDK state
-# in .android/, native build dirs, release tarballs, and the host target/, whose stale cargo
-# fingerprints once made the final build a no-op that shipped the dep-cache stub binary.
+# new stays out of the build context by default -- keystores, .env files, release tarballs, and
+# the host target/, whose stale cargo fingerprints once made the final build a no-op that shipped
+# the dep-cache stub binary.
 *
 
 # Root manifests
-!package.json
-!bun.lock
-!bunfig.toml
 !Cargo.toml
 !Cargo.lock
 
+# The licence, and the third-party notices CI generates (docker.yml); a local build has none
+!LICENSE
+!THIRD_PARTY_NOTICES.txt
+
+# The pinned web build the image serves
+!apps.lock.json
+
 # Sources the image is built from
-!apps/mobile
-!packages/client-core
-!packages/shared
 !crates
 !migrations
-!test-vectors
+!manifests
 
-# ...minus what never belongs in them: host installs and build output, native projects, signing
-# material, secrets, local state.
-**/node_modules
-**/dist
+# ...minus what never belongs in them: build output, secrets, local state.
 **/target
-**/coverage
-**/*.tsbuildinfo
 **/*.log
-apps/mobile/.expo
-apps/mobile/android
-apps/mobile/ios
-**/.android
-**/local.properties
-**/*.apk
-**/*.aab
-**/*.jks
-**/*.keystore
 **/.env
 **/.env.*
 **/.DS_Store

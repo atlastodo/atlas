@@ -3,8 +3,9 @@
 ## Decision
 
 Field values are encrypted, except a short list of routing fields the server must read, kept in
-`test-vectors/plaintext_fields.json`: chiefly an entity's `project_id` or `task_id`, a task's
-`assignee_id`, and an attachment's blob hash. The server test fails if it reads a field the list
+the `plaintext_fields` of `manifests/todo.json` (formerly `test-vectors/plaintext_fields.json`):
+chiefly an entity's `project_id` or `task_id`, a task's `assignee_id`, and an attachment's blob
+hash. The server test fails if it reads a field the list
 does not allow.
 
 ## Why

@@ -117,6 +117,189 @@ pub struct Config {
     /// Blob transfers in progress at once (`MAX_BLOB_TRANSFERS`, default
     /// [`DEFAULT_MAX_BLOB_TRANSFERS`]); one more answers `503`. Values below 1 are floored to 1.
     pub max_blob_transfers: usize,
+    /// The bundled apps this instance offers (`ATLAS_APPS`, comma-separated, default
+    /// [`DEFAULT_APPS`]), checked against the manifests compiled in (`atlas_core::manifest`:
+    /// `todo`, `journal`, `vault`). Sync refuses and hides the kinds of every other app.
+    pub apps: Vec<String>,
+    /// Passkey sign-in and unlock (`WEBAUTHN_RP_ID`, `WEBAUTHN_ORIGINS`, `WEBAUTHN_RP_NAME`);
+    /// `None`, the default, leaves every `/auth/passkeys` route off.
+    pub passkeys: Option<PasskeyConfig>,
+    /// The Android app `/.well-known/assetlinks.json` vouches for (`ANDROID_APP_PACKAGE`,
+    /// `ANDROID_APP_CERT_SHA256`), which Credential Manager needs before the app may use this
+    /// domain's passkeys. `None` serves no file.
+    pub android_asset_links: Option<AndroidAssetLinks>,
+}
+
+/// The WebAuthn relying party passkeys belong to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PasskeyConfig {
+    /// The RP ID: the domain passkeys are bound to (`WEBAUTHN_RP_ID`, e.g. `todo.example.com`).
+    /// Every web origin must be this domain or a subdomain of it.
+    pub rp_id: String,
+    /// Shown by the authenticator next to the passkey (`WEBAUTHN_RP_NAME`, default `Atlas Todo`).
+    pub rp_name: String,
+    /// Exact origins a ceremony may come from (`WEBAUTHN_ORIGINS`, comma-separated, default
+    /// `https://<rp id>`), plus `android:apk-key-hash:` origins of [`AndroidAssetLinks`].
+    pub origins: Vec<String>,
+}
+
+/// The Android app allowed to use this domain's passkeys.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AndroidAssetLinks {
+    pub package: String,
+    /// Signing certificate SHA-256 fingerprints, `AA:BB:…` uppercase.
+    pub cert_fingerprints: Vec<String>,
+}
+
+impl AndroidAssetLinks {
+    /// The WebAuthn origins Android reports for the app: `android:apk-key-hash:` and the
+    /// unpadded base64url of each certificate's SHA-256.
+    pub fn origins(&self) -> Vec<String> {
+        use base64::Engine;
+        self.cert_fingerprints
+            .iter()
+            .filter_map(|fp| hex::decode(fp.replace(':', "")).ok())
+            .map(|bytes| {
+                format!(
+                    "android:apk-key-hash:{}",
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+                )
+            })
+            .collect()
+    }
+}
+
+/// Parse the passkey settings. Unset `WEBAUTHN_RP_ID` turns passkeys off (and the other two are
+/// then ignored). The RP ID is a bare lowercase domain; each origin is `https://host[:port]`
+/// whose host is the RP ID or under it, `http://localhost[:port]` for development, or an
+/// `android:apk-key-hash:` origin. A typo fails startup instead of every ceremony.
+pub fn parse_passkeys(
+    rp_id: Option<String>,
+    origins: Option<String>,
+    rp_name: Option<String>,
+    android: Option<&AndroidAssetLinks>,
+) -> Result<Option<PasskeyConfig>, String> {
+    let Some(rp_id) = rp_id else {
+        return Ok(None);
+    };
+    let rp_id = rp_id.trim().to_ascii_lowercase();
+    let domain_ok = !rp_id.is_empty()
+        && rp_id.len() <= 253
+        && rp_id
+            .split('.')
+            .all(|l| !l.is_empty() && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'));
+    if !domain_ok {
+        return Err(format!(
+            "WEBAUTHN_RP_ID must be a bare domain such as todo.example.com (got {rp_id:?})"
+        ));
+    }
+    let raw = origins.unwrap_or_else(|| format!("https://{rp_id}"));
+    let mut list: Vec<String> = Vec::new();
+    for origin in raw.split(',') {
+        let origin = origin.trim().trim_end_matches('/').to_owned();
+        if origin.is_empty() || list.contains(&origin) {
+            continue;
+        }
+        if !origin_allowed(&origin, &rp_id) {
+            return Err(format!(
+                "WEBAUTHN_ORIGINS: {origin:?} is not https://{rp_id} (or a subdomain), \
+                 http://localhost or an android:apk-key-hash: origin"
+            ));
+        }
+        list.push(origin);
+    }
+    for origin in android.map(AndroidAssetLinks::origins).unwrap_or_default() {
+        if !list.contains(&origin) {
+            list.push(origin);
+        }
+    }
+    if list.is_empty() {
+        return Err("WEBAUTHN_ORIGINS must name at least one origin".into());
+    }
+    Ok(Some(PasskeyConfig {
+        rp_id,
+        rp_name: rp_name
+            .map(|n| n.trim().to_owned())
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "Atlas Todo".into()),
+        origins: list,
+    }))
+}
+
+fn origin_allowed(origin: &str, rp_id: &str) -> bool {
+    if let Some(hash) = origin.strip_prefix("android:apk-key-hash:") {
+        return !hash.is_empty()
+            && hash
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    }
+    let (scheme, rest) = match origin.split_once("://") {
+        Some(parts) => parts,
+        None => return false,
+    };
+    let host = match rest.rsplit_once(':') {
+        Some((host, port)) if port.parse::<u16>().is_ok() => host,
+        Some(_) => return false,
+        None => rest,
+    };
+    if host.contains('/') {
+        return false;
+    }
+    match scheme {
+        "https" => host == rp_id || host.ends_with(&format!(".{rp_id}")),
+        "http" => host == "localhost" && rp_id == "localhost",
+        _ => false,
+    }
+}
+
+/// Parse `ANDROID_APP_PACKAGE` and `ANDROID_APP_CERT_SHA256` (comma-separated SHA-256
+/// fingerprints, with or without colons). Both or neither.
+pub fn parse_asset_links(
+    package: Option<String>,
+    fingerprints: Option<String>,
+) -> Result<Option<AndroidAssetLinks>, String> {
+    let (package, fingerprints) = match (package, fingerprints) {
+        (None, None) => return Ok(None),
+        (Some(p), Some(f)) => (p.trim().to_owned(), f),
+        _ => {
+            return Err(
+                "ANDROID_APP_PACKAGE and ANDROID_APP_CERT_SHA256 must be set together".into(),
+            )
+        }
+    };
+    let package_ok = package.split('.').count() >= 2
+        && package.split('.').all(|seg| {
+            seg.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
+                && seg.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        });
+    if !package_ok {
+        return Err(format!(
+            "ANDROID_APP_PACKAGE must be an Android package name (got {package:?})"
+        ));
+    }
+    let mut cert_fingerprints = Vec::new();
+    for fp in fingerprints.split(',') {
+        let hex_only: String = fp.trim().chars().filter(|c| *c != ':').collect();
+        if hex_only.is_empty() {
+            continue;
+        }
+        if hex_only.len() != 64 || hex::decode(&hex_only).is_err() {
+            return Err(format!(
+                "ANDROID_APP_CERT_SHA256 entries must be SHA-256 fingerprints (got {:?})",
+                fp.trim()
+            ));
+        }
+        let upper = hex_only.to_ascii_uppercase();
+        let colons: Vec<&str> = (0..32).map(|i| &upper[i * 2..i * 2 + 2]).collect();
+        cert_fingerprints.push(colons.join(":"));
+    }
+    if cert_fingerprints.is_empty() {
+        return Err("ANDROID_APP_CERT_SHA256 must name at least one fingerprint".into());
+    }
+    Ok(Some(AndroidAssetLinks {
+        package,
+        cert_fingerprints,
+    }))
 }
 
 // Manual `Debug` that never prints the JWT secret or the database URL (it carries the password).
@@ -143,6 +326,9 @@ impl fmt::Debug for Config {
             .field("blob_quota_bytes", &self.blob_quota_bytes)
             .field("blob_gc_grace_days", &self.blob_gc_grace_days)
             .field("max_blob_transfers", &self.max_blob_transfers)
+            .field("apps", &self.apps)
+            .field("passkeys", &self.passkeys)
+            .field("android_asset_links", &self.android_asset_links)
             .finish()
     }
 }
@@ -202,7 +388,20 @@ impl Config {
             blob_gc_grace_days: env_number("BLOB_GC_GRACE_DAYS", 30)?,
             max_blob_transfers: env_number("MAX_BLOB_TRANSFERS", DEFAULT_MAX_BLOB_TRANSFERS)?
                 .max(1),
+            apps: parse_apps(env_value("ATLAS_APPS").as_deref())?,
+            passkeys: None,
+            android_asset_links: parse_asset_links(
+                env_value("ANDROID_APP_PACKAGE"),
+                env_value("ANDROID_APP_CERT_SHA256"),
+            )?,
         };
+        let mut cfg = cfg;
+        cfg.passkeys = parse_passkeys(
+            env_value("WEBAUTHN_RP_ID"),
+            env_value("WEBAUTHN_ORIGINS"),
+            env_value("WEBAUTHN_RP_NAME"),
+            cfg.android_asset_links.as_ref(),
+        )?;
         // Only fires when a caller hands us an enabled config with no root at all.
         if cfg.attachments_enabled && cfg.blob_dir.is_none() {
             return Err("BLOB_DIR is required when ATTACHMENTS_ENABLED is set".into());
@@ -211,6 +410,35 @@ impl Config {
         crate::attachments::BlobStore::from_config(&cfg)?;
         Ok(cfg)
     }
+}
+
+/// The apps an instance offers when `ATLAS_APPS` is unset.
+pub const DEFAULT_APPS: &str = "todo";
+
+/// Parse `ATLAS_APPS` (comma-separated app ids; unset or empty is [`DEFAULT_APPS`]): trimmed,
+/// lowercased, deduplicated, and each one a manifest bundled in this build. An id the build does
+/// not bundle is a startup error, so a typo cannot silently turn an app off.
+pub fn parse_apps(raw: Option<&str>) -> Result<Vec<String>, String> {
+    let registry = atlas_core::Registry::bundled();
+    let mut apps: Vec<String> = Vec::new();
+    for id in raw.unwrap_or(DEFAULT_APPS).split(',') {
+        let id = id.trim().to_ascii_lowercase();
+        if id.is_empty() || apps.contains(&id) {
+            continue;
+        }
+        if registry.app(&id).is_none() {
+            let known: Vec<&str> = registry.apps().iter().map(|a| a.app.as_str()).collect();
+            return Err(format!(
+                "ATLAS_APPS names {id:?}, which this server does not bundle (it bundles: {})",
+                known.join(", ")
+            ));
+        }
+        apps.push(id);
+    }
+    if apps.is_empty() {
+        return Err("ATLAS_APPS must name at least one app".into());
+    }
+    Ok(apps)
 }
 
 /// Parse `ADMIN_EMAILS` (comma-separated) into trimmed, lowercased addresses with empties
@@ -322,6 +550,9 @@ mod tests {
             blob_quota_bytes: 1024 * 1024 * 1024,
             blob_gc_grace_days: 7,
             max_blob_transfers: 16,
+            apps: vec!["todo".into()],
+            passkeys: None,
+            android_asset_links: None,
         };
         let rendered = format!("{cfg:?}");
         assert!(!rendered.contains("hunter2"), "db password must not print");
@@ -414,6 +645,102 @@ mod tests {
             let err = parse_bind_addr(bad).unwrap_err();
             assert!(err.contains("BIND_ADDR"), "{err}");
         }
+    }
+
+    #[test]
+    fn apps_default_to_todo_and_must_be_bundled() {
+        assert_eq!(parse_apps(None), Ok(vec!["todo".to_string()]));
+        assert_eq!(parse_apps(Some(" TODO , todo,")), Ok(vec!["todo".into()]));
+        let err = parse_apps(Some("todo,notes")).unwrap_err();
+        assert!(err.contains("ATLAS_APPS") && err.contains("notes"), "{err}");
+        assert!(err.contains("bundles: todo"), "{err}");
+        assert!(parse_apps(Some(" , "))
+            .unwrap_err()
+            .contains("at least one"));
+    }
+
+    #[test]
+    fn passkeys_are_off_without_an_rp_id_and_origins_default_to_it() {
+        let s = |v: &str| Some(v.to_owned());
+        assert_eq!(
+            parse_passkeys(None, s("https://x.example"), None, None),
+            Ok(None)
+        );
+        let cfg = parse_passkeys(s(" Todo.Example.com "), None, None, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(cfg.rp_id, "todo.example.com");
+        assert_eq!(cfg.rp_name, "Atlas Todo");
+        assert_eq!(cfg.origins, vec!["https://todo.example.com"]);
+    }
+
+    #[test]
+    fn passkey_origins_must_belong_to_the_rp_id() {
+        let s = |v: &str| Some(v.to_owned());
+        let cfg = parse_passkeys(
+            s("example.com"),
+            s("https://example.com/, https://app.example.com:8443,android:apk-key-hash:AbC-_1"),
+            s("My Atlas"),
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            cfg.origins,
+            vec![
+                "https://example.com",
+                "https://app.example.com:8443",
+                "android:apk-key-hash:AbC-_1"
+            ]
+        );
+        assert_eq!(cfg.rp_name, "My Atlas");
+        for bad in [
+            "https://evil.com",
+            "http://example.com",
+            "https://notexample.com",
+            "https://example.com/path",
+            "ftp://example.com",
+            "android:apk-key-hash:",
+        ] {
+            let err = parse_passkeys(s("example.com"), s(bad), None, None).unwrap_err();
+            assert!(err.contains("WEBAUTHN_ORIGINS"), "{bad}: {err}");
+        }
+        assert!(parse_passkeys(s("https://example.com"), None, None, None)
+            .unwrap_err()
+            .contains("WEBAUTHN_RP_ID"));
+        // Local development: RP ID localhost over plain http.
+        let local = parse_passkeys(s("localhost"), s("http://localhost:8081"), None, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(local.origins, vec!["http://localhost:8081"]);
+    }
+
+    #[test]
+    fn asset_links_need_both_settings_and_add_android_origins() {
+        let s = |v: &str| Some(v.to_owned());
+        assert_eq!(parse_asset_links(None, None), Ok(None));
+        assert!(parse_asset_links(s("dev.example.app"), None).is_err());
+        assert!(parse_asset_links(s("not a package"), s(&"ab".repeat(32))).is_err());
+        assert!(parse_asset_links(s("dev.example.app"), s("AB:CD")).is_err());
+        let fp = "fa:c6:17:45:dc:09:03:78:6f:b9:ed:e6:2a:96:2b:39:9f:73:48:f0:bb:6f:89:9b:83:32:66:75:91:03:3b:9c";
+        let links = parse_asset_links(s("dev.example.app"), s(fp))
+            .unwrap()
+            .unwrap();
+        assert_eq!(links.cert_fingerprints, vec![fp.to_ascii_uppercase()]);
+        // The same fingerprint without colons, as `keytool` prints neither way consistently.
+        let bare = parse_asset_links(s("dev.example.app"), s(&fp.replace(':', "")))
+            .unwrap()
+            .unwrap();
+        assert_eq!(bare, links);
+        assert_eq!(
+            links.origins(),
+            vec!["android:apk-key-hash:-sYXRdwJA3hvue3mKpYrOZ9zSPC7b4mbgzJmdZEDO5w"]
+        );
+        let cfg = parse_passkeys(s("example.com"), None, None, Some(&links))
+            .unwrap()
+            .unwrap();
+        assert_eq!(cfg.origins.len(), 2);
+        assert!(cfg.origins[1].starts_with("android:apk-key-hash:"));
     }
 
     #[test]

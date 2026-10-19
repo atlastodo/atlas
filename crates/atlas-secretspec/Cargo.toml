@@ -1,0 +1,29 @@
+[package]
+name = "atlas-secretspec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "secretspec-provider-atlas: a SecretSpec provider that resolves secrets from Atlas Vault."
+
+[[bin]]
+name = "secretspec-provider-atlas"
+path = "src/main.rs"
+
+[dependencies]
+atlas-client = { path = "../atlas-client" }
+serde_json = { workspace = true }
+# The Secret Provider Protocol (version 1, SecretSpec 0.21+): framing, JSON-RPC and the typed
+# provider handler, by the SecretSpec authors. Apache-2.0.
+secretspec-ipc = "0.21"
+async-trait = "0.1"
+tokio = { version = "1", features = ["rt", "macros", "io-std", "sync"] }
+
+[dev-dependencies]
+atlas-server = { path = "../atlas-server" }
+axum = "0.8"
+tokio = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }
+hex = "0.4"

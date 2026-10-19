@@ -1,4 +1,4 @@
-import type { MemberRole } from "@atlas/client-core";
+import type { MemberRole } from "@atlastodo/client-core";
 
 /**
  * A shared-project member as stored locally. The server authors `project_member` entities into each

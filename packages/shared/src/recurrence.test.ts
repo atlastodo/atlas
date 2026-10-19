@@ -453,3 +453,20 @@ describe("advanceSeries across a DST gap", () => {
     expect(formatRule("FREQ=DAILY;BYHOUR=2;BYMINUTE=30")).toBe(formatRule("FREQ=DAILY"));
   });
 });
+
+describe("parseRule on hostile input", () => {
+  // A synced rule comes from any member of a shared project; a whitespace run in the middle made
+  // the old trim backtrack quadratically.
+  it("reads a long whitespace run in linear time", () => {
+    const rule = `FREQ=DAILY;${" \t".repeat(50_000)}x;INTERVAL=2`;
+    const start = performance.now();
+    parseRule(rule);
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+
+  it("still trims ASCII whitespace around keys and values", () => {
+    expect(parseRule(" \tFREQ = WEEKLY ;\n INTERVAL = 2 \r")).toEqual(
+      parseRule("FREQ=WEEKLY;INTERVAL=2"),
+    );
+  });
+});

@@ -1,33 +1,65 @@
 {
-  "name": "@atlas/client-core",
-  "version": "0.1.10",
-  "private": true,
+  "name": "@atlastodo/client-core",
+  "version": "0.1.11",
+  "description": "Atlas core client: hybrid logical clocks, the op log and per-field LWW merge, end-to-end encryption, the local store and the sync client",
   "license": "AGPL-3.0-only",
+  "homepage": "https://github.com/atlastodo/atlas/tree/main/packages/client-core",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/atlastodo/atlas-todo.git",
+    "url": "git+https://github.com/atlastodo/atlas.git",
     "directory": "packages/client-core"
   },
+  "bugs": {
+    "url": "https://github.com/atlastodo/atlas/issues"
+  },
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "@atlastodo/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./test-vectors/*": "./test-vectors/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "test-vectors"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "atlas": {
+    "testVectors": [
+      "api_token_vectors.json",
+      "conflict_vectors.json",
+      "envelope_vectors.json",
+      "field_policy_vectors.json",
+      "identity_vectors.json",
+      "passkey_vectors.json",
+      "password_kdf_vectors.json",
+      "recovery_challenge_vectors.json",
+      "recovery_key_vectors.json",
+      "root_key_vectors.json"
+    ]
   },
   "scripts": {
+    "build": "bun ../../scripts/build-core-package.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
-  },
-  "devDependencies": {
-    "@types/node": "^26.6.4",
-    "fake-indexeddb": "^6.0.0",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.3"
   },
   "dependencies": {
     "@noble/ciphers": "^2.4.0",
     "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.4.0",
     "@scure/bip39": "^2.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "fake-indexeddb": "^6.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
   }
 }

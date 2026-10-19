@@ -1,6 +1,6 @@
-# Dependabot updates bun.lock but not nix/bun.nix, the flake's npm dependency set generated from it
-# (`nix:bun-lock`; `lint` fails while it is stale, and the flake's web-dist and atlas-desktop builds
-# need it). This regenerates it on Dependabot's PRs and pushes the result to the PR branch.
+# Dependabot updates bun.lock but not nix/bun.nix, the npm dependency set bun2nix generates from it
+# (`nix:bun-lock`; `lint` fails while it is stale). This regenerates it on Dependabot's PRs and pushes
+# the result to the PR branch.
 #
 # `pull_request_target`, because a Dependabot-triggered `pull_request` run gets a read-only token.
 # It runs only for Dependabot's own branches in this repository, and runs nothing from the PR but

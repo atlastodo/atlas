@@ -1,0 +1,16 @@
+{
+  // Declarations for the package tarball (scripts/build-core-package.mjs); Bun bundles the JS.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    // Siblings as consumers see them: their built declarations (build client-core first).
+    "customConditions": [],
+    "types": []
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.testutil.ts"]
+}

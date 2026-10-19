@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { taskContextClosure, taskListSections, type TaskListTreeOptions } from "./taskListTree";
 
 // A fixed "now" so the date buckets are deterministic: 2023-11-14T22:13:20Z.

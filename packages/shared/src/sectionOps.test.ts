@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LocalStore } from "@atlas/client-core";
+import { LocalStore } from "@atlastodo/client-core";
 import { createTask, allTasks, visibleTasks } from "./taskOps";
 import { moveSectionToProject, setSectionArchived, visibleSections } from "./sectionOps";
 

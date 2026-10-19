@@ -35,7 +35,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: ${ATLAS_IMAGE:-ghcr.io/atlastodo/atlas-todo:latest}
+    image: ${ATLAS_IMAGE:-ghcr.io/atlastodo/atlas:latest}
     restart: unless-stopped
     # tini as PID 1: forwards SIGTERM to the server (which shuts down gracefully) and reaps zombies.
     init: true

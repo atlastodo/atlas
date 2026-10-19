@@ -1,4 +1,0 @@
-[test]
-# The React Native app has a separate jest-expo harness; Bun's runner cannot
-# provide its DOM and Expo globals.
-pathIgnorePatterns = ["apps/mobile/**"]

@@ -1,6 +1,6 @@
 /**
- * `@atlas/shared`: portable, framework-free logic shared across clients. Pure logic only: no DOM,
- * React or React Native; platform APIs belong in the owning app. May depend on `@atlas/client-core`,
+ * `@atlastodo/shared`: portable, framework-free logic shared across clients. Pure logic only: no DOM,
+ * React or React Native; platform APIs belong in the owning app. May depend on `@atlastodo/client-core`,
  * not the reverse. A pure rule goes here, something tied to sync/wire types goes in `client-core`,
  * platform I/O goes in the app.
  */
@@ -56,6 +56,8 @@ export * from "./stats";
 export * from "./pomodoro";
 export * from "./focus";
 export * from "./countdown";
+
+export * from "./vault";
 
 export * from "./swipe";
 export * from "./hotkeys";

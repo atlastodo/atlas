@@ -18,6 +18,9 @@ export type AccentName = "indigo" | "blue" | "violet" | "emerald" | "amber" | "r
 
 export type AccentScale = Record<50 | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 900 | 950, string>;
 
+// Tailwind palettes, except that emerald and amber 600 and 700 are one Tailwind step darker
+// (their stock 700 and 800): white text sits on accent-600 buttons and needs 4.5:1 (WCAG AA), which
+// their stock 600s miss.
 export const ACCENTS: Record<AccentName, AccentScale> = {
   indigo: {
     50: "#eef2ff",
@@ -62,8 +65,8 @@ export const ACCENTS: Record<AccentName, AccentScale> = {
     300: "#6ee7b7",
     400: "#34d399",
     500: "#10b981",
-    600: "#059669",
-    700: "#047857",
+    600: "#047857",
+    700: "#065f46",
     900: "#064e3b",
     950: "#022c22",
   },
@@ -74,8 +77,8 @@ export const ACCENTS: Record<AccentName, AccentScale> = {
     300: "#fcd34d",
     400: "#fbbf24",
     500: "#f59e0b",
-    600: "#d97706",
-    700: "#b45309",
+    600: "#b45309",
+    700: "#92400e",
     900: "#78350f",
     950: "#451a03",
   },

@@ -1,4 +1,4 @@
-import type { LocalStore } from "@atlas/client-core";
+import type { LocalStore } from "@atlastodo/client-core";
 
 /**
  * Activity-feed entries: an `activity` entity recording a key task change (status, due date,

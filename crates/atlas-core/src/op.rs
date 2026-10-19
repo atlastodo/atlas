@@ -38,6 +38,79 @@ pub enum EntityKind {
     /// Link fields (`task_id`, `blob_sha`, `thumb_sha`) are plaintext and must not join the
     /// client's SENSITIVE_FIELDS; the encrypted `meta` payload uses its own `__aenc:1` marker.
     Attachment,
+    /// An Atlas Journal entry (`manifests/journal.json`). Personal: never fanned out to another
+    /// account, and the server reads none of its fields.
+    #[serde(rename = "journal.entry")]
+    JournalEntry,
+    /// An Atlas Journal setting. Personal, like [`EntityKind::JournalEntry`].
+    #[serde(rename = "journal.preference")]
+    JournalPreference,
+    /// An Atlas Vault item (`manifests/vault.json`): a login, note, card, identity, SSH key or API
+    /// key. Personal: never fanned out to another account, and the server reads none of its
+    /// fields, not even its type or folder.
+    #[serde(rename = "vault.item")]
+    VaultItem,
+    /// An Atlas Vault folder. Personal, like [`EntityKind::VaultItem`].
+    #[serde(rename = "vault.folder")]
+    VaultFolder,
+    /// An Atlas Vault setting. Personal, like [`EntityKind::VaultItem`].
+    #[serde(rename = "vault.preference")]
+    VaultPreference,
+}
+
+impl EntityKind {
+    /// Every kind, in declaration order.
+    pub const ALL: [EntityKind; 19] = [
+        EntityKind::Task,
+        EntityKind::Project,
+        EntityKind::Section,
+        EntityKind::Label,
+        EntityKind::Comment,
+        EntityKind::Preference,
+        EntityKind::SavedFilter,
+        EntityKind::Reminder,
+        EntityKind::ProjectMember,
+        EntityKind::Activity,
+        EntityKind::FocusSession,
+        EntityKind::Habit,
+        EntityKind::HabitCheckin,
+        EntityKind::Attachment,
+        EntityKind::JournalEntry,
+        EntityKind::JournalPreference,
+        EntityKind::VaultItem,
+        EntityKind::VaultFolder,
+        EntityKind::VaultPreference,
+    ];
+
+    /// The kind's wire name (its serde form), as the manifests and the op store key it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EntityKind::Task => "task",
+            EntityKind::Project => "project",
+            EntityKind::Section => "section",
+            EntityKind::Label => "label",
+            EntityKind::Comment => "comment",
+            EntityKind::Preference => "preference",
+            EntityKind::SavedFilter => "saved_filter",
+            EntityKind::Reminder => "reminder",
+            EntityKind::ProjectMember => "project_member",
+            EntityKind::Activity => "activity",
+            EntityKind::FocusSession => "focus_session",
+            EntityKind::Habit => "habit",
+            EntityKind::HabitCheckin => "habit_checkin",
+            EntityKind::Attachment => "attachment",
+            EntityKind::JournalEntry => "journal.entry",
+            EntityKind::JournalPreference => "journal.preference",
+            EntityKind::VaultItem => "vault.item",
+            EntityKind::VaultFolder => "vault.folder",
+            EntityKind::VaultPreference => "vault.preference",
+        }
+    }
+
+    /// The kind with this wire name.
+    pub fn from_wire(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.as_str() == name)
+    }
 }
 
 /// A single change to one field of one entity, or a delete (tombstone).
@@ -252,6 +325,25 @@ mod tests {
         let decoded: Operation = serde_json::from_value(v).unwrap();
         assert_eq!(op, decoded);
         assert_eq!(decoded.entity, EntityKind::HabitCheckin);
+    }
+
+    #[test]
+    fn wire_names_match_serde() {
+        for kind in EntityKind::ALL {
+            assert_eq!(serde_json::to_value(kind).unwrap(), kind.as_str());
+            assert_eq!(EntityKind::from_wire(kind.as_str()), Some(kind));
+        }
+        assert_eq!(EntityKind::from_wire("notes.note"), None);
+        assert_eq!(
+            EntityKind::from_wire("journal.entry"),
+            Some(EntityKind::JournalEntry)
+        );
+        assert_eq!(EntityKind::from_wire("entry"), None);
+        assert_eq!(
+            EntityKind::from_wire("vault.item"),
+            Some(EntityKind::VaultItem)
+        );
+        assert_eq!(EntityKind::from_wire("item"), None);
     }
 
     #[test]

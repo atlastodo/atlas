@@ -8,14 +8,14 @@ when the commit reaches `main` with the next stable release. -->
 
 ## How it was tested
 
-<!-- Commands you ran and what you checked by hand (platforms, screenshots for UI changes). -->
+<!-- Commands you ran and what you checked by hand. -->
 
 ## Checklist
 
 - [ ] The PR targets `dev`.
-- [ ] The PR title follows Conventional Commits (`feat:`, `fix(mobile):`, …).
+- [ ] The PR title follows Conventional Commits (`feat:`, `fix(server):`, …).
 - [ ] A commit that fixes an issue says `Fixes #N` in its message body.
 - [ ] `lint` and `test:all` pass in `devenv shell` (or the matching per-package commands).
 - [ ] New behaviour is covered by tests, or I explained above why not.
 - [ ] No version was hand-edited (releases use `version:bump`).
-- [ ] No secrets, keystores or personal data are included.
+- [ ] No secrets or personal data are included.

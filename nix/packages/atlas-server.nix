@@ -3,6 +3,8 @@
   lib,
   rustPlatform,
   version,
+  openssl,
+  pkg-config,
 }:
 
 let
@@ -13,7 +15,8 @@ rustPlatform.buildRustPackage {
   inherit version;
 
   # Only what cargo needs: the workspace manifests and lockfile, crates/,
-  # migrations/ (embedded at compile time by `sqlx::migrate!`) and the
+  # migrations/ (embedded at compile time by `sqlx::migrate!`), manifests/ (the
+  # bundled app manifests, compiled in by atlas-core) and the
   # test-vectors/ fixtures that the server tests read.
   src = lib.fileset.toSource {
     inherit root;
@@ -22,12 +25,16 @@ rustPlatform.buildRustPackage {
       (root + "/Cargo.lock")
       (root + "/crates")
       (root + "/migrations")
+      (root + "/manifests")
       (root + "/test-vectors")
     ];
   };
 
   # Vendored from Cargo.lock (no git dependencies, so no outputHashes).
   cargoLock.lockFile = root + "/Cargo.lock";
+  # webauthn-rs (passkey verification) links OpenSSL.
+  nativeBuildInputs = [ pkg-config ];
+  buildInputs = [ openssl ];
   cargoBuildFlags = [
     "-p"
     "atlas-server"
@@ -41,7 +48,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Atlas Todo backend: Axum HTTP + WebSocket API over PostgreSQL";
-    homepage = "https://github.com/atlastodo/atlas-todo";
+    homepage = "https://github.com/atlastodo/atlas";
     license = lib.licenses.agpl3Only;
     platforms = lib.platforms.linux;
     mainProgram = "atlas-server";

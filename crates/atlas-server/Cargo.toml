@@ -43,8 +43,17 @@ x25519-dalek = { version = "3", features = ["static_secrets"] }
 base64 = "0.23"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 object_store = { version = "0.14.2", default-features = false, features = ["aws"] }
+webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation", "conditional-ui"] }
+url = "2"
+p256 = { version = "0.13", features = ["ecdsa"], optional = true }
+ciborium = { version = "0.2", optional = true }
+
+[features]
+# Exposes `auth::webauthn::soft`, a software authenticator, to the integration tests.
+test-authenticator = ["dep:p256", "dep:ciborium"]
 
 [dev-dependencies]
+atlas-server = { path = ".", features = ["test-authenticator"] }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 tokio-tungstenite = "0.30"

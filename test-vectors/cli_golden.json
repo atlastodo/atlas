@@ -1,0 +1,2039 @@
+{
+  "_doc": "Golden runs of the `atlas` CLI (crates/atlas-cli/tests/golden.rs). They were recorded from the TypeScript CLI (packages/cli, retired once the Rust CLI reproduced every run byte for byte), so they pin the output contract integrations rely on; the journal and vault scenarios were recorded from the Rust CLI. Each scenario runs its steps against a fresh fake server (for a token for its `token_apps`, todo when absent, on a current server offering `server_apps`, todo and journal when absent; `token_write: false` makes the token read-only and `token_expires_at` is its expiry) with the clock fixed at `now` and ATLAS_TZ `tz`. A `seed` step writes an entity's fields from another device of the account and names it `ref`; a `revoke` step revokes the token; an `expire` step makes it expire. A run step passes `argv` ({name} is a ref or a value captured earlier: `capture` maps a name to a field of the step's JSON output) optional `env` overrides and `stdin` (what `--json -` reads), and expects `exit`, `stdout` (the text printed, \"<usage>\" for the help text) and `stderr` (the lines printed). In outputs every UUID is replaced by <id:N>, numbered by first appearance in the scenario. A deliberate change to the output is recorded with GOLDEN_UPDATE=1 cargo nextest run -p atlas-cli golden.",
+  "now": 1791972000000,
+  "scenarios": [
+    {
+      "name": "tasks from add to trash",
+      "tz": "Europe/Copenhagen",
+      "steps": [
+        {
+          "seed": {
+            "entity": "project",
+            "ref": "home",
+            "fields": {
+              "name": "Home",
+              "color": "",
+              "icon": "",
+              "kind": "project",
+              "parent_id": null,
+              "sort_order": 0
+            }
+          }
+        },
+        {
+          "seed": {
+            "entity": "label",
+            "ref": "errand",
+            "fields": {
+              "name": "errand",
+              "color": "red"
+            }
+          }
+        },
+        {
+          "argv": [
+            "changes"
+          ],
+          "capture": {
+            "start": "cursor"
+          },
+          "exit": 0,
+          "stdout": "{\n  \"cursor\": 8\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "Renew passport",
+            "--due",
+            "2026-11-02",
+            "--priority",
+            "2",
+            "--project",
+            "Home",
+            "--label",
+            "errand"
+          ],
+          "capture": {
+            "t1": "id"
+          },
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"project_id\": \"<id:2>\",\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"Renew passport\",\n  \"notes\": \"\",\n  \"priority\": 2,\n  \"start_at\": null,\n  \"due_at\": 1793660340000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": null,\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": \"Home\",\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--json",
+            "{\"title\":\"From n8n\",\"notes\":\"mail body\",\"due\":\"2026-11-02T09:00\"}"
+          ],
+          "capture": {
+            "t2": "id"
+          },
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:4>\",\n  \"project_id\": null,\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"From n8n\",\n  \"notes\": \"mail body\",\n  \"priority\": 4,\n  \"start_at\": null,\n  \"due_at\": 1793606400000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": null,\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": null,\n  \"labels\": []\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "quick",
+            "Pay rent every month on the 1st #Home p1 @errand"
+          ],
+          "capture": {
+            "t3": "id"
+          },
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:5>\",\n  \"project_id\": \"<id:2>\",\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"Pay rent on the 1st\",\n  \"notes\": \"\",\n  \"priority\": 1,\n  \"start_at\": null,\n  \"due_at\": 1792015140000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": \"Home\",\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Renew passport\",\n    \"notes\": \"\",\n    \"priority\": 2,\n    \"start_at\": null,\n    \"due_at\": 1793660340000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  {\n    \"id\": \"<id:4>\",\n    \"project_id\": null,\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"From n8n\",\n    \"notes\": \"mail body\",\n    \"priority\": 4,\n    \"start_at\": null,\n    \"due_at\": 1793606400000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": null,\n    \"labels\": []\n  },\n  {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--project",
+            "home",
+            "--label",
+            "errand"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Renew passport\",\n    \"notes\": \"\",\n    \"priority\": 2,\n    \"start_at\": null,\n    \"due_at\": 1793660340000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--filter",
+            "p1 | p2"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Renew passport\",\n    \"notes\": \"\",\n    \"priority\": 2,\n    \"start_at\": null,\n    \"due_at\": 1793660340000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--due-before",
+            "2026-11-03",
+            "--due-after",
+            "today"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Renew passport\",\n    \"notes\": \"\",\n    \"priority\": 2,\n    \"start_at\": null,\n    \"due_at\": 1793660340000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  {\n    \"id\": \"<id:4>\",\n    \"project_id\": null,\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"From n8n\",\n    \"notes\": \"mail body\",\n    \"priority\": 4,\n    \"start_at\": null,\n    \"due_at\": 1793606400000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": null,\n    \"labels\": []\n  },\n  {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--search",
+            "MAIL"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:4>\",\n    \"project_id\": null,\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"From n8n\",\n    \"notes\": \"mail body\",\n    \"priority\": 4,\n    \"start_at\": null,\n    \"due_at\": 1793606400000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": null,\n    \"labels\": []\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "get",
+            "{t1}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"project_id\": \"<id:2>\",\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"Renew passport\",\n  \"notes\": \"\",\n  \"priority\": 2,\n  \"start_at\": null,\n  \"due_at\": 1793660340000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": null,\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": \"Home\",\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "update",
+            "{t1}",
+            "--notes",
+            "bring photo",
+            "--due",
+            "none"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"project_id\": \"<id:2>\",\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"Renew passport\",\n  \"notes\": \"bring photo\",\n  \"priority\": 2,\n  \"start_at\": null,\n  \"due_at\": null,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": null,\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": \"Home\",\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "update",
+            "{t2}",
+            "--json",
+            "{\"priority\": 3, \"labels\": [\"errand\"], \"recurrence\": \"FREQ=WEEKLY\"}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:4>\",\n  \"project_id\": null,\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"From n8n\",\n  \"notes\": \"mail body\",\n  \"priority\": 3,\n  \"start_at\": null,\n  \"due_at\": 1793606400000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": \"FREQ=WEEKLY\",\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": null,\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "update",
+            "{t2}",
+            "--title",
+            "From n8n"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:4>\",\n  \"project_id\": null,\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"From n8n\",\n  \"notes\": \"mail body\",\n  \"priority\": 3,\n  \"start_at\": null,\n  \"due_at\": 1793606400000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": null,\n  \"recurrence\": \"FREQ=WEEKLY\",\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": null,\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "complete",
+            "{t3}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"task\": {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": true,\n    \"completed_at\": 1791972000000,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  \"next\": {\n    \"id\": \"<id:6>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1794697140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  }\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "complete",
+            "{t3}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"task\": {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": true,\n    \"completed_at\": 1791972000000,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  \"next\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "reopen",
+            "{t3}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"task\": {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  \"next\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "delete",
+            "{t2}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"deleted\": \"<id:4>\"\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "get",
+            "{t2}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:4>\",\n  \"project_id\": null,\n  \"section_id\": null,\n  \"parent_id\": null,\n  \"title\": \"From n8n\",\n  \"notes\": \"mail body\",\n  \"priority\": 3,\n  \"start_at\": null,\n  \"due_at\": 1793606400000,\n  \"is_completed\": false,\n  \"completed_at\": null,\n  \"archived_at\": null,\n  \"deleted_at\": 1791972000000,\n  \"recurrence\": \"FREQ=WEEKLY\",\n  \"assignee_id\": null,\n  \"estimate_min\": null,\n  \"label_ids\": [\n    \"<id:3>\"\n  ],\n  \"sort_order\": 0,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"project_name\": null,\n  \"labels\": [\n    \"errand\"\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--status",
+            "all"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Renew passport\",\n    \"notes\": \"bring photo\",\n    \"priority\": 2,\n    \"start_at\": null,\n    \"due_at\": null,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": null,\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  {\n    \"id\": \"<id:5>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1792015140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  },\n  {\n    \"id\": \"<id:6>\",\n    \"project_id\": \"<id:2>\",\n    \"section_id\": null,\n    \"parent_id\": null,\n    \"title\": \"Pay rent on the 1st\",\n    \"notes\": \"\",\n    \"priority\": 1,\n    \"start_at\": null,\n    \"due_at\": 1794697140000,\n    \"is_completed\": false,\n    \"completed_at\": null,\n    \"archived_at\": null,\n    \"deleted_at\": null,\n    \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n    \"assignee_id\": null,\n    \"estimate_min\": null,\n    \"label_ids\": [\n      \"<id:3>\"\n    ],\n    \"sort_order\": 0,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"project_name\": \"Home\",\n    \"labels\": [\n      \"errand\"\n    ]\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "changes",
+            "--since",
+            "{start}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"cursor\": 69,\n  \"created\": [\n    {\n      \"id\": \"<id:1>\",\n      \"project_id\": \"<id:2>\",\n      \"section_id\": null,\n      \"parent_id\": null,\n      \"title\": \"Renew passport\",\n      \"notes\": \"bring photo\",\n      \"priority\": 2,\n      \"start_at\": null,\n      \"due_at\": null,\n      \"is_completed\": false,\n      \"completed_at\": null,\n      \"archived_at\": null,\n      \"deleted_at\": null,\n      \"recurrence\": null,\n      \"assignee_id\": null,\n      \"estimate_min\": null,\n      \"label_ids\": [\n        \"<id:3>\"\n      ],\n      \"sort_order\": 0,\n      \"created_at\": 1791972000000,\n      \"updated_at\": 1791972000000,\n      \"project_name\": \"Home\",\n      \"labels\": [\n        \"errand\"\n      ]\n    },\n    {\n      \"id\": \"<id:5>\",\n      \"project_id\": \"<id:2>\",\n      \"section_id\": null,\n      \"parent_id\": null,\n      \"title\": \"Pay rent on the 1st\",\n      \"notes\": \"\",\n      \"priority\": 1,\n      \"start_at\": null,\n      \"due_at\": 1792015140000,\n      \"is_completed\": false,\n      \"completed_at\": null,\n      \"archived_at\": null,\n      \"deleted_at\": null,\n      \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n      \"assignee_id\": null,\n      \"estimate_min\": null,\n      \"label_ids\": [\n        \"<id:3>\"\n      ],\n      \"sort_order\": 0,\n      \"created_at\": 1791972000000,\n      \"updated_at\": 1791972000000,\n      \"project_name\": \"Home\",\n      \"labels\": [\n        \"errand\"\n      ]\n    },\n    {\n      \"id\": \"<id:6>\",\n      \"project_id\": \"<id:2>\",\n      \"section_id\": null,\n      \"parent_id\": null,\n      \"title\": \"Pay rent on the 1st\",\n      \"notes\": \"\",\n      \"priority\": 1,\n      \"start_at\": null,\n      \"due_at\": 1794697140000,\n      \"is_completed\": false,\n      \"completed_at\": null,\n      \"archived_at\": null,\n      \"deleted_at\": null,\n      \"recurrence\": \"FREQ=MONTHLY;BYMONTHDAY=14\",\n      \"assignee_id\": null,\n      \"estimate_min\": null,\n      \"label_ids\": [\n        \"<id:3>\"\n      ],\n      \"sort_order\": 0,\n      \"created_at\": 1791972000000,\n      \"updated_at\": 1791972000000,\n      \"project_name\": \"Home\",\n      \"labels\": [\n        \"errand\"\n      ]\n    }\n  ],\n  \"updated\": [],\n  \"completed\": [],\n  \"deleted\": [\n    {\n      \"id\": \"<id:4>\",\n      \"project_id\": null,\n      \"section_id\": null,\n      \"parent_id\": null,\n      \"title\": \"From n8n\",\n      \"notes\": \"mail body\",\n      \"priority\": 3,\n      \"start_at\": null,\n      \"due_at\": 1793606400000,\n      \"is_completed\": false,\n      \"completed_at\": null,\n      \"archived_at\": null,\n      \"deleted_at\": 1791972000000,\n      \"recurrence\": \"FREQ=WEEKLY\",\n      \"assignee_id\": null,\n      \"estimate_min\": null,\n      \"label_ids\": [\n        \"<id:3>\"\n      ],\n      \"sort_order\": 0,\n      \"created_at\": 1791972000000,\n      \"updated_at\": 1791972000000,\n      \"project_name\": null,\n      \"labels\": [\n        \"errand\"\n      ]\n    }\n  ]\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "projects",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:2>\",\n    \"owner_id\": \"\",\n    \"name\": \"Home\",\n    \"color\": \"\",\n    \"icon\": \"\",\n    \"sort_order\": 0,\n    \"is_favorite\": false,\n    \"parent_id\": null,\n    \"kind\": \"project\",\n    \"default_view\": \"list\",\n    \"archived_at\": null,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "labels",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:3>\",\n    \"owner_id\": \"\",\n    \"name\": \"errand\",\n    \"color\": \"red\"\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "todo",
+            "tasks",
+            "list",
+            "--status",
+            "completed"
+          ],
+          "exit": 0,
+          "stdout": "[]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "todo",
+            "projects",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:2>\",\n    \"owner_id\": \"\",\n    \"name\": \"Home\",\n    \"color\": \"\",\n    \"icon\": \"\",\n    \"sort_order\": 0,\n    \"is_favorite\": false,\n    \"parent_id\": null,\n    \"kind\": \"project\",\n    \"default_view\": \"list\",\n    \"archived_at\": null,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        }
+      ]
+    },
+    {
+      "name": "errors",
+      "tz": "UTC",
+      "steps": [
+        {
+          "argv": [
+            "tasks",
+            "get",
+            "00000000-0000-4000-8000-000000000099"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"no task \\\"<id:1>\\\"\",\"code\":\"unknown_task\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "bogus"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"unknown command \\\"tasks bogus\\\"\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "todo",
+            "nothing",
+            "here"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"unknown command \\\"todo nothing here\\\"\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "get"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"tasks get\\\" needs a task id\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "quick"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"tasks quick\\\" needs the text\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--status",
+            "nope"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"--status is open, completed or all\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--label",
+            "a",
+            "--label",
+            "b"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"tasks list takes one --label\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--notes",
+            "x"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"tasks add needs --title (or a title in --json)\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "   "
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"a task needs a title\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "x",
+            "--priority",
+            "7"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"priority must be 1 (highest) to 4 (none)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "x",
+            "--priority",
+            "high"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"priority must be 1 (highest) to 4 (none)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "x",
+            "--due",
+            "someday"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"cannot read the date \\\"someday\\\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "x",
+            "--due",
+            "2026-02-30"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"cannot read the date \\\"2026-02-30\\\" (use YYYY-MM-DD, YYYY-MM-DDTHH:MM, ISO 8601 or unix ms)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "x",
+            "--project",
+            "Nope"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"no project \\\"Nope\\\"\",\"code\":\"unknown_project\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title",
+            "x",
+            "--label",
+            "nope"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"no label \\\"nope\\\"\",\"code\":\"unknown_label\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--json",
+            "[1]"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"--json must be an object\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--json",
+            "{"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"--json is not valid JSON\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--json",
+            "{\"title\": \"x\", \"labels\": \"a\"}"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"labels must be a list\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--filter",
+            "(p1"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"expected ')' (at 3)\",\"code\":\"bad_filter\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--filter",
+            "due:soon"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"unknown due value 'soon' (expected today, tomorrow, week, month, weekend, next-week, overdue, none, or Nd e.g. 7d) (at 0)\",\"code\":\"bad_filter\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--project",
+            "Nope"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"no project \\\"Nope\\\"\",\"code\":\"unknown_project\"}"
+          ]
+        },
+        {
+          "argv": [
+            "changes",
+            "--since",
+            "abc"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"--since takes a cursor from an earlier run\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "changes",
+            "--since",
+            "1.5"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"--since takes a cursor from an earlier run\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list",
+            "--foo"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"Unknown option '--foo'. To specify a positional argument starting with a '-', place it at the end of the command after '--', as in '-- \\\"--foo\\\"\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "add",
+            "--title"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"Option '--title <value>' argument missing\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "env": {
+            "ATLAS_TOKEN": "nope"
+          },
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"ATLAS_TOKEN is not an Atlas API token\",\"code\":\"invalid_token\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "env": {
+            "ATLAS_TOKEN": ""
+          },
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"set ATLAS_TOKEN to an API token\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "env": {
+            "ATLAS_URL": ""
+          },
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"set ATLAS_URL (or pass --url)\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "--version"
+          ],
+          "exit": 0,
+          "stdout": "<version>",
+          "stderr": []
+        },
+        {
+          "argv": [],
+          "exit": 2,
+          "stdout": "<usage>",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "--help"
+          ],
+          "exit": 0,
+          "stdout": "<usage>",
+          "stderr": []
+        },
+        {
+          "revoke": true
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"unauthorized (revoked or wrong token?)\",\"code\":\"unauthorized\",\"status\":401}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "journal entries from add to trash",
+      "tz": "Europe/Copenhagen",
+      "token_apps": [
+        "journal"
+      ],
+      "steps": [
+        {
+          "seed": {
+            "entity": "journal.entry",
+            "ref": "autumn",
+            "fields": {
+              "date": "2026-10-01",
+              "title": "Autumn",
+              "body": "Leaves on the path.",
+              "mood": 3,
+              "tags": [
+                "season"
+              ],
+              "created_at": 1791000000000,
+              "updated_at": 1791000000000
+            }
+          }
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--title",
+            "Harbour walk",
+            "--body",
+            "Fog over the water.",
+            "--mood",
+            "4",
+            "--tag",
+            "walks",
+            "--tag",
+            "sea"
+          ],
+          "capture": {
+            "e1": "id"
+          },
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"date\": \"2026-10-14\",\n  \"title\": \"Harbour walk\",\n  \"body\": \"Fog over the water.\",\n  \"mood\": 4,\n  \"tags\": [\n    \"walks\",\n    \"sea\"\n  ],\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--json",
+            "{\"date\": \"2026-10-12\", \"body\": \"From n8n\", \"tags\": [\"n8n\"], \"mood\": null}"
+          ],
+          "capture": {
+            "e2": "id"
+          },
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:2>\",\n  \"date\": \"2026-10-12\",\n  \"title\": \"\",\n  \"body\": \"From n8n\",\n  \"mood\": null,\n  \"tags\": [\n    \"n8n\"\n  ],\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"date\": \"2026-10-14\",\n    \"title\": \"Harbour walk\",\n    \"body\": \"Fog over the water.\",\n    \"mood\": 4,\n    \"tags\": [\n      \"walks\",\n      \"sea\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  },\n  {\n    \"id\": \"<id:2>\",\n    \"date\": \"2026-10-12\",\n    \"title\": \"\",\n    \"body\": \"From n8n\",\n    \"mood\": null,\n    \"tags\": [\n      \"n8n\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  },\n  {\n    \"id\": \"<id:3>\",\n    \"date\": \"2026-10-01\",\n    \"title\": \"Autumn\",\n    \"body\": \"Leaves on the path.\",\n    \"mood\": 3,\n    \"tags\": [\n      \"season\"\n    ],\n    \"created_at\": 1791000000000,\n    \"updated_at\": 1791000000000,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list",
+            "--from",
+            "2026-10-10"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"date\": \"2026-10-14\",\n    \"title\": \"Harbour walk\",\n    \"body\": \"Fog over the water.\",\n    \"mood\": 4,\n    \"tags\": [\n      \"walks\",\n      \"sea\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  },\n  {\n    \"id\": \"<id:2>\",\n    \"date\": \"2026-10-12\",\n    \"title\": \"\",\n    \"body\": \"From n8n\",\n    \"mood\": null,\n    \"tags\": [\n      \"n8n\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list",
+            "--to",
+            "2026-10-05"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:3>\",\n    \"date\": \"2026-10-01\",\n    \"title\": \"Autumn\",\n    \"body\": \"Leaves on the path.\",\n    \"mood\": 3,\n    \"tags\": [\n      \"season\"\n    ],\n    \"created_at\": 1791000000000,\n    \"updated_at\": 1791000000000,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list",
+            "--tag",
+            "WALKS"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"date\": \"2026-10-14\",\n    \"title\": \"Harbour walk\",\n    \"body\": \"Fog over the water.\",\n    \"mood\": 4,\n    \"tags\": [\n      \"walks\",\n      \"sea\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list",
+            "--search",
+            "fog"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"date\": \"2026-10-14\",\n    \"title\": \"Harbour walk\",\n    \"body\": \"Fog over the water.\",\n    \"mood\": 4,\n    \"tags\": [\n      \"walks\",\n      \"sea\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "get",
+            "{e1}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"date\": \"2026-10-14\",\n  \"title\": \"Harbour walk\",\n  \"body\": \"Fog over the water.\",\n  \"mood\": 4,\n  \"tags\": [\n    \"walks\",\n    \"sea\"\n  ],\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "update",
+            "{e1}",
+            "--date",
+            "yesterday",
+            "--mood",
+            "none"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"date\": \"2026-10-13\",\n  \"title\": \"Harbour walk\",\n  \"body\": \"Fog over the water.\",\n  \"mood\": null,\n  \"tags\": [\n    \"walks\",\n    \"sea\"\n  ],\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "update",
+            "{e2}",
+            "--json",
+            "{\"title\": \"Imported\", \"tags\": []}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:2>\",\n  \"date\": \"2026-10-12\",\n  \"title\": \"Imported\",\n  \"body\": \"From n8n\",\n  \"mood\": null,\n  \"tags\": [],\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "update",
+            "{e2}",
+            "--title",
+            "Imported"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:2>\",\n  \"date\": \"2026-10-12\",\n  \"title\": \"Imported\",\n  \"body\": \"From n8n\",\n  \"mood\": null,\n  \"tags\": [],\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "delete",
+            "{autumn}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"deleted\": \"<id:3>\"\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "get",
+            "{autumn}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"id\": \"<id:3>\",\n  \"date\": \"2026-10-01\",\n  \"title\": \"Autumn\",\n  \"body\": \"Leaves on the path.\",\n  \"mood\": 3,\n  \"tags\": [\n    \"season\"\n  ],\n  \"created_at\": 1791000000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": 1791972000000\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "delete",
+            "{autumn}"
+          ],
+          "exit": 0,
+          "stdout": "{\n  \"deleted\": \"<id:3>\"\n}",
+          "stderr": []
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"date\": \"2026-10-13\",\n    \"title\": \"Harbour walk\",\n    \"body\": \"Fog over the water.\",\n    \"mood\": null,\n    \"tags\": [\n      \"walks\",\n      \"sea\"\n    ],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  },\n  {\n    \"id\": \"<id:2>\",\n    \"date\": \"2026-10-12\",\n    \"title\": \"Imported\",\n    \"body\": \"From n8n\",\n    \"mood\": null,\n    \"tags\": [],\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  }\n]",
+          "stderr": []
+        }
+      ]
+    },
+    {
+      "name": "journal errors",
+      "tz": "Europe/Copenhagen",
+      "token_apps": [
+        "journal"
+      ],
+      "steps": [
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "get",
+            "00000000-0000-4000-8000-000000000099"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"no journal entry \\\"<id:1>\\\"\",\"code\":\"unknown_journal_entry\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "bogus"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"unknown command \\\"journal entries bogus\\\"\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "nothing"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"unknown command \\\"journal nothing\\\"\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "get"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"journal entries get\\\" needs an entry id\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "update"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"journal entries update\\\" needs an entry id\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"a journal entry needs a title or a body\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--title",
+            "   ",
+            "--body",
+            " "
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"a journal entry needs a title or a body\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--title",
+            "x",
+            "--mood",
+            "9"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"mood must be 1 (awful) to 5 (great)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--title",
+            "x",
+            "--mood",
+            "great"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"mood must be 1 (awful) to 5 (great)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--title",
+            "x",
+            "--date",
+            "someday"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"someday\\\" is not a date (YYYY-MM-DD, today, yesterday or tomorrow)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--title",
+            "x",
+            "--date",
+            "2026-02-30"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"2026-02-30\\\" is not a date (YYYY-MM-DD, today, yesterday or tomorrow)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--json",
+            "{\"title\": \"x\", \"tags\": \"a\"}"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"tags must be a list of strings\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--json",
+            "{\"title\": 5}"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"title must be a string\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "add",
+            "--json",
+            "[1]"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"--json must be an object\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list",
+            "--tag",
+            "a",
+            "--tag",
+            "b"
+          ],
+          "exit": 2,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"journal entries list takes one --tag\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ]
+        },
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list",
+            "--from",
+            "soon"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"\\\"soon\\\" is not a date (YYYY-MM-DD, today, yesterday or tomorrow)\",\"code\":\"bad_input\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"this API token is not for Atlas Todo (it is for Atlas Journal); make a token that includes it\",\"code\":\"app_not_in_token\"}"
+          ]
+        },
+        {
+          "argv": [
+            "todo",
+            "projects",
+            "list"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"this API token is not for Atlas Todo (it is for Atlas Journal); make a token that includes it\",\"code\":\"app_not_in_token\"}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "journal commands with a todo token",
+      "tz": "Europe/Copenhagen",
+      "token_apps": [
+        "todo"
+      ],
+      "steps": [
+        {
+          "argv": [
+            "journal",
+            "entries",
+            "list"
+          ],
+          "exit": 1,
+          "stdout": "",
+          "stderr": [
+            "{\"error\":\"this API token is not for Atlas Journal (it is for Atlas Todo); make a token that includes it\",\"code\":\"app_not_in_token\"}"
+          ]
+        },
+        {
+          "argv": [
+            "tasks",
+            "list"
+          ],
+          "exit": 0,
+          "stdout": "[]",
+          "stderr": []
+        }
+      ]
+    },
+    {
+      "name": "vault items from add to trash",
+      "server_apps": [
+        "todo",
+        "vault"
+      ],
+      "steps": [
+        {
+          "seed": {
+            "entity": "vault.folder",
+            "fields": {
+              "created_at": 1791000000000,
+              "name": "CI",
+              "updated_at": 1791000000000
+            },
+            "ref": "ci"
+          }
+        },
+        {
+          "seed": {
+            "entity": "vault.item",
+            "fields": {
+              "created_at": 1791000000000,
+              "favorite": false,
+              "fields": [
+                {
+                  "kind": "text",
+                  "name": "username",
+                  "value": "octo"
+                },
+                {
+                  "kind": "hidden",
+                  "name": "password",
+                  "value": "hunter2"
+                },
+                {
+                  "kind": "totp",
+                  "name": "totp",
+                  "value": "JBSWY3DPEHPK3PXP"
+                }
+              ],
+              "folder": null,
+              "history": [],
+              "name": "GitHub",
+              "notes": "",
+              "tags": [
+                "dev"
+              ],
+              "type": "login",
+              "updated_at": 1791000000000,
+              "urls": [
+                "https://github.com"
+              ]
+            },
+            "ref": "gh"
+          }
+        },
+        {
+          "argv": [
+            "vault",
+            "add",
+            "--name",
+            "Deploy key",
+            "--type",
+            "api_key",
+            "--hidden",
+            "token=sk_live_1",
+            "--text",
+            "account=ops",
+            "--uri",
+            "https://deploy.example",
+            "--tag",
+            "prod",
+            "--folder",
+            "ci"
+          ],
+          "capture": {
+            "k1": "id"
+          },
+          "exit": 0,
+          "stderr": [],
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"type\": \"api_key\",\n  \"name\": \"Deploy key\",\n  \"fields\": [\n    {\n      \"name\": \"account\",\n      \"kind\": \"text\"\n    },\n    {\n      \"name\": \"token\",\n      \"kind\": \"hidden\"\n    }\n  ],\n  \"urls\": [\n    \"https://deploy.example\"\n  ],\n  \"tags\": [\n    \"prod\"\n  ],\n  \"folder\": \"<id:2>\",\n  \"favorite\": false,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null,\n  \"folder_name\": \"CI\"\n}"
+        },
+        {
+          "argv": [
+            "vault",
+            "add",
+            "--json",
+            "{\"name\": \"Wi-Fi\", \"type\": \"note\", \"notes\": \"on the router\", \"favorite\": true}"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "{\n  \"id\": \"<id:3>\",\n  \"type\": \"note\",\n  \"name\": \"Wi-Fi\",\n  \"fields\": [],\n  \"urls\": [],\n  \"tags\": [],\n  \"folder\": null,\n  \"favorite\": true,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null,\n  \"folder_name\": null\n}"
+        },
+        {
+          "argv": [
+            "vault",
+            "add",
+            "--json",
+            "-"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdin": "{\"name\": \"DB\", \"fields\": [{\"name\": \"password\", \"kind\": \"hidden\", \"value\": \"from stdin\"}]}",
+          "stdout": "{\n  \"id\": \"<id:4>\",\n  \"type\": \"login\",\n  \"name\": \"DB\",\n  \"fields\": [\n    {\n      \"name\": \"password\",\n      \"kind\": \"hidden\"\n    }\n  ],\n  \"urls\": [],\n  \"tags\": [],\n  \"folder\": null,\n  \"favorite\": false,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null,\n  \"folder_name\": null\n}"
+        },
+        {
+          "argv": [
+            "vault",
+            "list"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "[\n  {\n    \"id\": \"<id:4>\",\n    \"type\": \"login\",\n    \"name\": \"DB\",\n    \"fields\": [\n      {\n        \"name\": \"password\",\n        \"kind\": \"hidden\"\n      }\n    ],\n    \"urls\": [],\n    \"tags\": [],\n    \"folder\": null,\n    \"favorite\": false,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null,\n    \"folder_name\": null\n  },\n  {\n    \"id\": \"<id:1>\",\n    \"type\": \"api_key\",\n    \"name\": \"Deploy key\",\n    \"fields\": [\n      {\n        \"name\": \"account\",\n        \"kind\": \"text\"\n      },\n      {\n        \"name\": \"token\",\n        \"kind\": \"hidden\"\n      }\n    ],\n    \"urls\": [\n      \"https://deploy.example\"\n    ],\n    \"tags\": [\n      \"prod\"\n    ],\n    \"folder\": \"<id:2>\",\n    \"favorite\": false,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null,\n    \"folder_name\": \"CI\"\n  },\n  {\n    \"id\": \"<id:5>\",\n    \"type\": \"login\",\n    \"name\": \"GitHub\",\n    \"fields\": [\n      {\n        \"name\": \"username\",\n        \"kind\": \"text\"\n      },\n      {\n        \"name\": \"password\",\n        \"kind\": \"hidden\"\n      },\n      {\n        \"name\": \"totp\",\n        \"kind\": \"totp\"\n      }\n    ],\n    \"urls\": [\n      \"https://github.com\"\n    ],\n    \"tags\": [\n      \"dev\"\n    ],\n    \"folder\": null,\n    \"favorite\": false,\n    \"created_at\": 1791000000000,\n    \"updated_at\": 1791000000000,\n    \"deleted_at\": null,\n    \"folder_name\": null\n  },\n  {\n    \"id\": \"<id:3>\",\n    \"type\": \"note\",\n    \"name\": \"Wi-Fi\",\n    \"fields\": [],\n    \"urls\": [],\n    \"tags\": [],\n    \"folder\": null,\n    \"favorite\": true,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null,\n    \"folder_name\": null\n  }\n]"
+        },
+        {
+          "argv": [
+            "vault",
+            "list",
+            "--folder",
+            "CI"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"type\": \"api_key\",\n    \"name\": \"Deploy key\",\n    \"fields\": [\n      {\n        \"name\": \"account\",\n        \"kind\": \"text\"\n      },\n      {\n        \"name\": \"token\",\n        \"kind\": \"hidden\"\n      }\n    ],\n    \"urls\": [\n      \"https://deploy.example\"\n    ],\n    \"tags\": [\n      \"prod\"\n    ],\n    \"folder\": \"<id:2>\",\n    \"favorite\": false,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null,\n    \"folder_name\": \"CI\"\n  }\n]"
+        },
+        {
+          "argv": [
+            "vault",
+            "list",
+            "--type",
+            "login"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "[\n  {\n    \"id\": \"<id:4>\",\n    \"type\": \"login\",\n    \"name\": \"DB\",\n    \"fields\": [\n      {\n        \"name\": \"password\",\n        \"kind\": \"hidden\"\n      }\n    ],\n    \"urls\": [],\n    \"tags\": [],\n    \"folder\": null,\n    \"favorite\": false,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null,\n    \"folder_name\": null\n  },\n  {\n    \"id\": \"<id:5>\",\n    \"type\": \"login\",\n    \"name\": \"GitHub\",\n    \"fields\": [\n      {\n        \"name\": \"username\",\n        \"kind\": \"text\"\n      },\n      {\n        \"name\": \"password\",\n        \"kind\": \"hidden\"\n      },\n      {\n        \"name\": \"totp\",\n        \"kind\": \"totp\"\n      }\n    ],\n    \"urls\": [\n      \"https://github.com\"\n    ],\n    \"tags\": [\n      \"dev\"\n    ],\n    \"folder\": null,\n    \"favorite\": false,\n    \"created_at\": 1791000000000,\n    \"updated_at\": 1791000000000,\n    \"deleted_at\": null,\n    \"folder_name\": null\n  }\n]"
+        },
+        {
+          "argv": [
+            "vault",
+            "list",
+            "--search",
+            "deploy"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"type\": \"api_key\",\n    \"name\": \"Deploy key\",\n    \"fields\": [\n      {\n        \"name\": \"account\",\n        \"kind\": \"text\"\n      },\n      {\n        \"name\": \"token\",\n        \"kind\": \"hidden\"\n      }\n    ],\n    \"urls\": [\n      \"https://deploy.example\"\n    ],\n    \"tags\": [\n      \"prod\"\n    ],\n    \"folder\": \"<id:2>\",\n    \"favorite\": false,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null,\n    \"folder_name\": \"CI\"\n  }\n]"
+        },
+        {
+          "argv": [
+            "vault",
+            "list",
+            "--tag",
+            "DEV"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "[\n  {\n    \"id\": \"<id:5>\",\n    \"type\": \"login\",\n    \"name\": \"GitHub\",\n    \"fields\": [\n      {\n        \"name\": \"username\",\n        \"kind\": \"text\"\n      },\n      {\n        \"name\": \"password\",\n        \"kind\": \"hidden\"\n      },\n      {\n        \"name\": \"totp\",\n        \"kind\": \"totp\"\n      }\n    ],\n    \"urls\": [\n      \"https://github.com\"\n    ],\n    \"tags\": [\n      \"dev\"\n    ],\n    \"folder\": null,\n    \"favorite\": false,\n    \"created_at\": 1791000000000,\n    \"updated_at\": 1791000000000,\n    \"deleted_at\": null,\n    \"folder_name\": null\n  }\n]"
+        },
+        {
+          "argv": [
+            "vault",
+            "get",
+            "github"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "{\n  \"id\": \"<id:5>\",\n  \"type\": \"login\",\n  \"name\": \"GitHub\",\n  \"fields\": [\n    {\n      \"name\": \"username\",\n      \"kind\": \"text\",\n      \"value\": \"octo\"\n    },\n    {\n      \"name\": \"password\",\n      \"kind\": \"hidden\",\n      \"value\": \"hunter2\"\n    },\n    {\n      \"name\": \"totp\",\n      \"kind\": \"totp\",\n      \"value\": \"JBSWY3DPEHPK3PXP\"\n    }\n  ],\n  \"urls\": [\n    \"https://github.com\"\n  ],\n  \"notes\": \"\",\n  \"tags\": [\n    \"dev\"\n  ],\n  \"folder\": null,\n  \"favorite\": false,\n  \"history\": [],\n  \"created_at\": 1791000000000,\n  \"updated_at\": 1791000000000,\n  \"deleted_at\": null,\n  \"folder_name\": null\n}"
+        },
+        {
+          "argv": [
+            "vault",
+            "get",
+            "GitHub",
+            "--field",
+            "password"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "hunter2"
+        },
+        {
+          "argv": [
+            "vault",
+            "get",
+            "{k1}",
+            "--field",
+            "TOKEN"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "sk_live_1"
+        },
+        {
+          "argv": [
+            "vault",
+            "update",
+            "Deploy key",
+            "--hidden",
+            "token=sk_live_2",
+            "--remove-field",
+            "account",
+            "--favorite",
+            "true"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"type\": \"api_key\",\n  \"name\": \"Deploy key\",\n  \"fields\": [\n    {\n      \"name\": \"token\",\n      \"kind\": \"hidden\"\n    }\n  ],\n  \"urls\": [\n    \"https://deploy.example\"\n  ],\n  \"tags\": [\n    \"prod\"\n  ],\n  \"folder\": \"<id:2>\",\n  \"favorite\": true,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null,\n  \"folder_name\": \"CI\"\n}"
+        },
+        {
+          "argv": [
+            "vault",
+            "get",
+            "Deploy key"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "{\n  \"id\": \"<id:1>\",\n  \"type\": \"api_key\",\n  \"name\": \"Deploy key\",\n  \"fields\": [\n    {\n      \"name\": \"token\",\n      \"kind\": \"hidden\",\n      \"value\": \"sk_live_2\"\n    }\n  ],\n  \"urls\": [\n    \"https://deploy.example\"\n  ],\n  \"notes\": \"\",\n  \"tags\": [\n    \"prod\"\n  ],\n  \"folder\": \"<id:2>\",\n  \"favorite\": true,\n  \"history\": [\n    {\n      \"field\": \"token\",\n      \"value\": \"sk_live_1\",\n      \"changed_at\": 1791972000000\n    }\n  ],\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null,\n  \"folder_name\": \"CI\"\n}"
+        },
+        {
+          "argv": [
+            "vault",
+            "update",
+            "Wi-Fi",
+            "--folder",
+            "ci"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "{\n  \"id\": \"<id:3>\",\n  \"type\": \"note\",\n  \"name\": \"Wi-Fi\",\n  \"fields\": [],\n  \"urls\": [],\n  \"tags\": [],\n  \"folder\": \"<id:2>\",\n  \"favorite\": true,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null,\n  \"folder_name\": \"CI\"\n}"
+        },
+        {
+          "argv": [
+            "vault",
+            "update",
+            "Wi-Fi",
+            "--folder",
+            "none",
+            "--notes",
+            ""
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "{\n  \"id\": \"<id:3>\",\n  \"type\": \"note\",\n  \"name\": \"Wi-Fi\",\n  \"fields\": [],\n  \"urls\": [],\n  \"tags\": [],\n  \"folder\": null,\n  \"favorite\": true,\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null,\n  \"folder_name\": null\n}"
+        },
+        {
+          "argv": [
+            "vault",
+            "folders",
+            "add",
+            "Personal"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "{\n  \"id\": \"<id:6>\",\n  \"name\": \"Personal\",\n  \"created_at\": 1791972000000,\n  \"updated_at\": 1791972000000,\n  \"deleted_at\": null\n}"
+        },
+        {
+          "argv": [
+            "vault",
+            "folders",
+            "list"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "[\n  {\n    \"id\": \"<id:2>\",\n    \"name\": \"CI\",\n    \"created_at\": 1791000000000,\n    \"updated_at\": 1791000000000,\n    \"deleted_at\": null\n  },\n  {\n    \"id\": \"<id:6>\",\n    \"name\": \"Personal\",\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null\n  }\n]"
+        },
+        {
+          "argv": [
+            "vault",
+            "delete",
+            "DB"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "{\n  \"deleted\": \"<id:4>\"\n}"
+        },
+        {
+          "argv": [
+            "vault",
+            "list"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"type\": \"api_key\",\n    \"name\": \"Deploy key\",\n    \"fields\": [\n      {\n        \"name\": \"token\",\n        \"kind\": \"hidden\"\n      }\n    ],\n    \"urls\": [\n      \"https://deploy.example\"\n    ],\n    \"tags\": [\n      \"prod\"\n    ],\n    \"folder\": \"<id:2>\",\n    \"favorite\": true,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null,\n    \"folder_name\": \"CI\"\n  },\n  {\n    \"id\": \"<id:5>\",\n    \"type\": \"login\",\n    \"name\": \"GitHub\",\n    \"fields\": [\n      {\n        \"name\": \"username\",\n        \"kind\": \"text\"\n      },\n      {\n        \"name\": \"password\",\n        \"kind\": \"hidden\"\n      },\n      {\n        \"name\": \"totp\",\n        \"kind\": \"totp\"\n      }\n    ],\n    \"urls\": [\n      \"https://github.com\"\n    ],\n    \"tags\": [\n      \"dev\"\n    ],\n    \"folder\": null,\n    \"favorite\": false,\n    \"created_at\": 1791000000000,\n    \"updated_at\": 1791000000000,\n    \"deleted_at\": null,\n    \"folder_name\": null\n  },\n  {\n    \"id\": \"<id:3>\",\n    \"type\": \"note\",\n    \"name\": \"Wi-Fi\",\n    \"fields\": [],\n    \"urls\": [],\n    \"tags\": [],\n    \"folder\": null,\n    \"favorite\": true,\n    \"created_at\": 1791972000000,\n    \"updated_at\": 1791972000000,\n    \"deleted_at\": null,\n    \"folder_name\": null\n  }\n]"
+        },
+        {
+          "argv": [
+            "vault",
+            "get",
+            "DB"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"no vault item \\\"DB\\\"\",\"code\":\"unknown_vault_item\"}"
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "get",
+            "github",
+            "--field",
+            "token"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"vault item \\\"GitHub\\\" has no field \\\"token\\\" (it has: username, password, totp)\",\"code\":\"unknown_vault_field\"}"
+          ],
+          "stdout": ""
+        }
+      ],
+      "token_apps": [
+        "vault"
+      ],
+      "token_expires_at": 1800000000000,
+      "token_write": true,
+      "tz": "Europe/Copenhagen"
+    },
+    {
+      "name": "vault errors",
+      "server_apps": [
+        "todo",
+        "vault"
+      ],
+      "steps": [
+        {
+          "seed": {
+            "entity": "vault.item",
+            "fields": {
+              "created_at": 1791000000000,
+              "name": "AWS",
+              "type": "login",
+              "updated_at": 1791000000000
+            },
+            "ref": "a1"
+          }
+        },
+        {
+          "seed": {
+            "entity": "vault.item",
+            "fields": {
+              "created_at": 1791000000000,
+              "name": "aws",
+              "type": "login",
+              "updated_at": 1791000000000
+            },
+            "ref": "a2"
+          }
+        },
+        {
+          "argv": [
+            "vault",
+            "get",
+            "aws"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"\\\"aws\\\" names 2 vault items (<id:1>, <id:2>); use an id\",\"code\":\"ambiguous_vault_item\"}"
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "update",
+            "AWS",
+            "--notes",
+            "x"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"\\\"AWS\\\" names 2 vault items (<id:1>, <id:2>); use an id\",\"code\":\"ambiguous_vault_item\"}"
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "get",
+            "{a1}",
+            "--field",
+            "password"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"vault item \\\"AWS\\\" has no field \\\"password\\\" (it has none)\",\"code\":\"unknown_vault_field\"}"
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "get"
+          ],
+          "exit": 2,
+          "stderr": [
+            "{\"error\":\"\\\"vault get\\\" needs an item name or id\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "add"
+          ],
+          "exit": 2,
+          "stderr": [
+            "{\"error\":\"vault add needs --name (or a name in --json)\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "add",
+            "--name",
+            "x",
+            "--type",
+            "wifi"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"type must be one of login, note, card, identity, ssh_key, api_key\",\"code\":\"bad_input\"}"
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "add",
+            "--name",
+            "x",
+            "--hidden",
+            "novalue"
+          ],
+          "exit": 2,
+          "stderr": [
+            "{\"error\":\"--hidden takes NAME=VALUE\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "add",
+            "--name",
+            "x",
+            "--totp",
+            "not base32!"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"the totp field \\\"totp\\\" needs an otpauth:// URI or a base32 secret\",\"code\":\"bad_input\"}"
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "add",
+            "--name",
+            "x",
+            "--folder",
+            "nope"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"no vault folder \\\"nope\\\"\",\"code\":\"unknown_vault_folder\"}"
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "add",
+            "--name",
+            "x",
+            "--favorite",
+            "maybe"
+          ],
+          "exit": 2,
+          "stderr": [
+            "{\"error\":\"--favorite is true or false\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "add",
+            "--name",
+            "x",
+            "--remove-field",
+            "a"
+          ],
+          "exit": 2,
+          "stderr": [
+            "{\"error\":\"--remove-field is for vault update\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "add",
+            "--json",
+            "{\"name\": \"x\", \"url\": \"https://typo.example\"}"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"url is not a vault item field\",\"code\":\"bad_input\"}"
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "add",
+            "--json",
+            "-"
+          ],
+          "exit": 2,
+          "stderr": [
+            "{\"error\":\"--json - needs standard input\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "update",
+            "{a1}",
+            "--json",
+            "{\"fields\": []}",
+            "--password",
+            "p"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"give fields (the whole list) or set_fields and remove_fields, not both\",\"code\":\"bad_input\"}"
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "folders",
+            "add"
+          ],
+          "exit": 2,
+          "stderr": [
+            "{\"error\":\"\\\"vault folders add\\\" needs a folder name\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "frobnicate"
+          ],
+          "exit": 2,
+          "stderr": [
+            "{\"error\":\"unknown command \\\"vault frobnicate\\\"\",\"code\":\"usage\"}",
+            "Run `atlas --help` for the commands."
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "list",
+            "--type",
+            "wifi"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"type must be one of login, note, card, identity, ssh_key, api_key\",\"code\":\"bad_input\"}"
+          ],
+          "stdout": ""
+        }
+      ],
+      "token_apps": [
+        "vault"
+      ],
+      "token_expires_at": 1800000000000,
+      "token_write": true,
+      "tz": "UTC"
+    },
+    {
+      "name": "a read-only vault token",
+      "server_apps": [
+        "todo",
+        "vault"
+      ],
+      "steps": [
+        {
+          "seed": {
+            "entity": "vault.item",
+            "fields": {
+              "created_at": 1791000000000,
+              "fields": [
+                {
+                  "kind": "hidden",
+                  "name": "password",
+                  "value": "s3cret"
+                }
+              ],
+              "name": "DB",
+              "type": "login",
+              "updated_at": 1791000000000
+            },
+            "ref": "db"
+          }
+        },
+        {
+          "argv": [
+            "vault",
+            "list"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "[\n  {\n    \"id\": \"<id:1>\",\n    \"type\": \"login\",\n    \"name\": \"DB\",\n    \"fields\": [\n      {\n        \"name\": \"password\",\n        \"kind\": \"hidden\"\n      }\n    ],\n    \"urls\": [],\n    \"tags\": [],\n    \"folder\": null,\n    \"favorite\": false,\n    \"created_at\": 1791000000000,\n    \"updated_at\": 1791000000000,\n    \"deleted_at\": null,\n    \"folder_name\": null\n  }\n]"
+        },
+        {
+          "argv": [
+            "vault",
+            "get",
+            "db",
+            "--field",
+            "password"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "s3cret"
+        },
+        {
+          "argv": [
+            "vault",
+            "add",
+            "--name",
+            "x"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"this API token is read-only: changing Atlas Vault data needs a token made with write access\",\"code\":\"api_token_read_only\"}"
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "update",
+            "DB",
+            "--password",
+            "new"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"this API token is read-only: changing Atlas Vault data needs a token made with write access\",\"code\":\"api_token_read_only\"}"
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "delete",
+            "DB"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"this API token is read-only: changing Atlas Vault data needs a token made with write access\",\"code\":\"api_token_read_only\"}"
+          ],
+          "stdout": ""
+        },
+        {
+          "argv": [
+            "vault",
+            "folders",
+            "add",
+            "CI"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"this API token is read-only: changing Atlas Vault data needs a token made with write access\",\"code\":\"api_token_read_only\"}"
+          ],
+          "stdout": ""
+        }
+      ],
+      "token_apps": [
+        "vault"
+      ],
+      "token_expires_at": 1800000000000,
+      "token_write": false,
+      "tz": "UTC"
+    },
+    {
+      "name": "an expired vault token",
+      "server_apps": [
+        "todo",
+        "vault"
+      ],
+      "steps": [
+        {
+          "argv": [
+            "vault",
+            "list"
+          ],
+          "exit": 0,
+          "stderr": [],
+          "stdout": "[]"
+        },
+        {
+          "expire": true
+        },
+        {
+          "argv": [
+            "vault",
+            "list"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"this API token has expired\",\"code\":\"api_token_expired\",\"status\":401}"
+          ],
+          "stdout": ""
+        }
+      ],
+      "token_apps": [
+        "vault"
+      ],
+      "token_expires_at": 1800000000000,
+      "token_write": false,
+      "tz": "UTC"
+    },
+    {
+      "name": "vault commands with a todo token",
+      "server_apps": [
+        "todo",
+        "vault"
+      ],
+      "steps": [
+        {
+          "argv": [
+            "vault",
+            "list"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"this API token is not for Atlas Vault (it is for Atlas Todo); make a token that includes it\",\"code\":\"app_not_in_token\"}"
+          ],
+          "stdout": ""
+        }
+      ],
+      "token_apps": [
+        "todo"
+      ],
+      "tz": "UTC"
+    },
+    {
+      "name": "vault commands on a server without the vault",
+      "server_apps": [
+        "todo",
+        "journal"
+      ],
+      "steps": [
+        {
+          "argv": [
+            "vault",
+            "list"
+          ],
+          "exit": 1,
+          "stderr": [
+            "{\"error\":\"Atlas server 0.2.0 does not offer vault. Ask its operator to enable it.\",\"code\":\"server_incompatible\"}"
+          ],
+          "stdout": ""
+        }
+      ],
+      "token_apps": [
+        "vault"
+      ],
+      "tz": "UTC"
+    }
+  ]
+}

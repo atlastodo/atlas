@@ -1,12 +1,16 @@
 //! Authentication: password hashing, tokens, HTTP handlers, and the `AuthUser` extractor.
 
 pub mod account_purge;
+pub mod api_tokens;
 mod handlers;
 pub(crate) mod identity;
 pub mod kdf;
+pub mod passkeys;
 pub mod password;
 mod recovery;
+pub mod root_key;
 pub mod token;
+pub mod webauthn;
 
 use axum::extract::FromRequestParts;
 use axum::http::header::AUTHORIZATION;
@@ -54,6 +58,42 @@ pub fn routes() -> Router<AppState> {
             "/auth/sessions/{device_id}",
             patch(handlers::rename_session).delete(handlers::revoke_session),
         )
+        .route(
+            "/auth/api-tokens",
+            get(api_tokens::list).post(api_tokens::create),
+        )
+        .route("/auth/api-tokens/{id}", delete(api_tokens::revoke))
+        .route("/auth/api-token/session", post(api_tokens::open_session))
+        .route("/auth/root-key", get(root_key::get).post(root_key::migrate))
+        .route("/auth/root-key/recovery", put(root_key::put_recovery_slot))
+        .route("/auth/app-keys/{app}", put(root_key::put_app_key))
+        .route("/auth/password", delete(handlers::remove_password))
+        .route(
+            "/auth/passkeys",
+            get(passkeys::list).post(passkeys::register),
+        )
+        .route(
+            "/auth/passkeys/{id}",
+            patch(passkeys::rename).delete(passkeys::remove),
+        )
+        .route(
+            "/auth/passkeys/signup/options",
+            post(passkeys::signup_options),
+        )
+        .route(
+            "/auth/passkeys/register/options",
+            post(passkeys::register_options),
+        )
+        .route(
+            "/auth/passkeys/login/options",
+            post(passkeys::login_options),
+        )
+        .route("/auth/passkeys/login", post(passkeys::login))
+        .route(
+            "/auth/passkeys/reauth/options",
+            post(passkeys::reauth_options),
+        )
+        .route("/auth/passkeys/reauth", post(passkeys::reauth))
         .route("/users/public-key", get(handlers::get_public_key))
 }
 
@@ -72,6 +112,50 @@ pub struct AuthUser {
     pub device_id: Option<Uuid>,
     /// When the access token expires (unix seconds); a sync socket opened on it closes then.
     pub token_expires_at: i64,
+    /// Whether an API token opened the session (`device_id` is then the token's id). Such a
+    /// session reaches the data routes only; see [`InteractiveAuthUser`].
+    pub api_token: bool,
+    /// For an API-token session, the apps its token carries keys for (`api_tokens.apps`): the
+    /// only apps it may sync. `None` for an interactive session.
+    pub token_apps: Option<Vec<String>>,
+    /// Whether the session may write: always for an interactive session; for an API-token
+    /// session, whether its token was made with write access (`api_tokens.can_write`). A
+    /// read-only token's requests other than reads ([`is_read_route`]) are refused before any
+    /// handler runs.
+    pub can_write: bool,
+}
+
+/// The routes a read-only API token may use: reads (`GET`, `HEAD`) and the sync WebSocket ticket,
+/// a `POST` that only reads (the socket never takes writes). Everything else writes or might.
+fn is_read_route(parts: &Parts) -> bool {
+    use axum::http::Method;
+    if parts.method == Method::GET || parts.method == Method::HEAD {
+        return true;
+    }
+    // The router nests every route under `/api` too.
+    let path = parts.uri.path();
+    let path = path.strip_prefix("/api").unwrap_or(path);
+    parts.method == Method::POST && path == "/sync/ws-ticket"
+}
+
+/// [`AuthUser`] for the account-critical routes (credentials, recovery, sessions, API tokens,
+/// account deletion, export, admin): refuses an API-token session with 403
+/// `interactive_session_required`, so a leaked integration token cannot take the account over.
+pub struct InteractiveAuthUser(pub AuthUser);
+
+impl FromRequestParts<AppState> for InteractiveAuthUser {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let user = AuthUser::from_request_parts(parts, state).await?;
+        if user.api_token {
+            return Err(AppError::InteractiveSessionRequired);
+        }
+        Ok(InteractiveAuthUser(user))
+    }
 }
 
 impl FromRequestParts<AppState> for AuthUser {
@@ -90,6 +174,7 @@ impl FromRequestParts<AppState> for AuthUser {
 }
 
 /// [`AuthUser`] that also admits an account in its deletion grace period, for the data export.
+/// Interactive only, like [`InteractiveAuthUser`].
 pub struct AuthUserAllowScheduled(pub AuthUser);
 
 impl FromRequestParts<AppState> for AuthUserAllowScheduled {
@@ -99,9 +184,11 @@ impl FromRequestParts<AppState> for AuthUserAllowScheduled {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        Ok(AuthUserAllowScheduled(
-            authenticate_bearer(parts, state).await?.0,
-        ))
+        let user = authenticate_bearer(parts, state).await?.0;
+        if user.api_token {
+            return Err(AppError::InteractiveSessionRequired);
+        }
+        Ok(AuthUserAllowScheduled(user))
     }
 }
 
@@ -121,21 +208,42 @@ async fn authenticate_bearer(
         .ok_or(AppError::Unauthorized)?;
     let claims = token::verify_access_token(token, &state.config.jwt_secret)
         .map_err(|_| AppError::Unauthorized)?;
-    // A token minted before the `did` claim has no session to check.
-    let (disabled, deletion_scheduled_at, live_session): (
+    // A token minted before the `did` claim has no session to check. An API-token session is
+    // live while its token is unrevoked; a device session while its refresh family is.
+    let api_token = claims.kind == Some(token::TokenKind::ApiToken);
+    if api_token && claims.did.is_none() {
+        return Err(AppError::Unauthorized);
+    }
+    // For an API token: its unrevoked row (`t`), whether it is still before its expiry, its apps
+    // and its write access.
+    #[allow(clippy::type_complexity)]
+    let (disabled, deletion_scheduled_at, live_session, token_apps, token_expired, can_write): (
         bool,
         Option<time::OffsetDateTime>,
         bool,
+        Option<Vec<String>>,
+        bool,
+        bool,
     ) = sqlx::query_as(
-        "SELECT disabled_at IS NOT NULL, deletion_scheduled_at,
-                $2::uuid IS NULL OR EXISTS (
+        "SELECT u.disabled_at IS NOT NULL, u.deletion_scheduled_at,
+                CASE WHEN $3 THEN t.id IS NOT NULL
+                                  AND (t.expires_at IS NULL OR t.expires_at > now())
+                ELSE $2::uuid IS NULL OR EXISTS (
                     SELECT 1 FROM refresh_tokens
                      WHERE user_id = $1 AND device_id = $2
                        AND revoked_at IS NULL AND expires_at > now())
-           FROM users WHERE id = $1",
+                END,
+                t.apps,
+                COALESCE(t.expires_at <= now(), false),
+                COALESCE(t.can_write, false)
+           FROM users u
+           LEFT JOIN api_tokens t
+             ON $3 AND t.id = $2 AND t.user_id = u.id AND t.revoked_at IS NULL
+          WHERE u.id = $1",
     )
     .bind(claims.sub)
     .bind(claims.did)
+    .bind(api_token)
     .fetch_optional(&state.pool)
     .await?
     .ok_or(AppError::Unauthorized)?;
@@ -144,17 +252,32 @@ async fn authenticate_bearer(
     if disabled {
         return Err(AppError::AccountDisabled);
     }
+    // A session of a token that has since expired ends on its next request, whatever its access
+    // token's own lifetime (which the exchange already caps at the expiry).
+    if api_token && token_expired {
+        return Err(AppError::ApiTokenExpired);
+    }
     // Scheduling a deletion also ends every session. The token in hand still reaches the export
     // until it expires (`AuthUserAllowScheduled`), as no new session can be had in the grace
     // period; `AuthUser` refuses it with the typed error.
-    if !live_session && deletion_scheduled_at.is_none() {
+    // An API token never reaches the grace-period export, so it needs a live token regardless.
+    if !live_session && (api_token || deletion_scheduled_at.is_none()) {
         return Err(AppError::Unauthorized);
+    }
+    // A read-only token reaches the read routes only, whichever handler a route has: deny by
+    // default, so a write route added later is covered too.
+    if api_token && !can_write && !is_read_route(parts) {
+        return Err(AppError::ApiTokenReadOnly);
     }
     Ok((
         AuthUser {
             user_id: claims.sub,
             device_id: claims.did,
             token_expires_at: claims.exp,
+            api_token,
+            // A token session always has a list (empty only if the row vanished meanwhile).
+            token_apps: api_token.then(|| token_apps.unwrap_or_default()),
+            can_write: !api_token || can_write,
         },
         deletion_scheduled_at,
     ))

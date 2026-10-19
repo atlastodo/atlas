@@ -4,7 +4,7 @@
  * helpers.
  */
 
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { shiftDateKey, startOfWeekKey } from "./habits";
 import { dayKey } from "./zonedTime";
 

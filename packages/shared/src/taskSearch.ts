@@ -3,7 +3,7 @@
  * to stay consistent with the command palette.
  */
 
-import type { Task } from "@atlas/client-core";
+import type { Task } from "@atlastodo/client-core";
 import { scoreMatch } from "./fuzzy";
 
 export interface TaskSearchHit {

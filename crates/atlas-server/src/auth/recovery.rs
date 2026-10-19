@@ -222,6 +222,35 @@ pub fn dummy_wrapped_key(seed: &str, label: &str) -> serde_json::Value {
     serde_json::json!({ "ct": BASE64.encode(ct), "iv": BASE64.encode(iv) })
 }
 
+/// A root-key-era wrap (`{v: 1, iv, ct}`): an app key under the root, or a phrase-form recovery
+/// slot.
+pub fn dummy_versioned_wrap(seed: &str, label: &str) -> serde_json::Value {
+    let mut wrap = dummy_wrapped_key(seed, label);
+    wrap["v"] = serde_json::json!(1);
+    wrap
+}
+
+/// The root key's recovery slot as `GET /auth/recovery-keys` answers it: always with an `epk`.
+/// Real slots come in two forms, wrapped under the phrase (`{v, iv, ct}`) or sealed to the
+/// recovery key (`{v, epk, iv, ct}`); the phrase form gets a stand-in `epk` and the client tries
+/// both, so the shape tells neither the form nor, with [`dummy_root_slot`], whether a slot exists.
+pub fn padded_root_slot(seed: &str, mut slot: serde_json::Value) -> serde_json::Value {
+    if slot.get("epk").is_none() {
+        slot["epk"] = serde_json::json!(hex::encode(dummy_bytes::<32>(seed, "root/epk")));
+    }
+    slot
+}
+
+/// A stand-in for the root key's recovery slot (see [`padded_root_slot`]).
+pub fn dummy_root_slot(seed: &str) -> serde_json::Value {
+    padded_root_slot(seed, dummy_versioned_wrap(seed, "root"))
+}
+
+/// A stand-in account id (a v4 UUID, like the ones Postgres and the client generate).
+pub fn dummy_user_id(seed: &str) -> Uuid {
+    uuid::Builder::from_random_bytes(dummy_bytes::<16>(seed, "user-id")).into_uuid()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

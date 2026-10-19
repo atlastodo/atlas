@@ -37,6 +37,9 @@ fn config(database_url: &str) -> Config {
         blob_quota_bytes: 1024 * 1024 * 1024,
         blob_gc_grace_days: 7,
         max_blob_transfers: 16,
+        apps: vec!["todo".into()],
+        passkeys: None,
+        android_asset_links: None,
         static_dir: None,
     }
 }

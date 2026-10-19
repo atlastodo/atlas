@@ -1,8 +1,11 @@
 blank_issues_enabled: false
 contact_links:
+  - name: A bug or idea for the app (UI, Android, desktop, accessibility)
+    url: https://github.com/atlastodo/atlas-todo/issues/new/choose
+    about: The Atlas Todo app lives in atlastodo/atlas-todo. This repository is the server, the CLI and the client core packages.
   - name: Report a security vulnerability
-    url: https://github.com/atlastodo/atlas-todo/blob/main/SECURITY.md
+    url: https://github.com/atlastodo/atlas/blob/main/SECURITY.md
     about: Please report vulnerabilities privately as described in SECURITY.md, not in a public issue.
   - name: Ask a question or share an idea
-    url: https://github.com/atlastodo/atlas-todo/discussions
+    url: https://github.com/atlastodo/atlas/discussions
     about: Questions about using or self-hosting Atlas Todo, and ideas that are not yet a concrete feature request.

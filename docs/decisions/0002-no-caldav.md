@@ -17,4 +17,4 @@ client feature, not a server one.
 
 - No sync with Thunderbird, DAVx⁵, Apple Reminders and similar.
 - Getting data in and out goes through the app: a JSON export and restore, and importers
-  (TickTick today).
+  (TickTick and Todoist today).

@@ -50,6 +50,51 @@ describe("sessionFromAuth", () => {
   });
 });
 
+describe("root key state", () => {
+  const slot = { v: 1 as const, iv: "iv", ct: "ct" };
+  const appKeys = [{ app: "todo", wrapped_key: slot }];
+
+  it("carries the root slot, app keys and recovery state of a migrated account", () => {
+    const session = sessionFromAuth({
+      ...AUTH,
+      has_root_key: true,
+      encrypted_root_key: slot,
+      app_keys: appKeys,
+      recovery_public_key: "dd".repeat(32),
+      has_recovery_root_key: true,
+    });
+    expect(session).toMatchObject({
+      hasRootKey: true,
+      encryptedRootKey: slot,
+      appKeys,
+      recoveryPublicKey: "dd".repeat(32),
+      hasRecoveryRootKey: true,
+    });
+  });
+
+  it("knows an unmigrated account from a server that does not say", () => {
+    expect(sessionFromAuth({ ...AUTH, has_root_key: false })).toMatchObject({
+      hasRootKey: false,
+      appKeys: [],
+      hasRecoveryRootKey: false,
+    });
+    expect(sessionFromAuth(AUTH).hasRootKey).toBeUndefined();
+  });
+
+  it("drops a stale root slot when a rotation says the root is gone", () => {
+    const prev = sessionFromAuth({
+      ...AUTH,
+      has_root_key: true,
+      encrypted_root_key: slot,
+      app_keys: appKeys,
+    });
+    const next = mergeRotatedTokens(prev, { ...AUTH, has_root_key: false });
+    expect(next.hasRootKey).toBe(false);
+    expect(next.encryptedRootKey).toBeUndefined();
+    expect(next.appKeys).toEqual([]);
+  });
+});
+
 describe("isAdmin", () => {
   it("is false for a session persisted before the field existed", () => {
     // The keychain/localStorage payload is raw JSON from an older app version, so `is_admin` is

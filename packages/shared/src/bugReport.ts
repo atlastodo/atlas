@@ -18,7 +18,7 @@ import type {
   BugReportDiagnostics,
   BugReportKind,
   BugReportPayload,
-} from "@atlas/client-core";
+} from "@atlastodo/client-core";
 
 // Mirrors the server's caps.
 export const REPORT_LIMITS = {
@@ -31,7 +31,8 @@ export const REPORT_LIMITS = {
 } as const;
 
 const V8_FRAME = /^\s*at\s+\S/;
-const HERMES_FRAME = /^\s*\S+@\S+:\d+:\d+\s*$/;
+// The name before `@` holds no `@`, so a line of repeated `@`s cannot backtrack quadratically.
+const HERMES_FRAME = /^\s*[^\s@]+@\S+:\d+:\d+\s*$/;
 
 /** A route path or a bare id; narrow, since a task title has spaces. */
 const SAFE_REF = /^[A-Za-z0-9/_.-]{1,64}$/;

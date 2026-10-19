@@ -11,6 +11,8 @@ use rand::Rng;
 use tokio::sync::{broadcast, Notify};
 use uuid::Uuid;
 
+use super::PullResponse;
+
 /// How often the server pings an open sync socket.
 const PING_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -24,12 +26,13 @@ const WS_TICKETS_PER_USER: usize = 8;
 /// of live tickets, asking for another answers 429.
 const MAX_WS_TICKETS: usize = 10_000;
 
-/// Per-user broadcast fan-out for realtime op delivery, plus a registry of open sync sockets
+/// Per-user broadcast fan-out for realtime op delivery (a partition's payloads, which each socket
+/// narrows to its session's apps before sending), plus a registry of open sync sockets
 /// (so ending a session can close them) and the single-use tickets sockets open with
 /// ([`ws_ticket`](super::ws::ws_ticket)). Tickets live in this process's memory, which suffices
 /// for one instance.
 pub struct SyncHub {
-    channels: Mutex<HashMap<Uuid, broadcast::Sender<String>>>,
+    channels: Mutex<HashMap<Uuid, broadcast::Sender<Arc<PullResponse>>>>,
     sockets: Mutex<HashMap<Uuid, Vec<SocketEntry>>>,
     next_socket: AtomicU64,
     pub(super) ping_interval: Duration,
@@ -72,7 +75,17 @@ pub(super) struct WsTicket {
     pub(super) device: Option<Uuid>,
     /// The access token's expiry (unix seconds).
     pub(super) token_expires_at: i64,
+    /// The app scope the ticket's request resolved, which the socket keeps.
+    pub(super) scope: TicketScope,
     issued: Instant,
+}
+
+/// What a socket's app scope is resolved from at the handshake: the apps the ticket request named
+/// (`x-atlas-sync-apps`) and, for an API-token session, the apps its token carries.
+#[derive(Debug, Clone, Default)]
+pub(super) struct TicketScope {
+    pub(super) requested: Option<Vec<String>>,
+    pub(super) token_apps: Option<Vec<String>>,
 }
 
 /// One open socket in the registry: its device (the token's `did`) and the handle that closes it.
@@ -102,11 +115,24 @@ impl SyncHub {
 
     /// Issue a ticket that opens one sync socket as `user`'s `device`: 256 random bits,
     /// hex-encoded. `None` while [`MAX_WS_TICKETS`] live tickets are out.
-    pub(super) fn issue_ticket(
+    #[cfg(test)]
+    fn issue_ticket(
         &self,
         user: Uuid,
         device: Option<Uuid>,
         token_expires_at: i64,
+        now: Instant,
+    ) -> Option<String> {
+        self.issue_scoped_ticket(user, device, token_expires_at, TicketScope::default(), now)
+    }
+
+    /// [`Self::issue_ticket`] remembering the app scope the socket will have.
+    pub(super) fn issue_scoped_ticket(
+        &self,
+        user: Uuid,
+        device: Option<Uuid>,
+        token_expires_at: i64,
+        scope: TicketScope,
         now: Instant,
     ) -> Option<String> {
         let mut tickets = self.tickets.lock().unwrap_or_else(PoisonError::into_inner);
@@ -133,6 +159,7 @@ impl SyncHub {
                 user,
                 device,
                 token_expires_at,
+                scope,
                 issued: now,
             },
         );
@@ -205,16 +232,16 @@ impl SyncHub {
         }
     }
 
-    pub fn subscribe(&self, user: Uuid) -> broadcast::Receiver<String> {
+    pub fn subscribe(&self, user: Uuid) -> broadcast::Receiver<Arc<PullResponse>> {
         let mut map = self.channels.lock().unwrap_or_else(PoisonError::into_inner);
         let tx = map.entry(user).or_insert_with(|| broadcast::channel(256).0);
         tx.subscribe()
     }
 
-    pub fn publish(&self, user: Uuid, payload: String) {
+    pub fn publish(&self, user: Uuid, payload: PullResponse) {
         let map = self.channels.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(tx) = map.get(&user) {
-            let _ = tx.send(payload);
+            let _ = tx.send(Arc::new(payload));
         }
     }
 
@@ -258,7 +285,7 @@ impl Drop for SocketHandle {
 pub(super) struct Subscription {
     hub: Arc<SyncHub>,
     user: Uuid,
-    rx: Option<broadcast::Receiver<String>>,
+    rx: Option<broadcast::Receiver<Arc<PullResponse>>>,
 }
 
 impl Subscription {
@@ -270,7 +297,7 @@ impl Subscription {
         }
     }
 
-    pub(super) async fn recv(&mut self) -> Result<String, broadcast::error::RecvError> {
+    pub(super) async fn recv(&mut self) -> Result<Arc<PullResponse>, broadcast::error::RecvError> {
         match self.rx.as_mut() {
             Some(rx) => rx.recv().await,
             None => Err(broadcast::error::RecvError::Closed),

@@ -1,31 +1,58 @@
 {
-  "name": "@atlas/shared",
-  "version": "0.1.10",
-  "private": true,
+  "name": "@atlastodo/shared",
+  "version": "0.1.11",
+  "description": "Atlas shared logic: the portable task rules, recurrence, quick add, filters, i18n and theme used by every Atlas client",
   "license": "AGPL-3.0-only",
+  "homepage": "https://github.com/atlastodo/atlas/tree/main/packages/shared",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/atlastodo/atlas-todo.git",
+    "url": "git+https://github.com/atlastodo/atlas.git",
     "directory": "packages/shared"
   },
+  "bugs": {
+    "url": "https://github.com/atlastodo/atlas/issues"
+  },
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "@atlastodo/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./test-vectors/*": "./test-vectors/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "test-vectors"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "atlas": {
+    "testVectors": [
+      "filter_vectors.json",
+      "quick_add_vectors.json",
+      "recurrence_vectors.json",
+      "task_rules_vectors.json",
+      "vault_item_vectors.json"
+    ]
   },
   "scripts": {
+    "build": "bun ../../scripts/build-core-package.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "devDependencies": {
-    "@types/node": "^26.6.4",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.3"
-  },
   "dependencies": {
-    "@atlas/client-core": "workspace:*",
+    "@atlastodo/client-core": "workspace:*",
     "@noble/hashes": "^2.4.0",
     "fflate": "^0.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
   }
 }
