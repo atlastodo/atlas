@@ -27,3 +27,4 @@ export * from "./password";
 export * from "./rootKey";
 export * from "./passkeys";
 export * from "./crypto";
+export * from "./text";

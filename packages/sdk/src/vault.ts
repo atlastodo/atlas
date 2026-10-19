@@ -7,6 +7,7 @@ import {
   deriveApiTokenKeys,
   getPublicKey,
   parseApiToken,
+  trimTrailing,
   unwrapApiTokenAppKeys,
   type FetchLike,
 } from "@atlastodo/client-core";
@@ -109,7 +110,7 @@ export class VaultClient {
     const parts = parseApiToken(opts.token);
     const { auth } = deriveApiTokenKeys(parts);
     const api: ApiClient = new ApiClient({
-      baseUrl: opts.serverUrl.replace(/\/+$/, ""),
+      baseUrl: trimTrailing(opts.serverUrl, "/"),
       fetch: opts.fetch,
       apps: [VAULT_APP],
       // Token sessions have no refresh token: an expired one is opened again.
