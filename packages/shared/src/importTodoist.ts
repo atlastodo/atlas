@@ -374,9 +374,11 @@ export function parseTodoistDate(raw: string, now: number, timeZone?: string): D
 
   // "every day starting oct 20": the series' first day. An end ("until", "for 3 weeks") cannot be kept.
   let start = today;
-  const starting = / (?:starting(?: on)?|from) (.+)$/.exec(phrase);
-  if (starting) {
-    const date = parseCivilDate(starting[1]!, today);
+  // The marker first, then the rest of the phrase: `(.+)$` after it would backtrack on long input.
+  const starting = / (?:starting(?: on)?|from) /.exec(phrase);
+  const startText = starting ? phrase.slice(starting.index + starting[0].length) : "";
+  if (starting && startText && !startText.includes("\n")) {
+    const date = parseCivilDate(startText, today);
     if (!date) return { unsupported: "recurrence" };
     start = date;
     phrase = phrase.slice(0, starting.index);

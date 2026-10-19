@@ -15,6 +15,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { hkdf } from "@noble/hashes/hkdf.js";
 import type { RootKeySlot } from "./rootKey";
+import { trimTrailing } from "../text";
 import { base64UrlToBytes, bytesToBase64Url, utf8ToBytes } from "./utils";
 
 export const PASSKEY_PRF_LABEL = "atlas-passkey-prf-v1";
@@ -32,7 +33,7 @@ export function passkeyPrfInputBase64Url(): string {
 
 /** Decode a WebAuthn base64url field, padded or not; throws on anything else. */
 export function decodeBase64Url(text: string): Uint8Array {
-  const bytes = base64UrlToBytes(text.replace(/=+$/, ""));
+  const bytes = base64UrlToBytes(trimTrailing(text, "="));
   if (!bytes) throw new Error("not base64url");
   return bytes;
 }

@@ -14,6 +14,8 @@
  * - `created_at`, `updated_at`: unix ms; `deleted_at`: unix ms once in the trash, else null.
  */
 
+import { trimTrailing } from "@atlastodo/client-core";
+
 export const VAULT_ITEM_TYPES = [
   "login",
   "note",
@@ -293,10 +295,8 @@ function fieldValue(name: string, kind: string, value: string): string {
   if (kind !== "totp") return value;
   const t = value.trim();
   if (t.slice(0, 10).replace(/[A-Z]/g, (c) => c.toLowerCase()) === "otpauth://") return t;
-  const seed = t
-    .replace(/\s/g, "")
-    .replace(/[a-z]/g, (c) => c.toUpperCase())
-    .replace(/=+$/, "");
+  const unpadded = t.replace(/\s/g, "").replace(/[a-z]/g, (c) => c.toUpperCase());
+  const seed = trimTrailing(unpadded, "=");
   if (!seed || !/^[A-Z2-7]+$/.test(seed)) {
     throw bad(`the totp field "${name}" needs an otpauth:// URI or a base32 secret`);
   }

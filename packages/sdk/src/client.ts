@@ -8,6 +8,7 @@ import {
   isProjectCreator,
   parseApiToken,
   readKeyTrust,
+  trimTrailing,
   reviveLockedValues,
   unwrapApiTokenKeys,
   unwrapSigningKey,
@@ -132,7 +133,7 @@ export class AtlasClient {
   static async connect(opts: ConnectOptions): Promise<AtlasClient> {
     const parts = parseApiToken(opts.token);
     const { auth } = deriveApiTokenKeys(parts);
-    const baseUrl = opts.serverUrl.replace(/\/+$/, "");
+    const baseUrl = trimTrailing(opts.serverUrl, "/");
     const api: ApiClient = new ApiClient({
       baseUrl,
       fetch: opts.fetch,
