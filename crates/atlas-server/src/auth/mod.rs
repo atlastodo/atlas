@@ -118,6 +118,24 @@ pub struct AuthUser {
     /// For an API-token session, the apps its token carries keys for (`api_tokens.apps`): the
     /// only apps it may sync. `None` for an interactive session.
     pub token_apps: Option<Vec<String>>,
+    /// Whether the session may write: always for an interactive session; for an API-token
+    /// session, whether its token was made with write access (`api_tokens.can_write`). A
+    /// read-only token's requests other than reads ([`is_read_route`]) are refused before any
+    /// handler runs.
+    pub can_write: bool,
+}
+
+/// The routes a read-only API token may use: reads (`GET`, `HEAD`) and the sync WebSocket ticket,
+/// a `POST` that only reads (the socket never takes writes). Everything else writes or might.
+fn is_read_route(parts: &Parts) -> bool {
+    use axum::http::Method;
+    if parts.method == Method::GET || parts.method == Method::HEAD {
+        return true;
+    }
+    // The router nests every route under `/api` too.
+    let path = parts.uri.path();
+    let path = path.strip_prefix("/api").unwrap_or(path);
+    parts.method == Method::POST && path == "/sync/ws-ticket"
 }
 
 /// [`AuthUser`] for the account-critical routes (credentials, recovery, sessions, API tokens,
@@ -196,26 +214,32 @@ async fn authenticate_bearer(
     if api_token && claims.did.is_none() {
         return Err(AppError::Unauthorized);
     }
-    let (disabled, deletion_scheduled_at, live_session, token_apps): (
+    // For an API token: its unrevoked row (`t`), whether it is still before its expiry, its apps
+    // and its write access.
+    #[allow(clippy::type_complexity)]
+    let (disabled, deletion_scheduled_at, live_session, token_apps, token_expired, can_write): (
         bool,
         Option<time::OffsetDateTime>,
         bool,
         Option<Vec<String>>,
+        bool,
+        bool,
     ) = sqlx::query_as(
-        "SELECT disabled_at IS NOT NULL, deletion_scheduled_at,
-                CASE WHEN $3 THEN EXISTS (
-                    SELECT 1 FROM api_tokens
-                     WHERE id = $2 AND user_id = $1 AND revoked_at IS NULL)
+        "SELECT u.disabled_at IS NOT NULL, u.deletion_scheduled_at,
+                CASE WHEN $3 THEN t.id IS NOT NULL
+                                  AND (t.expires_at IS NULL OR t.expires_at > now())
                 ELSE $2::uuid IS NULL OR EXISTS (
                     SELECT 1 FROM refresh_tokens
                      WHERE user_id = $1 AND device_id = $2
                        AND revoked_at IS NULL AND expires_at > now())
                 END,
-                CASE WHEN $3 THEN (
-                    SELECT apps FROM api_tokens
-                     WHERE id = $2 AND user_id = $1 AND revoked_at IS NULL)
-                END
-           FROM users WHERE id = $1",
+                t.apps,
+                COALESCE(t.expires_at <= now(), false),
+                COALESCE(t.can_write, false)
+           FROM users u
+           LEFT JOIN api_tokens t
+             ON $3 AND t.id = $2 AND t.user_id = u.id AND t.revoked_at IS NULL
+          WHERE u.id = $1",
     )
     .bind(claims.sub)
     .bind(claims.did)
@@ -228,12 +252,22 @@ async fn authenticate_bearer(
     if disabled {
         return Err(AppError::AccountDisabled);
     }
+    // A session of a token that has since expired ends on its next request, whatever its access
+    // token's own lifetime (which the exchange already caps at the expiry).
+    if api_token && token_expired {
+        return Err(AppError::ApiTokenExpired);
+    }
     // Scheduling a deletion also ends every session. The token in hand still reaches the export
     // until it expires (`AuthUserAllowScheduled`), as no new session can be had in the grace
     // period; `AuthUser` refuses it with the typed error.
     // An API token never reaches the grace-period export, so it needs a live token regardless.
     if !live_session && (api_token || deletion_scheduled_at.is_none()) {
         return Err(AppError::Unauthorized);
+    }
+    // A read-only token reaches the read routes only, whichever handler a route has: deny by
+    // default, so a write route added later is covered too.
+    if api_token && !can_write && !is_read_route(parts) {
+        return Err(AppError::ApiTokenReadOnly);
     }
     Ok((
         AuthUser {
@@ -243,6 +277,7 @@ async fn authenticate_bearer(
             api_token,
             // A token session always has a list (empty only if the row vanished meanwhile).
             token_apps: api_token.then(|| token_apps.unwrap_or_default()),
+            can_write: !api_token || can_write,
         },
         deletion_scheduled_at,
     ))

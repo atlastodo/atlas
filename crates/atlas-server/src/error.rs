@@ -43,6 +43,18 @@ pub enum AppError {
     /// instance (`ATLAS_APPS`) or account (`account_apps`). 403 with `code: app_not_enabled`.
     #[error("the {app} app is not enabled for this {scope}")]
     AppNotEnabled { app: String, scope: &'static str },
+    /// An API token past its `expires_at`, at the exchange or on a request of a session it opened.
+    /// 401 with `code: api_token_expired`: only a new token helps, so the holder must not retry.
+    #[error("this API token has expired")]
+    ApiTokenExpired,
+    /// A write (anything but a read route) from a session of a token made without write access.
+    /// 403 with `code: api_token_read_only`.
+    #[error("this API token is read-only")]
+    ApiTokenReadOnly,
+    /// `POST /auth/api-tokens` with an expiry the policy of the token's apps refuses (missing,
+    /// past, or too far out). 400 with the given `code`.
+    #[error("{message}")]
+    ApiTokenPolicy { code: &'static str, message: String },
     #[error("{0} already exists")]
     Conflict(String),
     /// `PUT /auth/recovery-key` naming a key other than the one already registered.
@@ -107,7 +119,9 @@ impl AppError {
     fn status(&self) -> StatusCode {
         match self {
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
-            AppError::Unauthorized => StatusCode::UNAUTHORIZED,
+            AppError::Unauthorized | AppError::ApiTokenExpired => StatusCode::UNAUTHORIZED,
+            AppError::ApiTokenReadOnly => StatusCode::FORBIDDEN,
+            AppError::ApiTokenPolicy { .. } => StatusCode::BAD_REQUEST,
             AppError::InvalidCredentials => StatusCode::FORBIDDEN,
             AppError::RefreshSuperseded => StatusCode::UNAUTHORIZED,
             AppError::AccountScheduledDeletion { .. } => StatusCode::FORBIDDEN,
@@ -159,6 +173,9 @@ impl AppError {
             AppError::AlreadyMember => Some("already_member"),
             AppError::InteractiveSessionRequired => Some("interactive_session_required"),
             AppError::AppNotEnabled { .. } => Some("app_not_enabled"),
+            AppError::ApiTokenExpired => Some("api_token_expired"),
+            AppError::ApiTokenReadOnly => Some("api_token_read_only"),
+            AppError::ApiTokenPolicy { code, .. } => Some(code),
             AppError::PasskeysDisabled => Some("passkeys_disabled"),
             AppError::PasskeyPrfUnsupported => Some("passkey_prf_unsupported"),
             AppError::PasskeyInvalid(_) => Some("passkey_invalid"),
