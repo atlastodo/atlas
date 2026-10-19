@@ -27,7 +27,7 @@ in
   # Atlas core development environment.
   #
   # Provides every tool needed to build and test core reproducibly:
-  #   - Rust (atlas-core, atlas-server, atlas-client, atlas-cli)
+  #   - Rust (atlas-core, atlas-server, atlas-client, atlas-cli, atlas-secretspec)
   #   - Node + Bun (packages/{client-core,shared,sdk})
   #   - PostgreSQL (server database, run as a devenv service)
   #   - assorted quality/tooling
