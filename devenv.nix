@@ -142,7 +142,7 @@ in
     (cd packages/shared && bunx --bun vitest run)
     (cd packages/sdk && bunx --bun vitest run)
   '';
-  # Typecheck, ESLint (`eslint.config.mjs`) and `prettier --check` cover the TypeScript packages, as
+  # Typecheck, oxlint (`.oxlintrc.json`) and `prettier --check` cover the TypeScript packages, as
   # in CI's `Lint (TypeScript)`.
   # One command per line: under `set -e` a failure on the left of `&&` would not stop the script.
   scripts.lint.exec = ''
@@ -150,7 +150,7 @@ in
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets --no-deps -- -D warnings
     bun run --filter '*' typecheck
-    bunx eslint .
+    bunx oxlint .
     bunx prettier --check .
     node scripts/third-party-licenses.mjs --check
     # nix/bun.nix must match bun.lock (Dependabot's bun PRs regenerate it).
