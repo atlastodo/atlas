@@ -291,7 +291,7 @@ async fn discovery_offers_vault_and_token_policies() {
         body["apps"],
         json!([
             { "id": "todo", "name": "Atlas Todo", "version": 1 },
-            { "id": "vault", "name": "Atlas Vault", "version": 1 },
+            { "id": "vault", "name": "Atlas Vault", "version": 2 },
         ])
     );
     let caps = body["capabilities"].as_array().unwrap();
@@ -357,10 +357,17 @@ async fn a_vault_token_needs_an_expiry_of_at_most_a_year() {
             json!({ "expires_at": now_ms() + 366 * DAY_MS }),
             "api_token_expiry_too_far",
         ),
-        // A token for todo and vault takes the strictest of their policies.
+        // A vault token is for the vault alone, whatever its expiry.
         (
             json!({ "apps": ["todo", "vault"], "wrapped_dek": wrap(), "wrapped_private_key": wrap() }),
-            "api_token_expiry_required",
+            "api_token_app_exclusive",
+        ),
+        (
+            json!({
+                "apps": ["todo", "vault"], "wrapped_dek": wrap(), "wrapped_private_key": wrap(),
+                "expires_at": now_ms() + DAY_MS,
+            }),
+            "api_token_app_exclusive",
         ),
     ] {
         let (status, body) = create_vault_token(&router, &user, &new_token(), extra.clone()).await;
@@ -643,6 +650,62 @@ async fn an_expired_token_opens_nothing_and_its_sessions_end() {
         .await
         .unwrap();
     assert!(wraps.0.is_none(), "revoking drops the wraps");
+}
+
+#[tokio::test]
+async fn the_sweep_drops_an_expired_tokens_keys_and_keeps_its_row() {
+    let (state, router) = suite().await;
+    let user = vault_user(&router).await;
+    let (expired, _) =
+        vault_session(&router, &user, json!({ "expires_at": now_ms() + DAY_MS })).await;
+    let (live, _) = vault_session(&router, &user, json!({ "expires_at": now_ms() + DAY_MS })).await;
+    expire(&state, &expired).await;
+
+    atlas_server::auth::api_tokens::scrub_expired(&state.pool)
+        .await
+        .unwrap();
+    let keys = |id: Uuid| {
+        let pool = state.pool.clone();
+        async move {
+            sqlx::query_as::<_, (bool, bool)>(
+                "SELECT app_keys IS NOT NULL, revoked_at IS NULL FROM api_tokens WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    assert_eq!(
+        keys(expired.id).await,
+        (false, true),
+        "keys gone, not revoked"
+    );
+    assert_eq!(
+        keys(live.id).await,
+        (true, true),
+        "a live token keeps its keys"
+    );
+
+    // Its holder still learns that it expired, and it stays listed until revoked.
+    let (status, body) = exchange(&router, &expired).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(code(&body), "api_token_expired");
+    open(&router, &live).await;
+    let (_, list) = send(
+        &router,
+        "GET",
+        "/auth/api-tokens",
+        Some(&user.token),
+        None,
+        Value::Null,
+    )
+    .await;
+    assert!(list
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|t| t["id"] == json!(expired.id)));
 }
 
 #[tokio::test]

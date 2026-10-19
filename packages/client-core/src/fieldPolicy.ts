@@ -23,6 +23,8 @@ export interface TokenPolicy {
   max_lifetime_days: number | null;
   /** Whether a token may write when its creator does not say. */
   write_by_default: boolean;
+  /** A token including the app may include no other app (the server refuses the mix). */
+  exclusive: boolean;
 }
 
 /** A bundled app manifest: its id, version, the entity kinds it syncs and its token policy. */
@@ -49,13 +51,15 @@ export const BUNDLED_MANIFESTS: readonly AppManifest[] = Object.freeze([
 /**
  * The policy of a token for all of `apps` (bundled ids), the strictest of theirs as the server
  * takes it: an expiry required if any requires one, the shortest lifetime, and read-only by
- * default if any is. A client making a token reads it to ask for an expiry and write access.
+ * default if any is, and exclusive if any is. A client making a token reads it to ask for an expiry
+ * and write access, and to offer an exclusive app's token on its own.
  */
 export function tokenPolicyFor(apps: readonly string[]): TokenPolicy {
   const policy: TokenPolicy = {
     expiry_required: false,
     max_lifetime_days: null,
     write_by_default: true,
+    exclusive: false,
   };
   for (const app of apps) {
     const p = BUNDLED_MANIFESTS.find((m) => m.app === app)?.api_tokens;
@@ -68,6 +72,7 @@ export function tokenPolicyFor(apps: readonly string[]): TokenPolicy {
           : Math.min(policy.max_lifetime_days, p.max_lifetime_days);
     }
     if (p.write_by_default === false) policy.write_by_default = false;
+    if (p.exclusive) policy.exclusive = true;
   }
   return policy;
 }

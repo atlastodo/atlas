@@ -62,6 +62,9 @@ pub struct TokenPolicy {
     /// Whether a token may write when its creator does not say: `false` makes tokens read-only
     /// unless writes are opted in.
     pub write_by_default: bool,
+    /// A token including the app may include no other app, so its expiry and write access are
+    /// about that app alone.
+    pub exclusive: bool,
 }
 
 impl Default for TokenPolicy {
@@ -70,13 +73,14 @@ impl Default for TokenPolicy {
             expiry_required: false,
             max_lifetime_days: None,
             write_by_default: true,
+            exclusive: false,
         }
     }
 }
 
 impl TokenPolicy {
     /// The policy of a token for all of `policies`: an expiry required if any requires one, the
-    /// shortest lifetime, and read-only by default if any is.
+    /// shortest lifetime, read-only by default if any is, and exclusive if any is.
     pub fn strictest<'a>(policies: impl IntoIterator<Item = &'a TokenPolicy>) -> TokenPolicy {
         policies
             .into_iter()
@@ -87,6 +91,7 @@ impl TokenPolicy {
                     (a, b) => a.or(b),
                 },
                 write_by_default: acc.write_by_default && p.write_by_default,
+                exclusive: acc.exclusive || p.exclusive,
             })
     }
 
@@ -101,7 +106,7 @@ impl TokenPolicy {
         if let Some(key) = obj.keys().find(|k| {
             !matches!(
                 k.as_str(),
-                "expiry_required" | "max_lifetime_days" | "write_by_default"
+                "expiry_required" | "max_lifetime_days" | "write_by_default" | "exclusive"
             )
         }) {
             return Err(bad(&format!("{key} is not a token policy setting")));
@@ -124,6 +129,7 @@ impl TokenPolicy {
             expiry_required: flag("expiry_required", false)?,
             max_lifetime_days,
             write_by_default: flag("write_by_default", true)?,
+            exclusive: flag("exclusive", false)?,
         })
     }
 }
@@ -363,6 +369,7 @@ mod tests {
                 expiry_required: true,
                 max_lifetime_days: Some(365),
                 write_by_default: false,
+                exclusive: true,
             }
         );
         // Todo and journal keep the defaults.
@@ -381,6 +388,7 @@ mod tests {
             expiry_required: true,
             max_lifetime_days: Some(365),
             write_by_default: false,
+            exclusive: true,
         };
         let short = TokenPolicy {
             max_lifetime_days: Some(30),
@@ -408,6 +416,7 @@ mod tests {
         let parsed = AppManifest::parse(&with(r#"{"expiry_required":true}"#)).unwrap();
         assert!(parsed.api_tokens.expiry_required);
         assert!(parsed.api_tokens.write_by_default);
+        assert!(!parsed.api_tokens.exclusive);
         assert_eq!(parsed.api_tokens.max_lifetime_days, None);
         for bad in [
             "[]",
