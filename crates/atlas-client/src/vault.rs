@@ -257,6 +257,14 @@ pub fn summarize(item: &VaultItem) -> VaultItemSummary {
     }
 }
 
+/// The listing form of an item as the CLI prints it.
+pub fn summary_view(view: &VaultItemView) -> VaultItemSummaryView {
+    VaultItemSummaryView {
+        item: summarize(&view.item),
+        folder_name: view.folder_name.clone(),
+    }
+}
+
 fn field_json(f: &VaultField) -> Value {
     json!({ "name": f.name, "kind": f.kind, "value": f.value })
 }

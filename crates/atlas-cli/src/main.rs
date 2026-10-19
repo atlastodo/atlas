@@ -15,6 +15,7 @@ fn main() {
         stdout: &mut out,
         stderr: &mut err,
         connect: None,
+        stdin: Some(&|| std::io::read_to_string(std::io::stdin())),
     };
     let code = atlas_cli::run(&argv, &mut io);
     std::process::exit(code);

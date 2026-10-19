@@ -2,7 +2,9 @@
 //! account signs up with real keys, makes an API token as the app does, and the CLI reads and
 //! writes its tasks over HTTP. A second token session checks that the server only ever held
 //! ciphertext that the account's keys open. A journal-only token does the same with Atlas Journal
-//! entries, and a token or server without the app is refused with a JSON error.
+//! entries, and a token or server without the app is refused with a JSON error. Vault-only tokens
+//! keep a CI secret: one with writes opted in stores it, the default read-only one reads it back
+//! and is refused writes by the server as well as the client.
 
 use std::net::SocketAddr;
 use std::process::Command;
@@ -447,4 +449,211 @@ fn journal_commands_need_a_token_and_a_server_with_journal() {
     let line: Value = serde_json::from_str(err.trim()).expect("a JSON error");
     assert_eq!(line["code"], "server_incompatible", "{err}");
     assert!(line["error"].as_str().unwrap().contains("journal"), "{err}");
+}
+
+/// Sign up a current account and enable Atlas Vault as the app does; returns the signed-in API
+/// client, the account id, and the vault key and identity.
+fn account_with_vault(base: &str) -> (ApiClient, String, [u8; 32], [u8; 32]) {
+    let api = ApiClient::new(base, Box::new(UreqTransport::default()));
+    let user_id = Uuid::new_v4().to_string();
+    let signup = api
+        .request(
+            "POST",
+            "/auth/signup",
+            Some(&json!({
+                "email": format!("cli-vault-{}@example.com", Uuid::now_v7()),
+                "password": hex::encode(random_bytes::<32>()),
+                "salt": hex::encode(random_bytes::<16>()),
+                "public_key": x25519_public_key(&random_bytes()),
+                "recovery_public_key": x25519_public_key(&random_bytes()),
+                "encrypted_dek": wrapped(),
+                "encrypted_private_key": wrapped(),
+                "recovery_encrypted_dek": wrapped(),
+                "recovery_encrypted_private_key": wrapped(),
+                "user_id": user_id,
+                "encrypted_root_key": wrapped(),
+                "recovery_encrypted_root_key": wrapped(),
+                "app_keys": [{ "app": "todo", "wrapped_key": wrapped(), "wrapped_private_key": wrapped() }],
+            })),
+        )
+        .expect("signs up");
+    api.set_token(Some(signup["access_token"].as_str().unwrap().to_owned()));
+    api.request(
+        "PUT",
+        "/auth/app-keys/vault",
+        Some(&json!({ "wrapped_key": wrapped(), "wrapped_private_key": wrapped() })),
+    )
+    .expect("stores the vault key");
+    api.request("PUT", "/auth/apps/vault", None)
+        .expect("enables vault");
+    (api, user_id, random_bytes(), random_bytes())
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+}
+
+/// Make a vault-only API token carrying `key` and `private_key`, expiring in a day; `extra` adds
+/// to the request (`write`). Returns the token string and its id.
+fn vault_token(
+    api: &ApiClient,
+    user_id: &str,
+    key: &[u8; 32],
+    private_key: &[u8; 32],
+    extra: Value,
+) -> (String, String) {
+    let token = generate_api_token();
+    let wraps = wrap_app_keys_for_api_token(&token, user_id, "vault", key, private_key).unwrap();
+    let auth = atlas_client::crypto::derive_api_token_keys(&token).auth;
+    let mut body = json!({
+        "id": token.id, "name": "ci", "auth": auth,
+        "apps": ["vault"], "app_keys": { "vault": wraps },
+        "expires_at": now_ms() + 86_400_000,
+    });
+    for (k, v) in extra.as_object().unwrap() {
+        body[k] = v.clone();
+    }
+    api.request("POST", "/auth/api-tokens", Some(&body))
+        .expect("creates a vault token");
+    (format_api_token(&token), token.id.clone())
+}
+
+/// [`atlas`] with `input` on standard input.
+fn atlas_with_stdin(base: &str, token: &str, args: &[&str], input: &str) -> (i32, Value, String) {
+    use std::io::Write;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_atlas"))
+        .args(args)
+        .env("ATLAS_URL", base)
+        .env("ATLAS_TOKEN", token)
+        .env_remove("ATLAS_STATE_DIR")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("runs atlas");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let json = serde_json::from_str(&stdout).unwrap_or(Value::String(stdout));
+    (
+        out.status.code().unwrap(),
+        json,
+        String::from_utf8(out.stderr).unwrap(),
+    )
+}
+
+fn error_code(err: &str) -> String {
+    let line: Value = serde_json::from_str(err.trim()).expect("a JSON error");
+    line["code"].as_str().unwrap_or("").to_owned()
+}
+
+#[test]
+fn the_cli_keeps_vault_secrets_for_ci_with_scoped_tokens() {
+    let base = start_server_with(&["todo", "vault"]);
+    let (api, user_id, vault_key, vault_private) = account_with_vault(&base);
+
+    // A token with writes opted in stores a secret, read from stdin so it never sits in argv.
+    let (writer, _) = vault_token(
+        &api,
+        &user_id,
+        &vault_key,
+        &vault_private,
+        json!({ "write": true }),
+    );
+    let (code, _, err) = atlas(&base, &writer, &["vault", "folders", "add", "CI"]);
+    assert_eq!(code, 0, "{err}");
+    let (code, added, err) = atlas_with_stdin(
+        &base,
+        &writer,
+        &["vault", "add", "--json", "-"],
+        r#"{"name": "Deploy key", "type": "api_key", "folder": "ci",
+            "fields": [{"name": "token", "kind": "hidden", "value": "sk_live_e2e"}]}"#,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(added["folder_name"], "CI");
+    assert!(
+        !added.to_string().contains("sk_live_e2e"),
+        "a write does not echo the secret: {added}"
+    );
+    let id = added["id"].as_str().unwrap().to_owned();
+
+    // The default vault token reads only: the secret, as plain text for scripts.
+    let (reader, reader_id) = vault_token(&api, &user_id, &vault_key, &vault_private, json!({}));
+    let (code, value, err) = atlas(
+        &base,
+        &reader,
+        &["vault", "get", "deploy key", "--field", "token"],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(value, Value::String("sk_live_e2e\n".into()));
+    let (code, listed, err) = atlas(&base, &reader, &["vault", "list", "--folder", "CI"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    assert!(!listed.to_string().contains("sk_live_e2e"));
+    let (code, _, err) = atlas(&base, &reader, &["vault", "delete", &id]);
+    assert_eq!(code, 1);
+    assert_eq!(error_code(&err), "api_token_read_only", "{err}");
+
+    // The server refuses the read-only token's writes itself, whatever the client does.
+    let mut opts = ConnectOptions::new(&base, &reader);
+    opts.app = "vault".into();
+    let client = AtlasClient::connect(opts).expect("a vault session connects");
+    assert!(!client.session().can_write);
+    let refused = client
+        .session()
+        .api
+        .request("POST", "/sync/push", Some(&json!({ "operations": [] })))
+        .unwrap_err();
+    assert_eq!(refused.status(), Some(403));
+    assert_eq!(refused.api_code(), Some("api_token_read_only"));
+
+    // What the server holds is ciphertext under the vault key, as vault.* ops.
+    let pulled = client
+        .session()
+        .api
+        .request("GET", "/sync/pull?since=0", None)
+        .unwrap();
+    let raw = pulled.to_string();
+    assert!(!raw.contains("sk_live_e2e") && !raw.contains("Deploy key"));
+    for op in pulled["operations"].as_array().unwrap() {
+        let entity = op["entity"].as_str().unwrap();
+        assert!(entity.starts_with("vault."), "{entity}");
+        let envelope = FieldEnvelope::from_value(&op["value"]).expect("encrypted");
+        let at = FieldLocation {
+            entity,
+            entity_id: op["entity_id"].as_str().unwrap(),
+            field: op["field"].as_str().unwrap(),
+        };
+        assert!(decrypt_field(&vault_key, &KeyScope::Personal, at, &envelope).is_ok());
+    }
+
+    // Revoked, the token opens nothing; a vault token without an expiry is never made.
+    api.request("DELETE", &format!("/auth/api-tokens/{reader_id}"), None)
+        .expect("revokes");
+    let (code, _, err) = atlas(&base, &reader, &["vault", "list"]);
+    assert_eq!(code, 1);
+    assert_eq!(error_code(&err), "unauthorized", "{err}");
+    let token = generate_api_token();
+    let wraps =
+        wrap_app_keys_for_api_token(&token, &user_id, "vault", &vault_key, &vault_private).unwrap();
+    let refused = api
+        .request(
+            "POST",
+            "/auth/api-tokens",
+            Some(&json!({
+                "id": token.id, "name": "forever", "apps": ["vault"],
+                "auth": atlas_client::crypto::derive_api_token_keys(&token).auth,
+                "app_keys": { "vault": wraps },
+            })),
+        )
+        .unwrap_err();
+    assert_eq!(refused.api_code(), Some("api_token_expiry_required"));
 }

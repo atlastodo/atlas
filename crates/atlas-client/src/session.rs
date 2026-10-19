@@ -293,7 +293,7 @@ impl Session {
         Err(Error::atlas(
             "api_token_read_only",
             format!(
-                "this API token is read-only; make a {} token with write access to change data",
+                "this API token is read-only: changing {} data needs a token made with write access",
                 app_name(&self.app)
             ),
         ))

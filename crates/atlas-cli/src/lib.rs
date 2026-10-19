@@ -1,7 +1,8 @@
 //! The `atlas` command line, at parity with `packages/cli/src/cli.ts`: the same environment, commands,
 //! JSON output and exit codes. Commands also take the app they belong to (`atlas todo tasks list`);
 //! the flat forms (`atlas tasks list`) stay as aliases. Atlas Journal's commands always name their
-//! app (`atlas journal entries list`) and open a journal session of the token.
+//! app (`atlas journal entries list`) and open a journal session of the token; so do Atlas
+//! Vault's (`atlas vault list`, `atlas vault get NAME --field password`).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -11,6 +12,7 @@ use atlas_client::journal::{check_mood, JournalFields, JournalQuery, JOURNAL_APP
 use atlas_client::rules::dates::parse_due;
 use atlas_client::rules::zoned::resolve_time_zone;
 use atlas_client::session::ConnectOptions;
+use atlas_client::vault::{summary_view, VaultQuery, VAULT_APP};
 use atlas_client::Error;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -52,11 +54,26 @@ Atlas Journal (needs a token that includes Atlas Journal):
   journal entries update ID [same fields as add] [--json OBJECT]
   journal entries delete ID
 
+Atlas Vault (needs a token that includes Atlas Vault; read-only unless made with write access):
+  vault list [--folder F] [--type T] [--tag T] [--search TEXT]   items without their secrets
+  vault get ITEM [--field NAME]   an item with its secrets, or one field's value as plain text
+  vault add --name TEXT [--type T] [--username U] [--password P] [--totp SEED]
+            [--text NAME=VALUE]... [--hidden NAME=VALUE]... [--uri URL]... [--notes TEXT]
+            [--tag T]... [--folder F] [--favorite true|false] [--json OBJECT|-]
+  vault update ITEM [same fields as add] [--remove-field NAME]... [--json OBJECT|-]
+  vault delete ITEM
+  vault folders list
+  vault folders add NAME
+
 DATE is YYYY-MM-DD, YYYY-MM-DDTHH:MM (in ATLAS_TZ), ISO 8601 with an offset, unix ms, today,
 tomorrow, or none. P and L are names or ids. --json takes the fields as one JSON object
 (title, notes, due, priority, project, labels, recurrence), handy when templating from n8n.
 DAY is YYYY-MM-DD, today, yesterday or tomorrow (in ATLAS_TZ); an entry's date defaults to
 today. A journal --json takes date, title, body, mood (null clears it) and tags.
+ITEM and F are names (case-insensitive) or ids. A vault --json takes type, name, fields
+([{{name, kind, value}}]), urls, notes, tags, folder and favorite, and on update set_fields and
+remove_fields; --json - reads it from stdin, which keeps secrets out of the process list.
+Field flags add or replace one field (on update the others stay); --folder none clears it.
 
 Errors go to stderr as {{\"error\": ..., \"code\": ...}} with exit code 1 (2 for usage errors)."
     )
@@ -65,11 +82,16 @@ Errors go to stderr as {{\"error\": ..., \"code\": ...}} with exit code 1 (2 for
 /// Opens the client; tests pass their own.
 pub type Connect<'a> = &'a dyn Fn(ConnectOptions) -> Result<AtlasClient, Error>;
 
+/// Reads standard input to its end (`--json -`); tests pass their own.
+pub type ReadStdin<'a> = &'a dyn Fn() -> std::io::Result<String>;
+
 pub struct Io<'a> {
     pub env: HashMap<String, String>,
     pub stdout: &'a mut dyn FnMut(&str),
     pub stderr: &'a mut dyn FnMut(&str),
     pub connect: Option<Connect<'a>>,
+    /// `None` reads nothing: `--json -` is then a usage error.
+    pub stdin: Option<ReadStdin<'a>>,
 }
 
 #[derive(Debug)]
@@ -115,6 +137,18 @@ const OPTIONS: &[(&str, Kind)] = &[
     ("tag", Kind::Multi),
     ("from", Kind::Str),
     ("to", Kind::Str),
+    ("name", Kind::Str),
+    ("type", Kind::Str),
+    ("field", Kind::Str),
+    ("folder", Kind::Str),
+    ("username", Kind::Str),
+    ("password", Kind::Str),
+    ("totp", Kind::Str),
+    ("text", Kind::Multi),
+    ("hidden", Kind::Multi),
+    ("uri", Kind::Multi),
+    ("remove-field", Kind::Multi),
+    ("favorite", Kind::Str),
 ];
 
 #[derive(Debug, Default)]
@@ -180,7 +214,7 @@ fn parse_args(argv: &[String]) -> Result<(Values, Vec<String>), String> {
                         Some(v) => v,
                         None => match argv.get(i) {
                             None => return Err(format!("Option '--{name} <value>' argument missing")),
-                            Some(v) if v.starts_with('-') => {
+                            Some(v) if v.len() > 1 && v.starts_with('-') => {
                                 return Err(format!(
                                     "Option '--{name}' argument is ambiguous.\nDid you forget to specify the option argument for '--{name}'?\nTo specify an option argument starting with a dash use '--{name}=-XYZ'."
                                 ))
@@ -240,6 +274,15 @@ const JOURNAL_NEEDS_ID: &[&str] = &[
 ];
 const JOURNAL_COMMANDS: &[&str] = &["journal entries list", "journal entries add"];
 
+/// Atlas Vault's commands, always after `vault`.
+const VAULT_NEEDS_TARGET: &[&str] = &[
+    "vault get",
+    "vault update",
+    "vault delete",
+    "vault folders add",
+];
+const VAULT_COMMANDS: &[&str] = &["vault list", "vault add", "vault folders list"];
+
 /// Run one command and return the exit code.
 pub fn run(argv: &[String], io: &mut Io<'_>) -> i32 {
     let (values, positionals) = match parse_args(argv) {
@@ -274,7 +317,39 @@ pub fn run(argv: &[String], io: &mut Io<'_>) -> i32 {
         .map(PathBuf::from);
 
     let journal = positionals.first().map(String::as_str) == Some(JOURNAL_APP);
-    let (command, target) = if journal {
+    let vault = positionals.first().map(String::as_str) == Some(VAULT_APP);
+    let (command, target) = if vault {
+        // `atlas vault get ITEM`, `atlas vault folders add NAME`.
+        let words = if positionals.get(1).map(String::as_str) == Some("folders") {
+            3
+        } else {
+            2
+        };
+        let command = positionals
+            .iter()
+            .take(words)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let known = VAULT_COMMANDS.contains(&command.as_str())
+            || VAULT_NEEDS_TARGET.contains(&command.as_str());
+        if !known {
+            return usage(
+                io,
+                &format!("unknown command \"{}\"", positionals.join(" ")),
+            );
+        }
+        let target = positionals.get(words).cloned();
+        if VAULT_NEEDS_TARGET.contains(&command.as_str()) && target.is_none() {
+            let what = if command == "vault folders add" {
+                "a folder name"
+            } else {
+                "an item name or id"
+            };
+            return usage(io, &format!("\"{command}\" needs {what}"));
+        }
+        (command, target)
+    } else if journal {
         // `atlas journal entries get ID`.
         let command = positionals
             .iter()
@@ -322,6 +397,27 @@ pub fn run(argv: &[String], io: &mut Io<'_>) -> i32 {
     opts.state_dir = state_dir;
     if journal {
         opts.app = JOURNAL_APP.to_owned();
+    }
+    if vault {
+        opts.app = VAULT_APP.to_owned();
+    }
+    // `--json -`: the object comes from stdin, read before signing in so a bad one costs nothing.
+    let mut values = values;
+    if values.get("json") == Some("-") {
+        let Some(read) = io.stdin else {
+            return usage(io, "--json - needs standard input");
+        };
+        match read() {
+            Ok(text) => {
+                values.strings.insert("json".into(), text);
+            }
+            Err(e) => return usage(io, &format!("could not read standard input: {e}")),
+        }
+    }
+    if vault {
+        if let Err(Fail::Usage(m)) = vault_input(&command, &values) {
+            return usage(io, &m);
+        }
     }
     let connected = match io.connect {
         Some(connect) => connect(opts),
@@ -455,6 +551,35 @@ fn dispatch(
             atlas.delete_journal_entry(id)?;
             to_json(json!({ "deleted": id }))
         }
+        "vault list" => {
+            let tags = values.all("tag").cloned().unwrap_or_default();
+            if tags.len() > 1 {
+                return Err(Fail::Usage("vault list takes one --tag".into()));
+            }
+            to_json(atlas.vault_items(&VaultQuery {
+                folder: values.get("folder").map(str::to_owned),
+                kind: values.get("type").map(str::to_owned),
+                tag: tags.into_iter().next(),
+                search: values.get("search").map(str::to_owned),
+            })?)
+        }
+        "vault get" => match values.get("field") {
+            // The bare value, for `$(atlas vault get … --field password)`.
+            Some(field) => atlas.vault_secret(id, field)?,
+            None => to_json(atlas.vault_item(id)?),
+        },
+        // A write answers the listing form: a CI log should not end up holding the secret.
+        "vault add" => {
+            let item = atlas.create_vault_item(&vault_input(command, values)?)?;
+            to_json(summary_view(&item))
+        }
+        "vault update" => {
+            let item = atlas.update_vault_item(id, &vault_input(command, values)?)?;
+            to_json(summary_view(&item))
+        }
+        "vault delete" => to_json(json!({ "deleted": atlas.delete_vault_item(id)? })),
+        "vault folders list" => to_json(atlas.vault_folders()?),
+        "vault folders add" => to_json(atlas.create_vault_folder(id)?),
         other => return Err(Fail::Usage(format!("unknown command \"{other}\""))),
     })
 }
@@ -518,6 +643,116 @@ fn journal_fields(values: &Values) -> Result<JournalFields, Fail> {
         mood,
         tags,
     })
+}
+
+/// A `NAME=VALUE` field flag.
+fn named_value(flag: &str, raw: &str) -> Result<(String, String), Fail> {
+    match raw.split_once('=') {
+        Some((n, v)) if !n.trim().is_empty() => Ok((n.trim().to_owned(), v.to_owned())),
+        _ => Err(Fail::Usage(format!("--{flag} takes NAME=VALUE"))),
+    }
+}
+
+/// Append `items` to the list `key` of `input`; a non-list there is left for the rules to refuse.
+fn extend_list(input: &mut Map<String, Value>, key: &str, items: Vec<Value>, replace_named: bool) {
+    let mut list = match input.remove(key) {
+        None => Vec::new(),
+        Some(Value::Array(a)) => a,
+        Some(other) => {
+            input.insert(key.into(), other);
+            return;
+        }
+    };
+    for item in items {
+        let name = item
+            .get("name")
+            .and_then(Value::as_str)
+            .map(|n| n.trim().to_lowercase());
+        let same = list.iter_mut().find(|e| {
+            replace_named
+                && name.is_some()
+                && e.get("name")
+                    .and_then(Value::as_str)
+                    .map(|n| n.trim().to_lowercase())
+                    == name
+        });
+        match same {
+            Some(e) => *e = item,
+            None => list.push(item),
+        }
+    }
+    input.insert(key.into(), Value::Array(list));
+}
+
+/// What `vault add` and `vault update` send: the `--json` object (or stdin's), with the flags over
+/// it. A field flag adds or replaces one field: on add in `fields`, on update in `set_fields`, so
+/// the item's other fields stay. `Null` for the other vault commands.
+fn vault_input(command: &str, values: &Values) -> Result<Value, Fail> {
+    let update = command == "vault update";
+    if !update && command != "vault add" {
+        return Ok(Value::Null);
+    }
+    let mut input = json_object(values)?;
+    for key in ["name", "type", "notes"] {
+        if let Some(v) = values.get(key) {
+            input.insert(key.into(), v.into());
+        }
+    }
+    if let Some(f) = values.get("folder") {
+        let folder = if f.is_empty() || f.eq_ignore_ascii_case("none") {
+            Value::Null
+        } else {
+            f.into()
+        };
+        input.insert("folder".into(), folder);
+    }
+    if let Some(f) = values.get("favorite") {
+        let favorite = match f.to_ascii_lowercase().as_str() {
+            "true" | "yes" | "1" => true,
+            "false" | "no" | "0" => false,
+            _ => return Err(Fail::Usage("--favorite is true or false".into())),
+        };
+        input.insert("favorite".into(), favorite.into());
+    }
+    if let Some(urls) = values.all("uri") {
+        input.insert("urls".into(), urls.clone().into());
+    }
+    if let Some(tags) = values.all("tag") {
+        input.insert("tags".into(), tags.clone().into());
+    }
+    let mut fields: Vec<Value> = Vec::new();
+    for (flag, kind) in [
+        ("username", "text"),
+        ("password", "hidden"),
+        ("totp", "totp"),
+    ] {
+        if let Some(v) = values.get(flag) {
+            fields.push(json!({ "name": flag, "kind": kind, "value": v }));
+        }
+    }
+    for kind in ["text", "hidden"] {
+        for raw in values.all(kind).into_iter().flatten() {
+            let (name, value) = named_value(kind, raw)?;
+            fields.push(json!({ "name": name, "kind": kind, "value": value }));
+        }
+    }
+    if !fields.is_empty() {
+        let key = if update { "set_fields" } else { "fields" };
+        extend_list(&mut input, key, fields, true);
+    }
+    if let Some(removes) = values.all("remove-field") {
+        if !update {
+            return Err(Fail::Usage("--remove-field is for vault update".into()));
+        }
+        let removes = removes.iter().cloned().map(Value::from).collect();
+        extend_list(&mut input, "remove_fields", removes, false);
+    }
+    if !update && !input.contains_key("name") {
+        return Err(Fail::Usage(
+            "vault add needs --name (or a name in --json)".into(),
+        ));
+    }
+    Ok(Value::Object(input))
 }
 
 fn optional_due(value: Option<&str>, tz: Option<&str>, now: i64) -> Result<Option<i64>, Fail> {
@@ -766,7 +1001,8 @@ pub fn describe(err: &Error) -> String {
                         _ => "server_error".into(),
                     }),
             };
-            let hint = if status == 401 {
+            // An expired token says so itself.
+            let hint = if status == 401 && code == "unauthorized" {
                 " (revoked or wrong token?)"
             } else {
                 ""
