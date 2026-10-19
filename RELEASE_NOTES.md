@@ -59,6 +59,7 @@ This repository is now **atlastodo/atlas**, the Atlas core: the sync server, the
 - Thank contributors in the release notes
 
 ### Fixes
+- Linear-time trimming of padding, slashes and Todoist start dates
 - Store app keys only for bundled apps the instance offers
 - Android SDK platform and build-tools 37 for Expo SDK 58
 - Allow insecure content only for an http server
