@@ -74,7 +74,7 @@ op id makes pushes idempotent.
 
 ## Apps and manifests
 
-Atlas is becoming a suite of end-to-end encrypted apps (todo and journal now; notes and a password vault
+Atlas is becoming a suite of end-to-end encrypted apps (todo, journal and the vault now; notes
 later) on one generic server and one account. Each app has a first-party manifest in
 `manifests/<app>.json`: its id, a display name, a version, and its entity kinds with the fields
 of each that travel in plaintext. The manifests are part of the release: `atlas-core` compiles
@@ -92,16 +92,25 @@ exactly one manifest and every manifest kind is a variant.
 
 Enablement has two levels:
 
-- Instance: `ATLAS_APPS` (default `todo`; `todo,journal` to offer Atlas Journal) names the bundled apps the server offers. An id the
+- Instance: `ATLAS_APPS` (default `todo`; `todo,journal,vault` to offer Atlas Journal and Atlas Vault) names the bundled apps the server offers. An id the
   release does not bundle stops the server at startup.
 - Account: the `account_apps` table (`user_id`, `app`, `enabled_at`). A trigger gives every new
   user row `todo`, and the migration backfilled existing accounts. `GET /auth/apps` lists the
   instance's apps with the caller's enablement and `PUT /auth/apps/:app` enables one; both take
   an interactive session (an API token gets `403 interactive_session_required`).
 
-The release bundles `todo` and `journal` (Atlas Journal: `journal.entry`, `journal.preference`,
-every field encrypted). Journal's client is a separate app; this repository ships its manifest,
-the server rules and the client-core helpers.
+The release bundles `todo`, `journal` (Atlas Journal: `journal.entry`, `journal.preference`,
+every field encrypted) and `vault` (Atlas Vault: `vault.item`, `vault.folder`,
+`vault.preference`, every field encrypted). Their clients are separate apps; this repository
+ships their manifests, the server rules, the client-core helpers, the item rules
+(`packages/shared/src/vault.ts`, `crates/atlas-client/src/vault.rs`) and the CLI and SDK
+commands.
+
+A manifest may also carry an `api_tokens` policy (`expiry_required`, `max_lifetime_days`,
+`write_by_default`; `TokenPolicy` in `atlas-core`, `tokenPolicyFor` in client-core) that the
+server enforces for every API token that includes the app, taking the strictest when a token is
+for several. The vault's requires an expiry at most 365 days out and makes tokens read-only
+unless writes are opted in; see [API tokens](#api-tokens).
 
 #### App-scoped sessions
 
@@ -137,6 +146,12 @@ Journal v1 has no sharing. Push resolves fan-out through `may_fan_out` and the p
 the server reads none of their fields (not even one named `project_id`), and they never reach
 another partition. A new kind fails to compile until it chooses.
 
+The vault is personal in v1 too, for the same reasons and the same way: its kinds are owner-only
+in those matches and the server reads none of their fields, so it sees an item's id and the
+times it changed, never its type, name, folder or URLs. Item, folder and field names are
+encrypted like the secrets. Sharing a collection of items with a person or a machine (on the
+project-key machinery) is later work.
+
 #### Enabling an app
 
 `enableApp` in `packages/client-core/src/rootKey.ts` generates the app's 32-byte key and X25519
@@ -153,7 +168,7 @@ answers 404 and 403), so no key row lands under the root for an app nothing can 
 
 ### Discovery
 
-`GET /discovery` is public and reads no database (here with `ATLAS_APPS=todo,journal`):
+`GET /discovery` is public and reads no database (here with `ATLAS_APPS=todo,journal,vault`):
 
 ```json
 {
@@ -167,11 +182,13 @@ answers 404 and 403), so no key row lands under the root for an app nothing can 
     "account_apps",
     "root_key",
     "app_scoped_sync",
-    "app_scoped_api_tokens"
+    "app_scoped_api_tokens",
+    "api_token_policies"
   ],
   "apps": [
     { "id": "todo", "name": "Atlas Todo", "version": 1 },
-    { "id": "journal", "name": "Atlas Journal", "version": 1 }
+    { "id": "journal", "name": "Atlas Journal", "version": 1 },
+    { "id": "vault", "name": "Atlas Vault", "version": 1 }
   ]
 }
 ```
@@ -482,7 +499,20 @@ usage in [integrations.md](./integrations.md)).
     todo scope of a token without todo, is 403 `app_not_enabled` with scope `token`. The session
     response lists the token's `apps`. The app's settings screen still makes todo tokens only.
   - Sync, project keys, members and attachments accept token sessions.
-  - An account holds at most 25 live tokens.
+  - A token may expire (`expires_at`, unix ms) and may be read-only (`write: false`), both chosen
+    at creation within its apps' manifest policies (`api_token_policies` capability, migration
+    `20261019000001_api_token_access.sql`: `api_tokens.expires_at`, `can_write`). A vault token
+    needs an expiry at most 365 days out (400 `api_token_expiry_required`,
+    `api_token_expiry_in_past`, `api_token_expiry_too_far`) and is read-only unless `write: true`;
+    todo and journal tokens default to no expiry and write access, as before. Past its expiry the
+    exchange answers 401 `api_token_expired` and so does every request of a session it opened
+    (`authenticate_bearer` checks it on each one); the access token it hands out ends no later
+    than the token. A read-only token's sessions reach only `GET`/`HEAD` routes and
+    `POST /sync/ws-ticket`; anything else is 403 `api_token_read_only`, refused in `AuthUser`
+    before any handler runs, so a write route added later is covered without change. The session
+    response and the token list carry `expires_at` and `write`. An expired token stays listed
+    until revoked and no longer counts against the cap.
+  - An account holds at most 25 live (unexpired) tokens.
 - **Revoking.** Revoking a token, recovering the account or scheduling its deletion sets
   `revoked_at` and nulls the wraps (`app_keys` too), so a token string that leaks afterwards opens nothing. A
   password change leaves tokens alone, since the DEK does not change.

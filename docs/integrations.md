@@ -141,6 +141,63 @@ Atlas Journal fails with `{"error": "this API token is not for Atlas Journal …
 journal fails with `server_incompatible`. With `ATLAS_STATE_DIR` each app keeps its own file
 there.
 
+### Atlas Vault
+
+On a server that offers Atlas Vault (`ATLAS_APPS=todo,vault`), the CLI reads and writes vault
+items, for CI jobs and scripts that need a secret. Vault commands always start with `vault`, and
+they need a token that includes Atlas Vault (see [Vault tokens for CI](#vault-tokens-for-ci)):
+
+```sh
+atlas vault list [--folder F] [--type T] [--tag T] [--search TEXT]   # no secret values
+atlas vault get "Deploy key"                     # the item, secrets included
+atlas vault get "Deploy key" --field token       # one value, as plain text
+DEPLOY_TOKEN="$(atlas vault get 'Deploy key' --field token)"
+atlas vault add --name "Deploy key" --type api_key --hidden token=… --folder CI --tag prod
+atlas vault add --json - < item.json             # the object from stdin: no secret in argv
+atlas vault update "Deploy key" --hidden token=… --remove-field old --favorite true
+atlas vault delete "Deploy key"                  # to the trash
+atlas vault folders list
+atlas vault folders add CI
+```
+
+`ITEM` and `F` are names (case-insensitive, outside the trash) or ids; a name two items share is
+refused with `ambiguous_vault_item`, so use the id. `list` and every write print items without
+their field values, notes or history, so a CI log does not end up holding a secret; `get` prints
+everything, and `get ITEM --field NAME` prints only that field's value (case-insensitive name)
+followed by a newline. A flag on the command line is visible in the process list: pass secrets
+with `--json -` on stdin. Field flags add or replace one field (`--username`, `--password` and
+`--totp` name theirs; `--text` and `--hidden` take `NAME=VALUE`), and on `update` leave the item's
+other fields alone; `--json` takes the keys below, and on `update` also `set_fields` (fields to
+add or replace) and `remove_fields` (names) in place of a whole `fields` list. `--folder none`
+clears the folder.
+
+An item (`vault.item`) is printed, and stored, with these fields:
+
+| Field        | Value                                                                                            |
+| ------------ | ------------------------------------------------------------------------------------------------ |
+| `id`         | the item's id (a UUID)                                                                           |
+| `type`       | `login` (the default), `note`, `card`, `identity`, `ssh_key` or `api_key` (any other secret)     |
+| `name`       | text, required                                                                                   |
+| `fields`     | `[{name, kind, value}]`, names unique (case-insensitive)                                         |
+| `urls`       | a list of URLs, trimmed, without repeats                                                         |
+| `notes`      | text                                                                                             |
+| `tags`       | a list of strings, trimmed, without repeats (case-insensitive)                                   |
+| `folder`     | a folder's id, or `null`; `folder_name` is printed next to it                                    |
+| `favorite`   | `true` or `false`                                                                                |
+| `history`    | earlier values of secret fields, `{field, value, changed_at}`, newest first, 5 per field at most |
+| `created_at` | unix milliseconds                                                                                |
+| `updated_at` | unix milliseconds of the last change                                                             |
+| `deleted_at` | unix milliseconds once in the trash, else `null`                                                 |
+
+A field's `kind` is `text` (the default), `hidden` (a secret), `totp` (a TOTP seed: an
+`otpauth://` URI, or a base32 secret stored upper-case without spaces), `email`, `url` or `phone`.
+Changing or removing a `hidden` or `totp` field keeps its old value in `history`. A folder
+(`vault.folder`) has a `name` and the same timestamps. Every field of both is end-to-end
+encrypted: `manifests/vault.json` lists no plaintext field, so the server sees only ids and
+ciphertext, not even an item's type or name. The rules are shared with the TypeScript SDK
+(`VaultClient` in `@atlastodo/sdk`, `packages/shared/src/vault.ts`) through
+`test-vectors/vault_item_vectors.json`.
+
 Each run signs in, downloads and decrypts the account, then exits. That takes about a second for
 a typical account, and longer for a very large one. With `ATLAS_STATE_DIR` set, a run keeps the
 account there and the next one downloads only what changed. The file is encrypted under a key
@@ -236,7 +293,7 @@ projects' keys, just as a signed-in device does. See
 
 A token is scoped to apps. The tokens Atlas Todo's settings make are todo tokens, and their
 sessions sync todo only. A server with the `app_scoped_api_tokens` capability also accepts tokens
-for another app of the suite (Atlas Journal), made by a client of that app with
+for another app of the suite (Atlas Journal, Atlas Vault), made by a client of that app with
 `POST /auth/api-tokens` and `"apps": ["journal"]` (or `["todo", "journal"]`) once the account has
 enabled it:
 
@@ -254,4 +311,30 @@ slot]`; `test-vectors/api_token_vectors.json` has a journal entry).
 - In a journal session the journal app key does what the DEK does for todo: each field value is a
   personal-scope field envelope (`{"__enc": 2, "kid": "dek", …}`, associated data naming the kind
   `journal.entry`, the entity, the field and the scope `personal`) under the journal key. There
-  are no shared projects, project keys or legacy values in a journal session.
+  are no shared projects, project keys or legacy values in a journal session. A vault session
+  works the same way with the vault key (`vault.item`, `vault.folder`).
+
+### Vault tokens for CI
+
+A token that includes Atlas Vault is held to the vault's token policy (`api_tokens` in
+`manifests/vault.json`), which the server enforces on servers with the `api_token_policies`
+capability:
+
+- **It expires.** `POST /auth/api-tokens` needs `expires_at` (unix ms), in the future and at most
+  365 days after the token is made; otherwise 400 `api_token_expiry_required`,
+  `api_token_expiry_in_past` or `api_token_expiry_too_far`. Past it, the exchange and every request
+  of a session it opened answer 401 `api_token_expired` (the CLI prints that code and exits 1), and
+  the access token a session gets ends no later than the token.
+- **It reads only, unless made with `"write": true`.** A read-only token's sessions reach the read
+  routes (`GET`, and the sync socket's ticket); a push or any other write is 403
+  `api_token_read_only`. The CLI and SDK check the session's `write` first and refuse the write
+  without sending anything.
+- **It is revoked like any token** (`DELETE /auth/api-tokens/:id`, or account recovery): its
+  wrapped keys are dropped and its sessions end on their next request. An expired token stays in
+  the list (with `expires_at`) until it is revoked, but no longer counts against the 25.
+- A token for the vault and another app takes the strictest of their policies. Todo and journal
+  tokens may also be given an expiry or `"write": false`.
+
+Make one read-only token per pipeline, scoped to `["vault"]`, and rotate it before it expires; a
+job that stores secrets gets its own token with writes. A vault token reaches every item of the
+vault: limiting one to some folders or items needs per-collection keys, which are not built yet.

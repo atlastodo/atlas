@@ -118,8 +118,8 @@ pub struct Config {
     /// [`DEFAULT_MAX_BLOB_TRANSFERS`]); one more answers `503`. Values below 1 are floored to 1.
     pub max_blob_transfers: usize,
     /// The bundled apps this instance offers (`ATLAS_APPS`, comma-separated, default
-    /// [`DEFAULT_APPS`]), checked against the manifests compiled in (`atlas_core::manifest`).
-    /// Sync refuses and hides the kinds of every other app.
+    /// [`DEFAULT_APPS`]), checked against the manifests compiled in (`atlas_core::manifest`:
+    /// `todo`, `journal`, `vault`). Sync refuses and hides the kinds of every other app.
     pub apps: Vec<String>,
     /// Passkey sign-in and unlock (`WEBAUTHN_RP_ID`, `WEBAUTHN_ORIGINS`, `WEBAUTHN_RP_NAME`);
     /// `None`, the default, leaves every `/auth/passkeys` route off.
