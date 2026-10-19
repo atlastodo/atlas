@@ -1,6 +1,6 @@
 ## v0.1.11
 
-This repository is now **atlastodo/atlas**, the Atlas core: the sync server, the Docker image, the `atlas` CLI and the `@atlastodo/*` packages. The todo app lives in [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo), and this image serves its v0.1.11 web build.
+This repository is now **atlastodo/atlas**, the Atlas core: the sync server, the Docker image, the `atlas` CLI and the `@atlastodo/*` packages. The todo app lives in [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo), and this image serves its v0.1.12 web build, which fixes a blank page at `/` that earlier builds showed after sign-in.
 
 **For self-hosters**
 - **New image name:** `ghcr.io/atlastodo/atlas` (Docker Hub: `atlastodo/atlas`). The old `atlas-todo` names keep receiving the same tags for now; switch when convenient.
