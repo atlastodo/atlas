@@ -10,6 +10,7 @@ import {
   type PersistedAttachmentUpload,
 } from "./persistence";
 import { IndexedDbPersistence } from "./indexeddb";
+import { sealPersistence } from "./sealedPersistence";
 import { ExpoSqlDatabase } from "./expo-sqlite";
 import type { Operation } from "./types";
 import type { Repair } from "./scope";
@@ -62,6 +63,25 @@ const BACKENDS: { name: string; makeDurable: () => Durable }[] = [
       const factory = new IDBFactory();
       const dbName = `atlas-${idbSeq++}`;
       return { open: () => new IndexedDbPersistence(dbName, factory) };
+    },
+  },
+  {
+    // A locking client's store: values sealed at rest, over a durable backend. One key per
+    // medium, as one device's unlocked app key gives one.
+    name: "sealPersistence (over SqlitePersistence)",
+    makeDurable: () => {
+      const db = new FakeSqlDatabase();
+      const key = new Uint8Array(32).fill(7);
+      return { open: () => sealPersistence(new SqlitePersistence(db), key) };
+    },
+  },
+  {
+    name: "sealPersistence (over fake-indexeddb)",
+    makeDurable: () => {
+      const factory = new IDBFactory();
+      const dbName = `atlas-sealed-${idbSeq++}`;
+      const key = new Uint8Array(32).fill(9);
+      return { open: () => sealPersistence(new IndexedDbPersistence(dbName, factory), key) };
     },
   },
 ];
