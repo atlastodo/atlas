@@ -1,0 +1,64 @@
+# Merges dependency PRs into `dev` once CI has passed on their head commit: the weekly refresh
+# (deps-refresh.yml, branch `chore/deps-refresh`) and Dependabot's grouped minor/patch updates
+# (branches `dependabot/*-minor-patch-*`). Dependabot's majors arrive one package per PR and wait for
+# review. Security updates target `main` and are not touched.
+#
+# It runs after each CI run, and hourly: a run that Dependabot triggered gets a read-only token, so
+# its PRs are merged by the hourly sweep. A merge made with GITHUB_TOKEN starts no `push` runs,
+# so the dev image (dev-image.yml, where there is one) is dispatched by hand.
+name: Dependency auto-merge
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: deps-automerge
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    name: Merge passing dependency PRs
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.actor.login != 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Merge
+        run: |
+          merged=0
+          while read -r number branch sha; do
+            case "$branch" in
+              chore/deps-refresh | dependabot/*-minor-patch-*) ;;
+              *) continue ;;
+            esac
+            passed="$(gh run list --workflow ci.yml --commit "$sha" --json conclusion --jq 'map(select(.conclusion == "success")) | length')"
+            if [ "$passed" -eq 0 ]; then
+              echo "#$number ($branch): no passing CI on $sha yet"
+              continue
+            fi
+            echo "#$number ($branch): CI passed on $sha, merging"
+            if gh pr merge "$number" --merge --delete-branch --match-head-commit "$sha"; then
+              merged=1
+            fi
+          done < <(gh pr list --base dev --state open --json number,headRefName,headRefOid,author,isCrossRepository \
+            --jq '.[] | select(.isCrossRepository | not)
+                      | select(.author.login == "app/dependabot" or .author.login == "app/github-actions")
+                      | "\(.number) \(.headRefName) \(.headRefOid)"')
+          if [ "$merged" -eq 1 ] && gh workflow view dev-image.yml >/dev/null 2>&1; then
+            gh workflow run dev-image.yml --ref dev
+          fi
