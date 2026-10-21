@@ -172,6 +172,10 @@ in
     cd "$DEVENV_ROOT"
     nix run --inputs-from . bun2nix -- -c ../ -o nix/bun.nix
   '';
+  # Refresh everything Dependabot cannot update (the devenv and flake locks, the Bun pins, the whole
+  # bun.lock and Cargo.lock, the app web pins, nix/bun.nix): scripts/update-deps.sh, which
+  # .github/workflows/deps-refresh.yml runs weekly.
+  scripts."deps:update".exec = ''bash "$DEVENV_ROOT/scripts/update-deps.sh" "$@"'';
 
   # The core packages' npm tarballs (atlastodo-<pkg>-X.Y.Z.tgz) in dist-packages/, as the release
   # attaches them; `packages:pack <dir>` writes them elsewhere.
@@ -186,7 +190,7 @@ in
       export PATH="$DEVENV_PROFILE/bin:$PATH"
     fi
     echo "Atlas dev shell -- rust $(rustc --version 2>/dev/null | cut -d' ' -f2), node $(node --version)"
-    echo "Scripts: dev, db:migrate, db:reset, test:all, lint, fmt, version:bump (run 'devenv up' for Postgres)"
+    echo "Scripts: dev, db:migrate, db:reset, test:all, lint, fmt, version:bump, deps:update (run 'devenv up' for Postgres)"
   '';
 
   # `devenv test` starts the processes (Postgres) first, which the atlas-server integration tests

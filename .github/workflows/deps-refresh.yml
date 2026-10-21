@@ -1,0 +1,89 @@
+# Weekly refresh of everything Dependabot can't update (scripts/update-deps.sh: devenv and flake
+# locks, the Bun pins, the whole bun.lock, the Expo SDK's packages, Cargo.lock, nix/bun.nix),
+# opened as one PR to `dev` from the `chore/deps-refresh` branch, which each run rebuilds.
+#
+# A PR opened with GITHUB_TOKEN starts no workflow runs, so CI is dispatched on the branch by hand;
+# its checks land on the PR's head commit. Opening the PR needs the repository setting "Allow
+# GitHub Actions to create and approve pull requests".
+name: Dependency refresh
+
+on:
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: deps-refresh
+  cancel-in-progress: false
+
+env:
+  BUN_VERSION: "1.4.2"
+  BRANCH: chore/deps-refresh
+
+jobs:
+  refresh:
+    name: Refresh dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: dev
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/update-deps.sh
+      - name: Open or update the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet; then
+            echo "Everything is current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git commit -aqm "chore(deps): weekly dependency refresh"
+          git push -f origin "$BRANCH"
+          {
+            echo "Weekly run of \`scripts/update-deps.sh\` ([log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID))."
+            echo
+            echo '```'
+            git show --stat --format= HEAD
+            echo '```'
+          } >"$RUNNER_TEMP/body.md"
+          if [ -n "$(gh pr list --head "$BRANCH" --base dev --state open --json number --jq '.[].number')" ]; then
+            gh pr edit "$BRANCH" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --base dev --head "$BRANCH" --title "chore(deps): weekly dependency refresh" \
+              --body-file "$RUNNER_TEMP/body.md"
+          fi
+          gh workflow run ci.yml --ref "$BRANCH"
+      # A new Expo SDK major is a migration (React Native, React and the native modules move
+      # together), so it is flagged as an issue rather than applied.
+      - name: Flag a new Expo SDK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for app in apps/*/; do
+            [ -f "${app}app.json" ] || continue
+            current="$(bun -e "console.log(require('./${app}node_modules/expo/package.json').version.split('.')[0])" 2>/dev/null)" || continue
+            latest="$(npm view expo version | cut -d. -f1)"
+            [ "$latest" -gt "$current" ] || continue
+            title="Upgrade to Expo SDK $latest"
+            if [ -z "$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[].number')" ]; then
+              gh issue create --title "$title" \
+                --body "Expo SDK $latest is out; \`${app%/}\` is on SDK $current. Upgrade with \`bunx expo install expo@^$latest --fix\` and follow the SDK's upgrade guide."
+            fi
+          done
