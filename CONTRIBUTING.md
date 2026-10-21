@@ -125,6 +125,7 @@ All of these run inside `devenv shell` (without it, see [Without Nix](#without-n
 | ------------------------ | -------------------------------------------------------------------- |
 | `dev`                    | the server (cargo watch) on :8080, serving the pinned web app        |
 | `nix:bun-lock`           | regenerate `nix/bun.nix` after a `bun.lock` change                   |
+| `deps:update`            | refresh what Dependabot can't (locks, Bun pins, app web pins)        |
 | `db:migrate`, `db:reset` | apply or reset the migrations                                        |
 | `test:all`               | every test suite (see below)                                         |
 | `lint`                   | rustfmt check, clippy, TypeScript checks, oxlint, Prettier, licences |
