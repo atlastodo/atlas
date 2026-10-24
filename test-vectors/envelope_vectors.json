@@ -352,14 +352,14 @@
       "kind": "comment",
       "real_field": "body",
       "value": {
-        "text": "Looks good",
-        "mentions": []
+        "mentions": [],
+        "text": "Looks good"
       },
       "envelope": {
         "__enc": 3,
         "kid": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
         "iv": "GBkaGxwdHh8gISIj",
-        "ct": "gM0BOi3BReVqddhqLwhPCwV0kuvKv7DYVk9dvkHIFh0+amVoAkvoKu5LuLbh5RQ37fxV9qg/ErJLBG46yLqjUCe1CjwCD5jo9o2boz0nGic="
+        "ct": "gM0BOi3BReVqddhqLwhPCwV0kuvTv6bYHRoRgQydJjMyL35iHh3mMqFiua3j+VojoKlqiag/ErJLBG46yLqjUCE7lh7EjjVu2Fpfla1m89w="
       }
     },
     {

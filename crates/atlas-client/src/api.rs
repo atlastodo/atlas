@@ -1,7 +1,7 @@
 //! The HTTP API (`api.ts`, the parts an integration uses): API-token sessions, discovery, project
 //! keys and `/sync/*`, encrypting op values on the way out and opening them on the way in.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use atlas_core::{Change, EntityKind, Operation};
@@ -9,12 +9,11 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::crypto::{
-    encrypt_field, is_encrypted_envelope, ApiTokenAppWraps, ApiTokenWrap, EncryptedPayload,
-    FieldLocation, KeyScope, Keyring, WrappedProjectKey, DEK_KEY_ID, TODO_APP,
+    is_encrypted_envelope, ApiTokenAppWraps, ApiTokenWrap, EncryptedPayload, FieldLocation,
+    KeyScope, Keyring, WrappedProjectKey, DEK_KEY_ID, TODO_APP,
 };
 use crate::discovery::{parse_discovery, ServerDiscovery, LEGACY_DISCOVERY};
 use crate::error::{Error, Result};
-use crate::field_policy::should_encrypt_field;
 use crate::scope::{
     batch_links_of, expected_key_scope, key_for_scope, open_field_value, open_options_for,
     resolve_scope, shared_project_ids, Repair, RepairReason, Scope,
@@ -23,7 +22,7 @@ use crate::store::{op_entity_id, Store};
 use crate::trust::{read_key_trust, KEY_TRUST_ID};
 
 /// The sync protocol this client speaks (`SYNC_PROTOCOL`).
-pub const SYNC_PROTOCOL: u32 = 6;
+pub const SYNC_PROTOCOL: u32 = 7;
 
 /// Names the apps a sync request works with (`x-atlas-sync-apps`); todo when absent.
 pub const SYNC_APPS_HEADER: &str = "x-atlas-sync-apps";
@@ -194,6 +193,8 @@ pub struct Page {
     pub from: Option<u64>,
     pub next: Option<String>,
     pub repairs: Vec<Repair>,
+    /// Values no key here opened and tombstones of entities not seen yet, for the store to keep.
+    pub aside: crate::wire::Aside,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -392,8 +393,8 @@ impl ApiClient {
         Ok(())
     }
 
-    /// Push `ops`, encrypting each field the manifest does not list as plaintext with the key of
-    /// its scope. Ops of a shared project whose key is missing are all deferred.
+    /// Push `ops` in the protocol 7 wire form (`crate::wire`), each with the key of its scope. Ops of
+    /// a shared project whose key is missing are all deferred.
     pub fn sync_push(
         &self,
         store: &Store,
@@ -415,7 +416,10 @@ impl ApiClient {
                     continue;
                 }
             }
-            wire.push(encode_wire_op(op, keyring, &scope, &shared)?);
+            wire.push(crate::wire::encode_op(
+                op,
+                &key_for_scope(keyring, &scope, &shared)?,
+            )?);
         }
         if wire.is_empty() {
             return Ok(PushResult {
@@ -463,6 +467,29 @@ impl ApiClient {
         Ok(page)
     }
 
+    /// The protocol 6 entities this partition still holds, a page at a time (`migrate_legacy`).
+    pub fn legacy_keys(&self, next: Option<&str>) -> Result<crate::sync::LegacyKeysPage> {
+        let q = next.map_or(String::new(), |n| {
+            format!("?next={}", encode_uri_component(n))
+        });
+        let res = self.request("GET", &format!("/sync/legacy/keys{q}"), None)?;
+        serde_json::from_value(res).map_err(|e| Error::Protocol(format!("legacy keys: {e}")))
+    }
+
+    /// Drop re-encoded protocol 6 entities from this partition; answers how many it still held.
+    pub fn drop_legacy(&self, keys: &[(String, String)]) -> Result<u64> {
+        let entities: Vec<Value> = keys
+            .iter()
+            .map(|(entity, id)| json!({ "entity": entity, "entity_id": id }))
+            .collect();
+        let res = self.request(
+            "POST",
+            "/sync/legacy/drop",
+            Some(&json!({ "entities": entities })),
+        )?;
+        Ok(res["dropped"].as_u64().unwrap_or(0))
+    }
+
     /// The one decode path for pull and snapshot pages (`decodeWirePayload`).
     pub fn decode_wire_payload(
         &self,
@@ -480,53 +507,33 @@ impl ApiClient {
             .and_then(Value::as_u64)
             .ok_or_else(malformed)?;
         let from = payload.get("from").and_then(Value::as_u64);
-        let mut decoded = Vec::with_capacity(operations.len());
-        for w in operations {
-            match serde_json::from_value::<Operation>(w.clone()) {
-                Ok(op) => decoded.push(op),
-                // A kind this build does not know (a later app's): nothing here could show it.
-                Err(_) => continue,
-            }
-        }
-        let batch = batch_links_of(&decoded);
-        let shared = shared_project_ids(store);
         let legacy = !self.is_legacy_migrated(store);
-        let mut repairs = Vec::new();
-        let mut out = Vec::with_capacity(decoded.len());
-        for mut op in decoded {
+        // Legacy rows (protocol 6) carry their links in plaintext, so their scopes resolve first.
+        let legacy_ops: Vec<Operation> = operations
+            .iter()
+            .filter(|w| {
+                w.get("entity")
+                    .and_then(Value::as_str)
+                    .is_some_and(crate::field_policy::is_legacy_wire_kind)
+            })
+            .filter_map(|w| serde_json::from_value::<Operation>(w.clone()).ok())
+            .collect();
+        let legacy_links = batch_links_of(&legacy_ops);
+        let shared = shared_project_ids(store);
+        let open_legacy = |mut op: Operation| -> Option<Operation> {
             let id = op_entity_id(&op);
             let Change::Set { field, value } = &mut op.change else {
-                out.push(op);
-                continue;
+                return Some(op);
             };
-            if !should_encrypt_field(op.entity.as_str(), field) {
-                out.push(op);
-                continue;
-            }
             let trust_state = op.entity == EntityKind::Preference && id == KEY_TRUST_ID;
             if !is_encrypted_envelope(value) {
-                // Plaintext in an encrypted field: before the legacy migration, old-client content
-                // to re-write encrypted; after it, only a forgery.
-                if !legacy || trust_state {
-                    continue;
-                }
-                repairs.push(Repair {
-                    entity: op.entity,
-                    entity_id: id,
-                    field: field.clone(),
-                    ts: op.ts,
-                    value: value.clone(),
-                    reason: RepairReason::Plaintext,
-                    key_id: None,
-                    scope: None,
-                    version: None,
-                });
-                out.push(op);
-                continue;
+                // Plaintext in an encrypted field: old-client content before the legacy migration;
+                // after it, only a forgery.
+                return (legacy && !trust_state).then_some(op);
             }
             let expected = expected_key_scope(
                 keyring,
-                &resolve_scope(store, op.entity, &id, Some(&batch)),
+                &resolve_scope(store, op.entity, &id, Some(&legacy_links)),
                 &shared,
             );
             let at = FieldLocation {
@@ -534,39 +541,56 @@ impl ApiClient {
                 entity_id: &id,
                 field,
             };
-            let Some(opened) = open_field_value(
+            // Kept as the envelope when no key opens it: a key that arrives later may.
+            if let Some(opened) = open_field_value(
                 keyring,
                 value,
                 at,
                 expected.as_ref(),
                 open_options_for(op.entity, &id, legacy),
-            ) else {
-                // Kept as the envelope: a key that arrives later may open it where it is.
-                out.push(op);
-                continue;
-            };
-            let canonical = match &expected {
-                Some(KeyScope::Personal) => opened.key_id == DEK_KEY_ID,
-                Some(KeyScope::Project(p)) => {
-                    keyring.canonical_key_id(p) == Some(opened.key_id.as_str())
-                }
-                None => false,
-            };
-            if expected.is_none() || opened.version == 1 || !canonical {
-                repairs.push(Repair {
-                    entity: op.entity,
-                    entity_id: id.clone(),
-                    field: field.clone(),
-                    ts: op.ts,
-                    value: opened.value.clone(),
-                    reason: RepairReason::Key,
-                    key_id: Some(opened.key_id.clone()),
-                    scope: Some(opened.scope.clone()),
-                    version: Some(opened.version),
-                });
+            ) {
+                *value = opened.value;
             }
-            *value = opened.value;
-            out.push(op);
+            Some(op)
+        };
+        let (decoded, aside) = crate::wire::decode_ops(operations, keyring, store, open_legacy);
+        // Current values opened with the keys of the scope they arrived in; their entities' scopes
+        // are known now that their links are readable.
+        let batch = batch_links_of(&decoded.iter().map(|d| d.op.clone()).collect::<Vec<_>>());
+        let mut repairs = Vec::new();
+        let mut out = Vec::with_capacity(decoded.len());
+        for d in decoded {
+            if let (false, Some((key_id, scope)), Change::Set { field, value }) =
+                (d.legacy, &d.opened, &d.op.change)
+            {
+                let id = op_entity_id(&d.op);
+                let expected = expected_key_scope(
+                    keyring,
+                    &resolve_scope(store, d.op.entity, &id, Some(&batch)),
+                    &shared,
+                );
+                let canonical = match &expected {
+                    Some(KeyScope::Personal) => key_id == DEK_KEY_ID,
+                    Some(KeyScope::Project(p)) => {
+                        keyring.canonical_key_id(p) == Some(key_id.as_str())
+                    }
+                    None => false,
+                };
+                if expected.as_ref() != Some(scope) || !canonical {
+                    repairs.push(Repair {
+                        entity: d.op.entity,
+                        entity_id: id,
+                        field: field.clone(),
+                        ts: d.op.ts,
+                        value: value.clone(),
+                        reason: RepairReason::Key,
+                        key_id: Some(key_id.clone()),
+                        scope: Some(scope.clone()),
+                        version: Some(3),
+                    });
+                }
+            }
+            out.push(d.op);
         }
         Ok(Page {
             operations: out,
@@ -574,31 +598,9 @@ impl ApiClient {
             from,
             next: None,
             repairs,
+            aside,
         })
     }
-}
-
-/// An op in wire form, its value encrypted with the key of `scope` unless the field is plaintext.
-fn encode_wire_op(
-    op: &Operation,
-    keyring: &Keyring,
-    scope: &Scope,
-    shared: &BTreeSet<String>,
-) -> Result<Value> {
-    let mut wire = serde_json::to_value(op).expect("an op serializes");
-    if let Change::Set { field, value } = &op.change {
-        if should_encrypt_field(op.entity.as_str(), field) {
-            let k = key_for_scope(keyring, scope, shared)?;
-            let id = op_entity_id(op);
-            let at = FieldLocation {
-                entity: op.entity.as_str(),
-                entity_id: &id,
-                field,
-            };
-            wire["value"] = encrypt_field(&k.key, &k.key_id, &k.scope, at, value)?.to_value();
-        }
-    }
-    Ok(wire)
 }
 
 /// `encodeURIComponent`.

@@ -30,5 +30,6 @@ pub mod sync;
 pub mod testing;
 pub mod trust;
 pub mod vault;
+pub mod wire;
 
 pub use error::{Error, Result};

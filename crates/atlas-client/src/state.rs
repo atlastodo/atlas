@@ -23,6 +23,9 @@ pub struct CachedState {
     pub user_id: String,
     pub cursor: u64,
     pub ops: Vec<Operation>,
+    /// Values no key opened yet (sync protocol 7), kept for a later run that holds the key.
+    #[serde(default)]
+    pub sealed: Vec<crate::store::SealedPending>,
 }
 
 #[derive(Serialize, Deserialize)]

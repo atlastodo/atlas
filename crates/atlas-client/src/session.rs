@@ -191,6 +191,9 @@ impl Session {
             if let Some(cached) = state::load(dir, &parts, &opts.server_url, &app) {
                 if cached.user_id == session.user_id {
                     store.apply_remote_batch(&cached.ops);
+                    for pending in cached.sealed {
+                        store.add_sealed(pending);
+                    }
                     cursor = cached.cursor;
                 }
             }
@@ -280,6 +283,7 @@ impl Session {
             user_id: self.user_id.clone(),
             cursor: self.sync.cursor(),
             ops: self.store.winning_ops(),
+            sealed: self.store.sealed().to_vec(),
         };
         state::save(dir, &self.token, &self.server_url, &self.app, &cached)?;
         Ok(true)
