@@ -57,19 +57,19 @@ function fieldAad(at: FieldLocation, scope: KeyScope, kid: string): Uint8Array {
 }
 
 /**
- * The padded size for `n` bytes of plaintext plus the one-byte pad marker: at least 32, then the
- * next power of two up to 1 KiB, then the next multiple of 1 KiB.
+ * The padded size for `n` bytes of plaintext plus the one-byte pad marker: at least `min` (32 for
+ * version 2), then the next power of two up to 1 KiB, then the next multiple of 1 KiB.
  */
-export function paddedLength(n: number): number {
+export function paddedLength(n: number, min = 32): number {
   const needed = n + 1;
-  if (needed <= 32) return 32;
+  if (needed <= min) return min;
   if (needed <= 1024) return 2 ** Math.ceil(Math.log2(needed));
   return Math.ceil(needed / 1024) * 1024;
 }
 
 /** Append 0x80 and zeros up to the bucket size (ISO/IEC 7816-4 padding). */
-export function padPlaintext(data: Uint8Array): Uint8Array {
-  const out = new Uint8Array(paddedLength(data.length));
+export function padPlaintext(data: Uint8Array, min = 32): Uint8Array {
+  const out = new Uint8Array(paddedLength(data.length, min));
   out.set(data, 0);
   out[data.length] = 0x80;
   return out;
@@ -110,6 +110,12 @@ export function decryptField(
 
 /** Sync protocol 7's envelope (docs/decisions/0006). */
 export const FIELD_ENVELOPE_V3 = 3;
+
+/**
+ * A v3 plaintext carries the kind and field name too, so its smallest bucket is 64 bytes: a small
+ * value of a long-named field must not fall in another bucket than one of a short-named field.
+ */
+export const FIELD_V3_MIN_PADDING = 64;
 
 export interface FieldEnvelopeV3 {
   __enc: 3;
@@ -155,6 +161,7 @@ export function sealField(
 ): FieldEnvelopeV3 {
   const plain = padPlaintext(
     utf8ToBytes(JSON.stringify([sealed.kind, sealed.field, sealed.value ?? null])),
+    FIELD_V3_MIN_PADDING,
   );
   const { iv, ct } = encryptAesGcm(key, plain, fieldAadV3(at, scope, kid));
   return { __enc: 3, kid, iv, ct };

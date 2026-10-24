@@ -1,5 +1,5 @@
 {
-  "_doc": "Field envelopes and key wraps (packages/client-core/src/crypto/field.ts, envelope.ts, keyring.ts, identity.ts, asym.ts). AES-256-GCM is deterministic given the IV, so a reimplementation must both open each `envelope`/wrap and reproduce its `ct` from the recorded `iv`. Field v2: plaintext = JSON of `value`, ISO/IEC 7816-4 padded to `paddedLength` (0x80 then zeros; at least 32 bytes, then powers of two up to 1 KiB, then whole KiB); associated data = UTF-8 of JSON.stringify([\"atlas-field\", 2, entity, entity_id, field, scope, kid]). Field v3 (sync protocol 7, docs/decisions/0006): plaintext = JSON of [kind, field, value], padded as v2; associated data = UTF-8 of JSON.stringify([\"atlas-field\", 3, wire_entity, entity_id, wire_field, scope, kid]), where wire_field is the tag or a public name. Field tags: tag_key = HKDF-SHA256(ikm key, no salt, info 'atlas-field-tag-v1', 32 bytes); tag = hex of the first 16 bytes of HMAC-SHA256(tag_key, UTF-8 of JSON.stringify([\"atlas-field-tag\", 1, entity_id, kind, field])). Field v1: JSON of value, unpadded, no associated data. PEK wrap v2: associated data JSON.stringify([\"atlas-pek-wrap\", 2, project_id]); the unbound form has none. project_key_id = hex of the first 16 bytes of SHA-256(\"atlas-pek-id-v1\" || pek). Signing key wrap: associated data JSON.stringify([\"atlas-signing-key-wrap\", 1, lowercase public key hex]). Sealed: X25519 with an ephemeral key, HKDF-SHA256(no salt, info 'atlas-seal-v1'), AES-256-GCM without associated data. Asserted by packages/client-core/src/crypto/envelope-vectors.test.ts and crates/atlas-client.",
+  "_doc": "Field envelopes and key wraps (packages/client-core/src/crypto/field.ts, envelope.ts, keyring.ts, identity.ts, asym.ts). AES-256-GCM is deterministic given the IV, so a reimplementation must both open each `envelope`/wrap and reproduce its `ct` from the recorded `iv`. Field v2: plaintext = JSON of `value`, ISO/IEC 7816-4 padded to `paddedLength` (0x80 then zeros; at least 32 bytes, then powers of two up to 1 KiB, then whole KiB); associated data = UTF-8 of JSON.stringify([\"atlas-field\", 2, entity, entity_id, field, scope, kid]). Field v3 (sync protocol 7, docs/decisions/0006): plaintext = JSON of [kind, field, value], padded as v2 but to at least 64 bytes (`padding_v3`); associated data = UTF-8 of JSON.stringify([\"atlas-field\", 3, wire_entity, entity_id, wire_field, scope, kid]), where wire_field is the tag or a public name. Field tags: tag_key = HKDF-SHA256(ikm key, no salt, info 'atlas-field-tag-v1', 32 bytes); tag = hex of the first 16 bytes of HMAC-SHA256(tag_key, UTF-8 of JSON.stringify([\"atlas-field-tag\", 1, entity_id, kind, field])). Field v1: JSON of value, unpadded, no associated data. PEK wrap v2: associated data JSON.stringify([\"atlas-pek-wrap\", 2, project_id]); the unbound form has none. project_key_id = hex of the first 16 bytes of SHA-256(\"atlas-pek-id-v1\" || pek). Signing key wrap: associated data JSON.stringify([\"atlas-signing-key-wrap\", 1, lowercase public key hex]). Sealed: X25519 with an ephemeral key, HKDF-SHA256(no salt, info 'atlas-seal-v1'), AES-256-GCM without associated data. Asserted by packages/client-core/src/crypto/envelope-vectors.test.ts and crates/atlas-client.",
   "padding": [
     {
       "n": 0,
@@ -324,7 +324,7 @@
         "__enc": 3,
         "kid": "dek",
         "iv": "AAECAwQFBgcICQoL",
-        "ct": "HCCieraO4DevNf7/3YxaQaGU8k3QFjYQU0W4BR1pALJI5lgtoQI6LfTda/elxXaa"
+        "ct": "HCCieraO4DevNf7/3YxaQaGU8k3QFjYQU0W4BR1pALIBEK78r8ESmHSkf+2Ihyg47llgjVrWo9o/lyoZGOP17gyymbCdZV+TFLMtpIs5VG8="
       }
     },
     {
@@ -340,7 +340,7 @@
         "__enc": 3,
         "kid": "dek",
         "iv": "DA0ODxAREhMUFRYX",
-        "ct": "w9wduQwd3n8VQzuK8uRLlzlmmYuSXxfe6defvWSgwPoAmyxiSHf7+OadOqmdgSwv"
+        "ct": "w9wduQwd3n8VQzuK8uRLlzlmmYuSXxfe6defvWSgwPos92ol4cUmYR/zDlLurBrajFa70an0FLNO/3pcuu1KuExVasrmycgCPcLULcZAsno="
       }
     },
     {
@@ -391,7 +391,7 @@
         "__enc": 3,
         "kid": "dek",
         "iv": "MDEyMzQ1Njc4OTo7",
-        "ct": "6BdHoZwDPi1DR+uBMLUcBvNTKiThEipwS9IMzOizfj6BC2TTI2YpUfLY282KEfLH"
+        "ct": "6BdHoZwDPi1DR+uBMLUcBvNTKiThEipwS9IMzOizfj5DYAxkLMCbp64kEkl6xtMtrkxdSSuxxSetQGFUQEhR9MS7KHMeOLdxaZlLD9nMEFs="
       }
     }
   ],
@@ -443,6 +443,40 @@
       "kind": "journal.entry",
       "field": "body",
       "tag": "d7f595d8d67e04b6380c408ea90fbf71"
+    }
+  ],
+  "padding_v3": [
+    {
+      "n": 0,
+      "padded": 64
+    },
+    {
+      "n": 30,
+      "padded": 64
+    },
+    {
+      "n": 62,
+      "padded": 64
+    },
+    {
+      "n": 63,
+      "padded": 64
+    },
+    {
+      "n": 64,
+      "padded": 128
+    },
+    {
+      "n": 100,
+      "padded": 128
+    },
+    {
+      "n": 1023,
+      "padded": 1024
+    },
+    {
+      "n": 1024,
+      "padded": 2048
     }
   ]
 }

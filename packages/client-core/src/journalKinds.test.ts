@@ -7,7 +7,9 @@
 import { describe, expect, it } from "vitest";
 import { ApiClient, fromEncryptedWire, toEncryptedWire, type FetchLike } from "./api";
 import { Keyring, generateDek } from "./crypto";
-import { openFieldValue, resolveScope } from "./scope";
+import { resolveScope } from "./scope";
+import { openSealed } from "./wire";
+import type { FieldEnvelopeV3 } from "./crypto";
 import { LocalStore } from "./store";
 import { JOURNAL_APP, buildAppKey, generateRootKey } from "./index";
 import type { EntityKind, Operation } from "./types";
@@ -43,17 +45,23 @@ describe("journal kinds", () => {
       value: ["walks", "sea"],
     };
     const wire = toEncryptedWire(op, keyring, null);
-    expect(wire).toMatchObject({ entity: "journal.entry", value: { __enc: 2, kid: "dek" } });
-    expect(JSON.stringify(wire)).not.toContain("walks");
+    expect(wire).toMatchObject({
+      entity: "journal.sealed",
+      scope: null,
+      value: { __enc: 3, kid: "dek" },
+    });
+    expect(JSON.stringify(wire)).not.toMatch(/walks|tags|journal\.entry/);
     expect(fromEncryptedWire(wire, keyring, null)).toEqual(op);
 
-    const value = (wire as { value: unknown }).value;
-    const opened = (k: Keyring, entity: string) =>
-      openFieldValue(k, value, { entity, entityId: "e1", field: "tags" }, { kind: "personal" }, {});
-    expect(opened(keyring, "journal.entry")?.value).toEqual(["walks", "sea"]);
-    // Not as another kind, and not with the todo key (the account's DEK).
-    expect(opened(keyring, "task")).toBeNull();
-    expect(opened(new Keyring({ dek: generateDek() }), "journal.entry")).toBeNull();
+    const value = (wire as { value: FieldEnvelopeV3 }).value;
+    const tag = (wire as { field: string }).field;
+    const opened = (k: Keyring, wireKind: string) =>
+      openSealed(k, wireKind, "e1", tag, null, value);
+    expect(opened(keyring, "journal.sealed")?.value).toEqual(["walks", "sea"]);
+    expect(opened(keyring, "journal.sealed")?.kind).toBe("journal.entry");
+    // Not as another wire kind, and not with the todo key (the account's DEK).
+    expect(opened(keyring, "todo.sealed")).toBeNull();
+    expect(opened(new Keyring({ dek: generateDek() }), "journal.sealed")).toBeNull();
   });
 
   it("push and pull in a journal-scoped session", async () => {

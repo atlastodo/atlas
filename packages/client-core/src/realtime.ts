@@ -55,9 +55,10 @@ export interface RealtimeClientOptions {
 
 /**
  * Sent on every request (`x-atlas-sync-protocol`) and in the WebSocket URL; the server answers 426
- * below its minimum. 4: `__enc: 2`, 5: ticket instead of token in the URL, 6: key rotations.
+ * below its minimum. 4: `__enc: 2`, 5: ticket instead of token in the URL, 6: key rotations, 7: wire
+ * kinds, scopes and field tags (docs/decisions/0006).
  */
-export const SYNC_PROTOCOL = 6;
+export const SYNC_PROTOCOL = 7;
 
 /** The protocol rides as a param since headers are unavailable. */
 export function buildSyncWsUrl(baseUrl: string, ticket: string, since: number): string {

@@ -347,10 +347,10 @@ describe("RealtimeClient close codes", () => {
 describe("buildSyncWsUrl", () => {
   it("maps http(s) to ws(s), strips a trailing slash, encodes the ticket and declares the protocol", () => {
     expect(buildSyncWsUrl("https://api.example.com/", "a/b+c", 7)).toBe(
-      "wss://api.example.com/sync/ws?ticket=a%2Fb%2Bc&since=7&protocol=6",
+      "wss://api.example.com/sync/ws?ticket=a%2Fb%2Bc&since=7&protocol=7",
     );
     expect(buildSyncWsUrl("http://localhost:8080", "t", 0)).toBe(
-      "ws://localhost:8080/sync/ws?ticket=t&since=0&protocol=6",
+      "ws://localhost:8080/sync/ws?ticket=t&since=0&protocol=7",
     );
   });
 });

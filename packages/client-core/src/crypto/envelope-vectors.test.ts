@@ -11,6 +11,7 @@ import {
   fieldTagKey,
   openSealedField,
   paddedLength,
+  FIELD_V3_MIN_PADDING,
   type FieldEnvelopeV2,
   type FieldEnvelopeV3,
   type KeyScope,
@@ -38,6 +39,7 @@ const fixturePath = fileURLToPath(
 );
 const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as {
   padding: { n: number; padded: number }[];
+  padding_v3: { n: number; padded: number }[];
   field_v2: {
     key: string;
     scope: string;
@@ -87,6 +89,9 @@ const scopeOf = (label: string): KeyScope =>
 describe("envelope vectors", () => {
   it("pads to the size buckets", () => {
     for (const { n, padded } of fixture.padding) expect(paddedLength(n)).toBe(padded);
+    for (const { n, padded } of fixture.padding_v3) {
+      expect(paddedLength(n, FIELD_V3_MIN_PADDING)).toBe(padded);
+    }
   });
 
   for (const [i, v] of fixture.field_v2.entries()) {

@@ -253,10 +253,11 @@ describe("attachment meta crypto (__aenc marker)", () => {
     expect(decryptMeta(aek, meta).filename).toBe("f");
   });
 
-  it("leaves attachment link fields and the pre-encrypted meta out of field encryption", () => {
-    // task_id / blob_sha are the server's routing + authorization keys — plaintext by design —
-    // and `meta` is already an encrypted envelope. All are listed in PLAINTEXT_FIELDS.
+  it("leaves only the blob addresses readable: public and in plaintext", () => {
+    // blob_sha authorizes downloads and keeps blobs alive, so the server reads it; the task link
+    // and the already encrypted `meta` are sealed like any field (protocol 7).
     const keyring = new Keyring({ dek: generateDek() });
+    keyring.setProjectKey("proj-1", generatePek());
     const ts = { wallMs: 1000, counter: 0, node: NODE };
     const meta = encryptMeta(generateAek(), {
       filename: "f",
@@ -275,7 +276,20 @@ describe("attachment meta crypto (__aenc marker)", () => {
         "proj-1",
       );
       expect(wire.op).toBe("set");
-      if (wire.op === "set") expect(wire.value).toEqual(value); // untouched by toEncryptedWire
+      if (wire.op !== "set") continue;
+      if (field === "blob_sha") {
+        expect(wire.field).toBe("blob_sha");
+        expect(wire.value).toEqual(value); // untouched by toEncryptedWire
+      } else {
+        expect(wire.field).toMatch(/^[0-9a-f]{32}$/);
+        expect(wire.value).toMatchObject({ __enc: 3 });
+      }
+      expect(wire).toMatchObject({ entity: "todo.sealed", scope: "proj-1" });
+      expect(fromEncryptedWire(wire, keyring)).toMatchObject({
+        entity: "attachment",
+        field,
+        value,
+      });
     }
   });
 
