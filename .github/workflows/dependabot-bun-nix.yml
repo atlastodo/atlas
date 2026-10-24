@@ -6,8 +6,8 @@
 # It runs only for Dependabot's own branches in this repository, and runs nothing from the PR but
 # bun2nix (pinned by the flake.lock, which Dependabot never edits) over the lockfile.
 #
-# A push made with GITHUB_TOKEN starts no new workflow runs, so CI's checks stay on Dependabot's
-# commit; the regenerated file is the only change. Dependabot stops rebasing a PR once another
+# A push made with GITHUB_TOKEN starts no new workflow runs, so CI is dispatched on the branch for
+# the new head commit; the regenerated file is the only change. Dependabot stops rebasing a PR once another
 # author has committed to it: ask it with `@dependabot recreate`, and this runs again.
 name: Dependabot bun.nix
 
@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: dependabot-bun-nix-${{ github.event.pull_request.number }}
@@ -33,7 +34,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
       - name: Regenerate
         # The same command as `nix:bun-lock`.
         run: nix run --inputs-from . bun2nix -- -c ../ -o nix/bun.nix
@@ -47,3 +48,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "chore(deps): regenerate nix/bun.nix" -- nix/bun.nix
           git push
+          # The push starts no CI run that can complete unattended (a bot commit on a PR asks for
+          # approval), so CI is dispatched on the branch; deps-automerge.yml merges on its result.
+          gh workflow run ci.yml --ref "${{ github.event.pull_request.head.ref }}"
+        env:
+          GH_TOKEN: ${{ github.token }}

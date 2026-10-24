@@ -1,7 +1,7 @@
 {
   "name": "atlas-todo",
   "private": true,
-  "version": "0.1.11",
+  "version": "0.1.12",
   "license": "AGPL-3.0-only",
   "homepage": "https://github.com/atlastodo/atlas",
   "repository": {
@@ -18,8 +18,7 @@
     "node": ">=26"
   },
   "devDependencies": {
-    "eslint": "^10.11.0",
-    "prettier": "3.9.10",
-    "typescript-eslint": "^8.71.1"
+    "oxlint": "1.88.0",
+    "prettier": "3.9.10"
   }
 }

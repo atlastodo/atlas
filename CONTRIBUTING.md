@@ -108,7 +108,7 @@ cargo nextest run --workspace
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --no-deps -- -D warnings
 bun run --filter '*' typecheck
-bunx eslint .
+bunx oxlint .
 bunx prettier --check .
 node scripts/third-party-licenses.mjs --check
 ```
@@ -125,9 +125,10 @@ All of these run inside `devenv shell` (without it, see [Without Nix](#without-n
 | ------------------------ | -------------------------------------------------------------------- |
 | `dev`                    | the server (cargo watch) on :8080, serving the pinned web app        |
 | `nix:bun-lock`           | regenerate `nix/bun.nix` after a `bun.lock` change                   |
+| `deps:update`            | refresh what Dependabot can't (locks, Bun pins, app web pins)        |
 | `db:migrate`, `db:reset` | apply or reset the migrations                                        |
 | `test:all`               | every test suite (see below)                                         |
-| `lint`                   | rustfmt check, clippy, TypeScript checks, ESLint, Prettier, licences |
+| `lint`                   | rustfmt check, clippy, TypeScript checks, oxlint, Prettier, licences |
 | `fmt`                    | rustfmt and prettier                                                 |
 | `packages:pack`          | pack the core packages' npm tarballs into `dist-packages/`           |
 | `version:bump`           | release helper, maintainers only                                     |
@@ -143,7 +144,7 @@ builtin.
 2. vitest in `packages/client-core`, `packages/shared` and `packages/sdk`
 
 `lint` runs `cargo fmt --check`, `cargo clippy --workspace --all-targets --no-deps -D warnings`,
-`tsc --noEmit` for every core package, `eslint .`, `prettier --check .` and the licence check.
+`tsc --noEmit` for every core package, `oxlint .`, `prettier --check .` and the licence check.
 `fmt` fixes the formatting.
 
 Each package has its own runner. To run one test:
@@ -222,7 +223,7 @@ the full suite. Pull requests from forks need no secrets, so they get the same c
 | Check             | What it runs                                                                         |
 | ----------------- | ------------------------------------------------------------------------------------ |
 | Lint (Rust)       | `cargo fmt --check`, clippy with `-D warnings`                                       |
-| Lint (TypeScript) | typecheck of the core packages; licence check; ESLint; Prettier check                |
+| Lint (TypeScript) | typecheck of the core packages; licence check; oxlint; Prettier check                |
 | MSRV              | `cargo check` on the minimum Rust version (1.94)                                     |
 | Test (Rust)       | `cargo nextest run --workspace` against PostgreSQL 16                                |
 | Test (TypeScript) | vitest in client-core, shared and sdk; the packed packages installed as a consumer's |

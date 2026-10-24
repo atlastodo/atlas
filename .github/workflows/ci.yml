@@ -154,7 +154,7 @@ jobs:
       - run: bun run --parallel --filter '*' typecheck
       # The licences of the JS packages the builds ship, against an allow-list.
       - run: node scripts/third-party-licenses.mjs --check
-      - run: bunx eslint .
+      - run: bunx oxlint .
       - run: bunx prettier --check .
 
   msrv:
@@ -218,7 +218,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
       # Prebuilt, checksum-verified binary; version matches devenv's.
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest@0.9.143
           fallback: none
@@ -279,7 +279,7 @@ jobs:
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --no-self-update
           rustup default "$RUST_TOOLCHAIN"
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-deny@0.20.2
           fallback: none
