@@ -15,6 +15,9 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::legacy::{legacy_push, record_creator};
+
 /// The credential a client sends for the account password: the auth hash it derives from it
 /// (64 lowercase hex characters), which is what the server stores and compares.
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -135,16 +138,11 @@ fn delete(id: Uuid, wall: u64) -> Value {
     })
 }
 
-async fn push(router: &Router, user: &User, ops: Vec<Value>) {
-    let (status, body) = http(
-        router,
-        "POST",
-        "/sync/push",
-        Some(&user.token),
-        json!({ "operations": ops }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{body:?}");
+/// What a protocol 6 client's push left in `partitions` (the pusher's first, then the members it
+/// fanned out to): the restore works on those legacy rows only.
+async fn push(pool: &PgPool, partitions: &[&User], ops: Vec<Value>) {
+    let ids: Vec<Uuid> = partitions.iter().map(|u| u.id).collect();
+    legacy_push(pool, &ids, &ops).await;
 }
 
 async fn share(router: &Router, owner: &User, invitee: &User, pid: Uuid) {
@@ -265,18 +263,20 @@ fn envelope(tag: &str) -> Value {
     json!({ "__enc": 1, "iv": format!("iv-{tag}"), "ct": format!("ciphertext/{tag}+==") })
 }
 
-/// A project (created at `base`) holding one task (created at `base + 1`) with ciphertext fields.
-async fn project_with_task(router: &Router, owner: &User, base: u64) -> (Uuid, Uuid) {
+/// A legacy project (created at `base`) holding one task (created at `base + 1`) with ciphertext
+/// fields, as a protocol 6 client wrote them.
+async fn project_with_task(pool: &PgPool, owner: &User, base: u64) -> (Uuid, Uuid) {
     let (pid, tid) = (Uuid::now_v7(), Uuid::now_v7());
     push(
-        router,
-        owner,
+        pool,
+        &[owner],
         vec![set("project", pid, "name", envelope("project"), base)],
     )
     .await;
+    record_creator(pool, pid, owner.id).await;
     push(
-        router,
-        owner,
+        pool,
+        &[owner],
         vec![
             set("task", tid, "title", envelope("title"), base + 1),
             set("task", tid, "notes", envelope("notes"), base + 1),
@@ -303,7 +303,7 @@ async fn member_delete_of_owners_task_is_restored_for_every_member() {
     let (router, pool) = setup().await;
     let (alice, bob) = (new_user(&router).await, new_user(&router).await);
     let base = now_ms() - 60_000;
-    let (pid, tid) = project_with_task(&router, &alice, base).await;
+    let (pid, tid) = project_with_task(&pool, &alice, base).await;
     share(&router, &alice, &bob, pid).await;
 
     let original = visible(&router, &alice, tid).await;
@@ -312,7 +312,7 @@ async fn member_delete_of_owners_task_is_restored_for_every_member() {
     let original_text = stored_text(&pool, alice.id, tid).await;
 
     // Bob's outdated client could not decrypt the task and deleted it; the delete fanned out.
-    push(&router, &bob, vec![delete(tid, base + 100)]).await;
+    push(&pool, &[&bob, &alice], vec![delete(tid, base + 100)]).await;
     assert!(visible(&router, &alice, tid).await.is_empty());
     assert!(visible(&router, &bob, tid).await.is_empty());
 
@@ -376,9 +376,9 @@ async fn a_creators_own_delete_is_skipped_unless_all_deleters() {
     let alice = new_user(&router).await;
     let base = now_ms() - 60_000;
     // A private project: the restore must land in the owner's partition alone.
-    let (pid, tid) = project_with_task(&router, &alice, base).await;
+    let (pid, tid) = project_with_task(&pool, &alice, base).await;
     let original = visible(&router, &alice, tid).await;
-    push(&router, &alice, vec![delete(tid, base + 100)]).await;
+    push(&pool, &[&alice], vec![delete(tid, base + 100)]).await;
 
     let mut o = opts(RestoreScope::User(alice.id), base + 50, base + 200);
     o.apply = true;
@@ -406,9 +406,9 @@ async fn a_delete_outside_the_window_is_left_alone() {
     let (router, pool) = setup().await;
     let (alice, bob) = (new_user(&router).await, new_user(&router).await);
     let base = now_ms() - 60_000;
-    let (pid, tid) = project_with_task(&router, &alice, base).await;
+    let (pid, tid) = project_with_task(&pool, &alice, base).await;
     share(&router, &alice, &bob, pid).await;
-    push(&router, &bob, vec![delete(tid, base + 100)]).await;
+    push(&pool, &[&bob, &alice], vec![delete(tid, base + 100)]).await;
     let rows = op_rows(&pool, tid).await;
 
     for (since, until) in [(base + 101, base + 1000), (base, base + 99)] {
@@ -430,11 +430,11 @@ async fn restore_beats_a_delete_stamped_by_a_clock_running_ahead() {
     let (router, pool) = setup().await;
     let (alice, bob) = (new_user(&router).await, new_user(&router).await);
     let base = now_ms() - 60_000;
-    let (pid, tid) = project_with_task(&router, &alice, base).await;
+    let (pid, tid) = project_with_task(&pool, &alice, base).await;
     share(&router, &alice, &bob, pid).await;
     let original = visible(&router, &alice, tid).await;
     let ahead = now_ms() + 120_000;
-    push(&router, &bob, vec![delete(tid, ahead)]).await;
+    push(&pool, &[&bob, &alice], vec![delete(tid, ahead)]).await;
 
     let mut o = opts(RestoreScope::Project(pid), ahead - 1, ahead + 1);
     o.apply = true;
@@ -476,7 +476,7 @@ async fn a_restored_task_brings_back_the_attachments_deleted_with_it() {
     let (router, pool) = setup().await;
     let (alice, bob) = (new_user(&router).await, new_user(&router).await);
     let base = now_ms() - 60_000;
-    let (pid, tid) = project_with_task(&router, &alice, base).await;
+    let (pid, tid) = project_with_task(&pool, &alice, base).await;
     share(&router, &alice, &bob, pid).await;
     let attachment = |id: Uuid, sha: &str| {
         vec![
@@ -492,14 +492,19 @@ async fn a_restored_task_brings_back_the_attachments_deleted_with_it() {
         ]
     };
     let (kept, dropped) = (Uuid::now_v7(), Uuid::now_v7());
-    push(&router, &alice, attachment(kept, &"a".repeat(64))).await;
-    push(&router, &alice, attachment(dropped, &"b".repeat(64))).await;
+    push(&pool, &[&alice, &bob], attachment(kept, &"a".repeat(64))).await;
+    push(&pool, &[&alice, &bob], attachment(dropped, &"b".repeat(64))).await;
     // One attachment was deleted on its own before the window; that delete must stand.
-    push(&router, &alice, vec![delete_attachment(dropped, base + 10)]).await;
+    push(
+        &pool,
+        &[&alice, &bob],
+        vec![delete_attachment(dropped, base + 10)],
+    )
+    .await;
     // Bob's purge of the task takes its remaining attachment with it.
     push(
-        &router,
-        &bob,
+        &pool,
+        &[&bob, &alice],
         vec![delete(tid, base + 100), delete_attachment(kept, base + 100)],
     )
     .await;

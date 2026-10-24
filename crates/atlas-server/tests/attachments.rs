@@ -20,6 +20,11 @@ use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::wire;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+
 /// The credential a client sends for the account password: the auth hash it derives from it
 /// (64 lowercase hex characters), which is what the server stores and compares.
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -187,19 +192,52 @@ async fn new_user(router: &Router) -> User {
     }
 }
 
+/// Each entity's scope, as a client knows it from its links: a task's project, an attachment's
+/// task's project. Ids are unique across tests, so one map serves them all.
+static SCOPES: LazyLock<Mutex<HashMap<String, Option<String>>>> = LazyLock::new(Default::default);
+
+fn scope_of(entity_id: &str) -> Option<String> {
+    SCOPES.lock().unwrap().get(entity_id).cloned().flatten()
+}
+
+/// A set op of `field` on an entity of the real `entity` kind, as a client sends it: under its
+/// wire kind and its scope (a link field moves it, as the client re-scopes on a move). A kind no
+/// manifest names goes out as it is.
 fn op(entity: &str, entity_id: &str, field: &str, value: Value, wall: u64) -> Value {
-    json!({
-        "id": Uuid::now_v7(), "entity": entity, "entity_id": entity_id,
-        "op": "set", "field": field, "value": value,
-        "ts": { "wall_ms": wall, "counter": 0, "node": Uuid::now_v7() },
-    })
+    if !["project", "task", "attachment"].contains(&entity) {
+        return json!({
+            "id": Uuid::now_v7(), "entity": entity, "entity_id": entity_id,
+            "op": "set", "field": field, "value": value,
+            "ts": { "wall_ms": wall, "counter": 0, "node": Uuid::now_v7() },
+        });
+    }
+    let linked = match (entity, field) {
+        ("task", "project_id") => Some(value.as_str().map(str::to_owned)),
+        ("attachment", "task_id") => Some(value.as_str().and_then(scope_of)),
+        _ => None,
+    };
+    if let Some(scope) = linked {
+        SCOPES.lock().unwrap().insert(entity_id.to_owned(), scope);
+    }
+    let scope = scope_of(entity_id);
+    wire::set(
+        wire::wire_kind(entity),
+        entity_id,
+        scope.as_deref(),
+        field,
+        value,
+        (wall, 0, Uuid::now_v7()),
+    )
 }
 
 fn tombstone_op(entity: &str, entity_id: &str, wall: u64) -> Value {
-    json!({
-        "id": Uuid::now_v7(), "entity": entity, "entity_id": entity_id,
-        "op": "delete", "ts": { "wall_ms": wall, "counter": 0, "node": Uuid::now_v7() },
-    })
+    let scope = scope_of(entity_id);
+    wire::delete(
+        wire::wire_kind(entity),
+        entity_id,
+        scope.as_deref(),
+        (wall, 0, Uuid::now_v7()),
+    )
 }
 
 async fn push_ops(router: &Router, token: &str, ops: Vec<Value>) -> StatusCode {
@@ -401,7 +439,7 @@ async fn wire_roundtrip_push_pull_and_snapshot_backfill() {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|o| o["op"] == "set" && o["entity"] == "attachment")
+        .filter(|o| o["op"] == "set" && o["entity"] == wire::SEALED)
         .collect();
     assert!(
         fields.iter().any(|o| o["value"] == json!(sha)),
@@ -443,7 +481,7 @@ async fn wire_roundtrip_push_pull_and_snapshot_backfill() {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|o| o["op"] == "set" && o["entity"] == "attachment")
+        .filter(|o| o["op"] == "set" && o["entity"] == wire::SEALED)
         .collect();
     assert!(
         fields.iter().any(|o| o["value"] == json!(sha)),
@@ -469,10 +507,12 @@ async fn wire_roundtrip_push_pull_and_snapshot_backfill() {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|o| o["op"] == "set" && o["entity"] == "attachment" && o["field"] == "meta")
+        .filter(|o| {
+            o["op"] == "set" && o["entity"] == wire::SEALED && o["field"] == wire::tag("meta")
+        })
         .collect();
     assert!(
-        metas.iter().any(|o| o["value"]["__aenc"] == 1),
+        metas.iter().any(|o| wire::value_of(o)["__aenc"] == 1),
         "__aenc meta rides opaquely"
     );
 }
@@ -1383,9 +1423,18 @@ async fn deleting_a_task_revokes_and_frees_its_attachments() {
     );
     assert_eq!(get_status(&router, &alice, &sha).await, StatusCode::OK);
 
-    // Purging the task tombstones only the task in this partition; its attachment dies with it.
+    // Purging the task tombstones its attachments too: the server cannot link the two, the
+    // client does.
     assert_eq!(
-        push_ops(&router, &alice.token, vec![tombstone_op("task", &tid, 500)]).await,
+        push_ops(
+            &router,
+            &alice.token,
+            vec![
+                tombstone_op("task", &tid, 500),
+                tombstone_op("attachment", &aid, 500)
+            ]
+        )
+        .await,
         StatusCode::OK
     );
     assert_eq!(
@@ -1486,7 +1535,7 @@ async fn a_removed_member_stays_revoked_after_retention_purges_the_project_tombs
     let pid_uuid: Uuid = pid.parse().unwrap();
     for table in ["entity_tombstones", "entity_fields"] {
         sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DELETE FROM {table} WHERE user_id = $1 AND entity = 'project' AND entity_id = $2"
+            "DELETE FROM {table} WHERE user_id = $1 AND entity = 'todo.project' AND entity_id = $2"
         )))
         .bind(bob_id)
         .bind(pid_uuid)

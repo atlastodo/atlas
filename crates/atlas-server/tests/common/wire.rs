@@ -105,3 +105,33 @@ pub fn value_of(op: &Value) -> Value {
         op["value"].clone()
     }
 }
+
+/// The wire kind a real kind travels as (`manifests/*.json`).
+pub fn wire_kind(kind: &str) -> &'static str {
+    match kind {
+        "project" => PROJECT,
+        "project_member" => "project_member",
+        k if k.starts_with("journal.") => "journal.sealed",
+        k if k.starts_with("vault.") => "vault.sealed",
+        _ => SEALED,
+    }
+}
+
+/// A set op of `field` on an entity of the real `kind`, as its client sends it: under its wire
+/// kind, the field tagged, the value sealed, no scope.
+pub fn set_of_kind(
+    kind: &str,
+    entity_id: impl ToString,
+    field: &str,
+    value: Value,
+    wall: u64,
+) -> Value {
+    set(
+        wire_kind(kind),
+        entity_id,
+        None,
+        field,
+        value,
+        (wall, 0, Uuid::now_v7()),
+    )
+}

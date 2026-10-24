@@ -17,6 +17,9 @@ use serde_json::{json, Value};
 use sha2::Sha256;
 use tower::ServiceExt;
 use uuid::Uuid;
+
+mod common;
+use common::wire::{self, SEALED};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 /// The credential a client sends for the account password: the auth hash it derives from it
@@ -2983,9 +2986,7 @@ async fn export_returns_account_and_materialized_state_as_an_attachment() {
         Some(access),
         json!({
             "operations": [
-                { "id": Uuid::now_v7(), "entity": "task", "entity_id": tid, "op": "set",
-                  "field": "title", "value": "Buy milk",
-                  "ts": { "wall_ms": 100, "counter": 0, "node": Uuid::now_v7() } }
+                wire::set(SEALED, tid, None, "title", json!("Buy milk"), (100, 0, Uuid::now_v7()))
             ]
         }),
     )
@@ -3033,8 +3034,9 @@ async fn export_returns_account_and_materialized_state_as_an_attachment() {
     // The materialized state rides the snapshot machinery's op shape.
     let ops = body["data"]["operations"].as_array().unwrap();
     assert!(
-        ops.iter()
-            .any(|op| op["op"] == "set" && op["field"] == "title" && op["value"] == "Buy milk"),
+        ops.iter().any(|op| op["op"] == "set"
+            && op["field"] == wire::tag("title")
+            && wire::value_of(op) == "Buy milk"),
         "the pushed task title is in the export: {ops:?}"
     );
 

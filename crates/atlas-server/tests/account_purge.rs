@@ -13,6 +13,9 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::wire::{self, SEALED};
+
 /// The credential a client sends for the account password: the auth hash it derives from it
 /// (64 lowercase hex characters), which is what the server stores and compares.
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -148,11 +151,9 @@ async fn accounts_past_the_grace_period_are_purged_with_everything_they_own() {
         "POST",
         "/sync/push",
         Some(&expired.token),
-        json!({ "operations": [{
-            "id": Uuid::now_v7(), "entity": "task", "entity_id": Uuid::now_v7(), "op": "set",
-            "field": "title", "value": "x",
-            "ts": { "wall_ms": 100, "counter": 0, "node": Uuid::now_v7() }
-        }]}),
+        json!({ "operations": [
+            wire::set(SEALED, Uuid::now_v7(), None, "title", json!("x"), (100, 0, Uuid::now_v7()))
+        ]}),
     )
     .await;
     assert_eq!(status, StatusCode::OK);

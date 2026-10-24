@@ -320,14 +320,15 @@ async fn assert_newer_than_delete_survived(pool: &PgPool, seeded: &NewerThanDele
 /// ancient leftovers), so two purging tests running concurrently could delete each other's
 /// fixtures. Combining them keeps the pass count deterministic.
 #[tokio::test]
-async fn enabled_purge_removes_expired_rows_but_keeps_projects_recent_and_fresh_tombstones() {
+async fn enabled_purge_removes_expired_rows_but_keeps_recent_ones_and_fresh_tombstones() {
     let pool = pool().await;
     let user = insert_user(&pool).await;
 
-    // Operations: an expired task op, an expired project op, a fresh task op.
-    let old_task = insert_op(&pool, user, "task", 30).await;
-    let old_project = insert_op(&pool, user, "project", 30).await;
-    let fresh_task = insert_op(&pool, user, "task", 0).await;
+    // Operations: an expired item op, an expired project op, a fresh item op. Project ops are
+    // purged like any other: the first share is authorized by `project_creators`.
+    let old_task = insert_op(&pool, user, "todo.sealed", 30).await;
+    let old_project = insert_op(&pool, user, "todo.project", 30).await;
+    let fresh_task = insert_op(&pool, user, "todo.sealed", 0).await;
 
     // Tombstones: a stale one (received 30 days ago) with two older field rows, and a fresh one.
     let stale = Uuid::now_v7();
@@ -362,8 +363,7 @@ async fn enabled_purge_removes_expired_rows_but_keeps_projects_recent_and_fresh_
         "the stale tombstone is eligible for the purge"
     );
 
-    // Expired non-project ops are gone; the project op (is_project_creator reads the earliest
-    // one) and the recent op survive.
+    // Expired ops are gone; the recent op survives.
     let remaining: Vec<i64> = sqlx::query_scalar(
         "SELECT server_seq FROM operations WHERE user_id = $1 ORDER BY server_seq",
     )
@@ -375,11 +375,7 @@ async fn enabled_purge_removes_expired_rows_but_keeps_projects_recent_and_fresh_
         !remaining.contains(&old_task),
         "the expired task op is purged"
     );
-    assert_eq!(
-        remaining,
-        vec![old_project, fresh_task],
-        "project ops survive, recent ops survive"
-    );
+    assert_eq!(remaining, vec![fresh_task], "recent ops survive");
     let watermark: Option<i64> =
         sqlx::query_scalar("SELECT purged_seq FROM sync_purge_watermarks WHERE user_id = $1")
             .bind(user)
@@ -388,7 +384,7 @@ async fn enabled_purge_removes_expired_rows_but_keeps_projects_recent_and_fresh_
             .unwrap();
     assert_eq!(
         watermark,
-        Some(old_task),
+        Some(old_project),
         "the purge records the user's newest purged seq, so a cursor below it is refused"
     );
 

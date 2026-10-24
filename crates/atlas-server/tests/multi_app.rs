@@ -22,6 +22,9 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::wire;
+
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
 
 fn test_database_url() -> String {
@@ -198,16 +201,21 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-fn set_op(entity: &str, entity_id: Uuid, field: &str, value: Value) -> Value {
-    json!({
-        "id": Uuid::now_v7(),
-        "entity": entity,
-        "entity_id": entity_id,
-        "op": "set",
-        "field": field,
-        "value": value,
-        "ts": { "wall_ms": now_ms(), "counter": 0, "node": Uuid::now_v7() },
-    })
+/// A set op of `field` on an entity of the real `kind`, as its client sends it (no scope).
+fn set_op(kind: &str, entity_id: Uuid, field: &str, value: Value) -> Value {
+    wire::set_of_kind(kind, entity_id, field, value, now_ms())
+}
+
+/// A set op of `field` on todo item `entity_id` in shared `project` (its key, its scope).
+fn in_project(entity_id: Uuid, project: Uuid, field: &str, value: Value) -> Value {
+    wire::set(
+        wire::SEALED,
+        entity_id,
+        Some(&project.to_string()),
+        field,
+        value,
+        (now_ms(), 0, Uuid::now_v7()),
+    )
 }
 
 async fn push(
@@ -284,8 +292,8 @@ async fn discovery_offers_journal_and_app_scoped_sync() {
     assert_eq!(
         body["apps"],
         json!([
-            { "id": "todo", "name": "Atlas Todo", "version": 1 },
-            { "id": "journal", "name": "Atlas Journal", "version": 1 },
+            { "id": "todo", "name": "Atlas Todo", "version": 2 },
+            { "id": "journal", "name": "Atlas Journal", "version": 2 },
         ])
     );
     let caps = body["capabilities"].as_array().unwrap();
@@ -386,14 +394,11 @@ async fn pull_and_snapshot_serve_only_the_sessions_apps() {
     // A todo session (implicit or named) sees todo only, a journal session journal only, and
     // both pulls reach the partition's head, past the other app's ops.
     let (todo_ops, todo_cursor) = pull(&router, &user.token, None).await;
-    assert_eq!(entities(&todo_ops), ["task"]);
+    assert_eq!(entities(&todo_ops), [wire::SEALED]);
     assert_eq!(todo_ops.len(), 2);
     assert_eq!(pull(&router, &user.token, Some("todo")).await.0, todo_ops);
     let (journal_ops, journal_cursor) = pull(&router, &user.token, Some("journal")).await;
-    assert_eq!(
-        entities(&journal_ops),
-        ["journal.entry", "journal.preference"]
-    );
+    assert_eq!(entities(&journal_ops), ["journal.sealed"]);
     assert_eq!(journal_ops.len(), 3);
     assert_eq!(todo_cursor, journal_cursor);
     let (both, both_cursor) = pull(&router, &user.token, Some("todo,journal")).await;
@@ -419,11 +424,11 @@ async fn pull_and_snapshot_serve_only_the_sessions_apps() {
 
     assert_eq!(
         entities(&snapshot(&router, &user.token, None).await),
-        ["task"]
+        [wire::SEALED]
     );
     assert_eq!(
         entities(&snapshot(&router, &user.token, Some("journal")).await),
-        ["journal.entry", "journal.preference"]
+        ["journal.sealed"]
     );
     assert_eq!(
         snapshot(&router, &user.token, Some("journal,todo"))
@@ -515,8 +520,8 @@ async fn journal_ops_stay_with_their_owner_even_naming_a_shared_project() {
         &alice.token,
         None,
         vec![
-            set_op("task", task, "project_id", json!(project.to_string())),
-            set_op("task", task, "title", json!("ct")),
+            in_project(task, project, "project_id", json!(project.to_string())),
+            in_project(task, project, "title", json!("ct")),
         ],
     )
     .await;
@@ -554,7 +559,7 @@ async fn journal_ops_stay_with_their_owner_even_naming_a_shared_project() {
     assert!(
         bob_todo
             .iter()
-            .any(|op| op["entity"] == "task" && op["entity_id"] == json!(task)),
+            .any(|op| op["entity"] == wire::SEALED && op["entity_id"] == json!(task)),
         "the shared task still reaches Bob"
     );
     assert!(bob_todo
@@ -615,8 +620,8 @@ async fn fan_out_skips_members_without_the_app() {
     };
     let shared_task = |task: Uuid| {
         vec![
-            set_op("task", task, "project_id", json!(project.to_string())),
-            set_op("task", task, "title", json!("ct")),
+            in_project(task, project, "project_id", json!(project.to_string())),
+            in_project(task, project, "title", json!("ct")),
         ]
     };
 
@@ -678,13 +683,13 @@ async fn export_follows_the_scope_and_the_enabled_apps() {
     assert_eq!(todo["data"]["apps"], json!(["todo"]));
     assert_eq!(
         entities(todo["data"]["operations"].as_array().unwrap()),
-        ["task"]
+        [wire::SEALED]
     );
     let journal = export(Some("journal")).await;
     assert_eq!(journal["data"]["apps"], json!(["journal"]));
     assert_eq!(
         entities(journal["data"]["operations"].as_array().unwrap()),
-        ["journal.entry"]
+        ["journal.sealed"]
     );
     let both = export(Some("todo,journal")).await;
     assert_eq!(both["data"]["operations"].as_array().unwrap().len(), 2);
@@ -790,7 +795,7 @@ async fn sockets_backfill_and_stream_only_their_apps() {
     let backfill = next_payload(&mut journal_ws).await;
     assert_eq!(
         entities(backfill["operations"].as_array().unwrap()),
-        ["journal.entry"]
+        ["journal.sealed"]
     );
 
     // A todo push: the todo socket gets the op, the journal socket only the cursor move.
@@ -803,7 +808,10 @@ async fn sockets_backfill_and_stream_only_their_apps() {
     .await;
     assert_eq!(status, StatusCode::OK);
     let live = next_payload(&mut todo_ws).await;
-    assert_eq!(entities(live["operations"].as_array().unwrap()), ["task"]);
+    assert_eq!(
+        entities(live["operations"].as_array().unwrap()),
+        [wire::SEALED]
+    );
     let live = next_payload(&mut journal_ws).await;
     assert_eq!(live["operations"], json!([]));
     assert_eq!(live["cursor"], pushed["cursor"]);
@@ -826,7 +834,7 @@ async fn sockets_backfill_and_stream_only_their_apps() {
     let live = next_payload(&mut journal_ws).await;
     assert_eq!(
         entities(live["operations"].as_array().unwrap()),
-        ["journal.entry"]
+        ["journal.sealed"]
     );
     let live = next_payload(&mut todo_ws).await;
     assert_eq!(live["operations"], json!([]));

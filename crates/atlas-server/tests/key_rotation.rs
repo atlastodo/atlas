@@ -15,6 +15,9 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::wire::{sealed, tag};
+
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
 const PUBLIC_KEY: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 
@@ -133,11 +136,11 @@ async fn push_project(router: &Router, owner: &User) -> String {
         Some(&owner.token),
         json!({ "operations": [{
             "id": Uuid::now_v7().to_string(),
-            "entity": "project",
+            "entity": "todo.project",
             "entity_id": pid,
             "op": "set",
-            "field": "name",
-            "value": { "__enc": 2, "kid": "dek", "iv": "AAAAAAAAAAAAAAAA", "ct": "bmFtZQ==" },
+            "field": tag("name"),
+            "value": sealed(json!("name")),
             "ts": { "wall_ms": 1000, "counter": 0, "node": Uuid::now_v7().to_string() }
         }] }),
     )

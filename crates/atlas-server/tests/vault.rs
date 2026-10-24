@@ -16,6 +16,9 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::wire;
+
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -180,16 +183,9 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
-fn set_op(entity: &str, entity_id: Uuid, field: &str, value: Value) -> Value {
-    json!({
-        "id": Uuid::now_v7(),
-        "entity": entity,
-        "entity_id": entity_id,
-        "op": "set",
-        "field": field,
-        "value": value,
-        "ts": { "wall_ms": now_ms(), "counter": 0, "node": Uuid::now_v7() },
-    })
+/// A set op of `field` on an entity of the real `kind`, as its client sends it (no scope).
+fn set_op(kind: &str, entity_id: Uuid, field: &str, value: Value) -> Value {
+    wire::set_of_kind(kind, entity_id, field, value, now_ms() as u64)
 }
 
 async fn push(
@@ -290,8 +286,8 @@ async fn discovery_offers_vault_and_token_policies() {
     assert_eq!(
         body["apps"],
         json!([
-            { "id": "todo", "name": "Atlas Todo", "version": 1 },
-            { "id": "vault", "name": "Atlas Vault", "version": 2 },
+            { "id": "todo", "name": "Atlas Todo", "version": 2 },
+            { "id": "vault", "name": "Atlas Vault", "version": 3 },
         ])
     );
     let caps = body["capabilities"].as_array().unwrap();
