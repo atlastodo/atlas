@@ -596,3 +596,138 @@ async fn stored_rows_name_no_field_and_hold_no_plaintext() {
         assert_eq!(value, sealed(value_of(&json!({ "value": value }))));
     }
 }
+
+async fn legacy_keys(router: &Router, user: &User, apps: Option<&str>, query: &str) -> Value {
+    let (status, body) = send(
+        router,
+        "GET",
+        &format!("/sync/legacy/keys{query}"),
+        Some(&user.token),
+        apps,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    body
+}
+
+/// A client learns what its partition still holds of the session's legacy kinds, page by page, and
+/// which keys a current copy already covers.
+#[tokio::test]
+async fn legacy_keys_list_what_is_left_and_what_is_covered() {
+    let (state, router) = suite().await;
+    let user = signup(&router).await;
+    enable_journal(&router, &user).await;
+    let (a, b, gone, task) = (
+        Uuid::now_v7(),
+        Uuid::now_v7(),
+        Uuid::now_v7(),
+        Uuid::now_v7(),
+    );
+    for id in [a, b] {
+        seed_legacy(
+            &state.pool,
+            user.id,
+            "journal.entry",
+            id,
+            "body",
+            json!("x"),
+            100,
+        )
+        .await;
+        seed_legacy(
+            &state.pool,
+            user.id,
+            "journal.entry",
+            id,
+            "date",
+            json!("y"),
+            100,
+        )
+        .await;
+    }
+    legacy_push(
+        &state.pool,
+        &[user.id],
+        &[json!({
+            "entity": "journal.entry", "entity_id": gone.to_string(), "op": "delete",
+            "ts": { "wall_ms": 150, "counter": 0, "node": Uuid::now_v7() },
+        })],
+    )
+    .await;
+    seed_legacy(&state.pool, user.id, "task", task, "title", json!("z"), 100).await;
+
+    let all = legacy_keys(&router, &user, Some("journal"), "").await;
+    let listed: Vec<(String, bool)> = all["entities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|k| {
+            (
+                k["entity_id"].as_str().unwrap().to_owned(),
+                k["covered"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    let mut want = vec![
+        (a.to_string(), false),
+        (b.to_string(), false),
+        (gone.to_string(), false),
+    ];
+    want.sort();
+    let mut listed_sorted = listed.clone();
+    listed_sorted.sort();
+    assert_eq!(listed_sorted, want, "the journal's keys only");
+    assert!(all.get("next").is_none());
+
+    // One re-encoded in full, one only in part, the deleted one as a current tombstone.
+    let (status, body) = push(
+        &router,
+        &user.token,
+        Some("journal"),
+        vec![
+            set_op("journal.entry", a, "body", json!("x")),
+            set_op("journal.entry", a, "date", json!("y")),
+            set_op("journal.entry", b, "body", json!("x")),
+            wire::delete("journal.sealed", gone, None, (now_ms(), 0, Uuid::now_v7())),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    let covered: std::collections::HashMap<String, bool> =
+        legacy_keys(&router, &user, Some("journal"), "").await["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|k| {
+                (
+                    k["entity_id"].as_str().unwrap().to_owned(),
+                    k["covered"].as_bool().unwrap(),
+                )
+            })
+            .collect();
+    assert!(covered[&a.to_string()]);
+    assert!(!covered[&b.to_string()], "a partial copy is not enough");
+    assert!(covered[&gone.to_string()]);
+
+    // Pages of one key resume after the last.
+    let first = legacy_keys(&router, &user, Some("journal"), "?limit=1").await;
+    assert_eq!(first["entities"].as_array().unwrap().len(), 1);
+    let next = first["next"].as_str().expect("more pages").to_owned();
+    let second = legacy_keys(
+        &router,
+        &user,
+        Some("journal"),
+        &format!("?limit=1&next={next}"),
+    )
+    .await;
+    assert_ne!(
+        second["entities"][0]["entity_id"],
+        first["entities"][0]["entity_id"]
+    );
+
+    // A todo session sees the task.
+    let todo = legacy_keys(&router, &user, None, "").await;
+    assert_eq!(todo["entities"][0]["entity"], "task");
+    assert_eq!(todo["entities"].as_array().unwrap().len(), 1);
+}

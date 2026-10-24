@@ -19,7 +19,8 @@
 //! - [`snapshot`]: `GET /sync/snapshot` and the materialized-state reads behind the export.
 //! - [`revoke`]: tombstoning a project out of a partition whose member left.
 //! - [`backfill`]: copying a shared project into a new member's partition on accept.
-//! - [`legacy`]: `POST /sync/legacy/drop`, a client dropping the rows it migrated.
+//! - [`legacy`]: `GET /sync/legacy/keys` and `POST /sync/legacy/drop`, a client listing and dropping
+//!   the rows it migrated.
 
 use std::sync::PoisonError;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -70,6 +71,7 @@ pub fn routes() -> Router<AppState> {
         .route("/sync/snapshot", get(snapshot::snapshot))
         .route("/sync/ws-ticket", post(ws::ws_ticket))
         .route("/sync/ws", get(ws::ws_handler))
+        .route("/sync/legacy/keys", get(legacy::keys))
         .route("/sync/legacy/drop", post(legacy::drop))
 }
 
