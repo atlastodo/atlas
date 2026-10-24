@@ -10,5 +10,7 @@ pub mod manifest;
 pub mod op;
 
 pub use hlc::{Hlc, HlcClock};
-pub use manifest::{AppManifest, PlaintextFields, Registry, TokenPolicy};
-pub use op::{Change, EntityKind, Operation};
+pub use manifest::{
+    AppManifest, KindManifest, PlaintextFields, Registry, TokenPolicy, WireKindManifest,
+};
+pub use op::{Change, EntityKind, Operation, WireKind, WireOperation};

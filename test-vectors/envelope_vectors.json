@@ -1,5 +1,5 @@
 {
-  "_doc": "Field envelopes and key wraps (packages/client-core/src/crypto/field.ts, envelope.ts, keyring.ts, identity.ts, asym.ts). AES-256-GCM is deterministic given the IV, so a reimplementation must both open each `envelope`/wrap and reproduce its `ct` from the recorded `iv`. Field v2: plaintext = JSON of `value`, ISO/IEC 7816-4 padded to `paddedLength` (0x80 then zeros; at least 32 bytes, then powers of two up to 1 KiB, then whole KiB); associated data = UTF-8 of JSON.stringify([\"atlas-field\", 2, entity, entity_id, field, scope, kid]). Field v1: JSON of value, unpadded, no associated data. PEK wrap v2: associated data JSON.stringify([\"atlas-pek-wrap\", 2, project_id]); the unbound form has none. project_key_id = hex of the first 16 bytes of SHA-256(\"atlas-pek-id-v1\" || pek). Signing key wrap: associated data JSON.stringify([\"atlas-signing-key-wrap\", 1, lowercase public key hex]). Sealed: X25519 with an ephemeral key, HKDF-SHA256(no salt, info 'atlas-seal-v1'), AES-256-GCM without associated data. Asserted by packages/client-core/src/crypto/envelope-vectors.test.ts and crates/atlas-client.",
+  "_doc": "Field envelopes and key wraps (packages/client-core/src/crypto/field.ts, envelope.ts, keyring.ts, identity.ts, asym.ts). AES-256-GCM is deterministic given the IV, so a reimplementation must both open each `envelope`/wrap and reproduce its `ct` from the recorded `iv`. Field v2: plaintext = JSON of `value`, ISO/IEC 7816-4 padded to `paddedLength` (0x80 then zeros; at least 32 bytes, then powers of two up to 1 KiB, then whole KiB); associated data = UTF-8 of JSON.stringify([\"atlas-field\", 2, entity, entity_id, field, scope, kid]). Field v3 (sync protocol 7, docs/decisions/0006): plaintext = JSON of [kind, field, value], padded as v2; associated data = UTF-8 of JSON.stringify([\"atlas-field\", 3, wire_entity, entity_id, wire_field, scope, kid]), where wire_field is the tag or a public name. Field tags: tag_key = HKDF-SHA256(ikm key, no salt, info 'atlas-field-tag-v1', 32 bytes); tag = hex of the first 16 bytes of HMAC-SHA256(tag_key, UTF-8 of JSON.stringify([\"atlas-field-tag\", 1, entity_id, kind, field])). Field v1: JSON of value, unpadded, no associated data. PEK wrap v2: associated data JSON.stringify([\"atlas-pek-wrap\", 2, project_id]); the unbound form has none. project_key_id = hex of the first 16 bytes of SHA-256(\"atlas-pek-id-v1\" || pek). Signing key wrap: associated data JSON.stringify([\"atlas-signing-key-wrap\", 1, lowercase public key hex]). Sealed: X25519 with an ephemeral key, HKDF-SHA256(no salt, info 'atlas-seal-v1'), AES-256-GCM without associated data. Asserted by packages/client-core/src/crypto/envelope-vectors.test.ts and crates/atlas-client.",
   "padding": [
     {
       "n": 0,
@@ -309,5 +309,140 @@
         "ct": "0DIwXsDjSjvwJtoy2dkoUv0FliHcWGcF+yCdz6Dg9ftpREyMIQljYNTSPxjAtBtH"
       }
     }
-  }
+  },
+  "field_v3": [
+    {
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "scope": "personal",
+      "entity": "todo.sealed",
+      "entity_id": "0b7c3f4e-9a1d-4c2b-8e5f-6a7b8c9d0e1f",
+      "field": "1016533f5038961939f84e4de968f7ca",
+      "kind": "task",
+      "real_field": "title",
+      "value": "Buy milk",
+      "envelope": {
+        "__enc": 3,
+        "kid": "dek",
+        "iv": "AAECAwQFBgcICQoL",
+        "ct": "HCCieraO4DevNf7/3YxaQaGU8k3QFjYQU0W4BR1pALJI5lgtoQI6LfTda/elxXaa"
+      }
+    },
+    {
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "scope": "personal",
+      "entity": "todo.sealed",
+      "entity_id": "0b7c3f4e-9a1d-4c2b-8e5f-6a7b8c9d0e1f",
+      "field": "d8f50043473bd8b76d68b625fb6a3aea",
+      "kind": "task",
+      "real_field": "is_completed",
+      "value": true,
+      "envelope": {
+        "__enc": 3,
+        "kid": "dek",
+        "iv": "DA0ODxAREhMUFRYX",
+        "ct": "w9wduQwd3n8VQzuK8uRLlzlmmYuSXxfe6defvWSgwPoAmyxiSHf7+OadOqmdgSwv"
+      }
+    },
+    {
+      "key": "f0e1d2c3b4a5968778695a4b3c2d1e0f00112233445566778899aabbccddeeff",
+      "scope": "project:8f9e0d1c-2b3a-4f5e-8d7c-6b5a49382716",
+      "entity": "todo.sealed",
+      "entity_id": "5d6e7f80-1a2b-4c3d-9e8f-0a1b2c3d4e5f",
+      "field": "83f03fc82fcb43d0e619d152872e5473",
+      "kind": "comment",
+      "real_field": "body",
+      "value": {
+        "text": "Looks good",
+        "mentions": []
+      },
+      "envelope": {
+        "__enc": 3,
+        "kid": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "iv": "GBkaGxwdHh8gISIj",
+        "ct": "gM0BOi3BReVqddhqLwhPCwV0kuvKv7DYVk9dvkHIFh0+amVoAkvoKu5LuLbh5RQ37fxV9qg/ErJLBG46yLqjUCe1CjwCD5jo9o2boz0nGic="
+      }
+    },
+    {
+      "key": "f0e1d2c3b4a5968778695a4b3c2d1e0f00112233445566778899aabbccddeeff",
+      "scope": "project:8f9e0d1c-2b3a-4f5e-8d7c-6b5a49382716",
+      "entity": "todo.project",
+      "entity_id": "8f9e0d1c-2b3a-4f5e-8d7c-6b5a49382716",
+      "field": "archived_at",
+      "kind": "project",
+      "real_field": "archived_at",
+      "value": 1767225600000,
+      "envelope": {
+        "__enc": 3,
+        "kid": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "iv": "JCUmJygpKissLS4v",
+        "ct": "ziPpSJ2/s+FmTFVoCEiT0qOWycJ9b01Q3jZBdkoi+Nas+Fkl5HXIW+R7YEp1nTOWUF1A3TDFFo+vSVg28cnavZZrVx3Hpg48rpBM0L/sj0M="
+      }
+    },
+    {
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "scope": "personal",
+      "entity": "vault.sealed",
+      "entity_id": "0b7c3f4e-9a1d-4c2b-8e5f-6a7b8c9d0e1f",
+      "field": "2a2a666e3a097cba81ac5ab96938b0de",
+      "kind": "vault.item",
+      "real_field": "notes",
+      "value": null,
+      "envelope": {
+        "__enc": 3,
+        "kid": "dek",
+        "iv": "MDEyMzQ1Njc4OTo7",
+        "ct": "6BdHoZwDPi1DR+uBMLUcBvNTKiThEipwS9IMzOizfj6BC2TTI2YpUfLY282KEfLH"
+      }
+    }
+  ],
+  "field_tags": [
+    {
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "tag_key": "572bd3fbe1e9c7e9726d8aad148784bcf83f473cfa0a69065e35b092dbc13fcb",
+      "entity_id": "0b7c3f4e-9a1d-4c2b-8e5f-6a7b8c9d0e1f",
+      "kind": "task",
+      "field": "title",
+      "tag": "1016533f5038961939f84e4de968f7ca"
+    },
+    {
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "tag_key": "572bd3fbe1e9c7e9726d8aad148784bcf83f473cfa0a69065e35b092dbc13fcb",
+      "entity_id": "0b7c3f4e-9a1d-4c2b-8e5f-6a7b8c9d0e1f",
+      "kind": "task",
+      "field": "project_id",
+      "tag": "71a930596b7083c6af5498a40a73e20f"
+    },
+    {
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "tag_key": "572bd3fbe1e9c7e9726d8aad148784bcf83f473cfa0a69065e35b092dbc13fcb",
+      "entity_id": "5d6e7f80-1a2b-4c3d-9e8f-0a1b2c3d4e5f",
+      "kind": "task",
+      "field": "title",
+      "tag": "fe3259da59051bd1b8f20291bc3d7d1b"
+    },
+    {
+      "key": "f0e1d2c3b4a5968778695a4b3c2d1e0f00112233445566778899aabbccddeeff",
+      "tag_key": "346fb253d66eba03ea9300e99e109d69b1f8e1f7b4ce2677a089a9e969eae88e",
+      "entity_id": "0b7c3f4e-9a1d-4c2b-8e5f-6a7b8c9d0e1f",
+      "kind": "task",
+      "field": "title",
+      "tag": "5d9f33dc8e6c3acf5e7c6a81cc3b1703"
+    },
+    {
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "tag_key": "572bd3fbe1e9c7e9726d8aad148784bcf83f473cfa0a69065e35b092dbc13fcb",
+      "entity_id": "0b7c3f4e-9a1d-4c2b-8e5f-6a7b8c9d0e1f",
+      "kind": "preference",
+      "field": "pin:8f9e0d1c-2b3a-4f5e-8d7c-6b5a49382716:5d6e7f80-1a2b-4c3d-9e8f-0a1b2c3d4e5f",
+      "tag": "c3682378312dc5e6ceaad26593274006"
+    },
+    {
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "tag_key": "572bd3fbe1e9c7e9726d8aad148784bcf83f473cfa0a69065e35b092dbc13fcb",
+      "entity_id": "0b7c3f4e-9a1d-4c2b-8e5f-6a7b8c9d0e1f",
+      "kind": "journal.entry",
+      "field": "body",
+      "tag": "d7f595d8d67e04b6380c408ea90fbf71"
+    }
+  ]
 }

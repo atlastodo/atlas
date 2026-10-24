@@ -1,10 +1,10 @@
 {
-  "_doc": "The Atlas Journal app manifest: daily journal entries, end-to-end encrypted. Its kinds are namespaced `journal.<kind>`. Journal v1 is personal: the server never fans its ops out to another account and reads none of their fields, so every field value is encrypted (no plaintext_fields). `journal.entry` is one entry (date, title, body, mood, tags, …), `journal.preference` one of the app's settings. Bump `version` whenever the kinds or their plaintext fields change.",
+  "_doc": "The Atlas Journal app manifest: daily journal entries, end-to-end encrypted. Its kinds are namespaced `journal.<kind>`; on the wire (sync protocol 7, docs/decisions/0006) every one is `journal.sealed`, with opaque field tags and the real kind inside the encrypted value. Journal v1 is personal: the server never fans its ops out to another account and reads none of their fields, so nothing is public or plaintext. `journal.entry` is one entry (date, title, body, mood, tags, …), `journal.preference` one of the app's settings. Rows written before protocol 7 carry the real kind as their wire kind and stay readable until clients migrate them. Bump `version` whenever the kinds or their fields change.",
   "app": "journal",
   "name": "Atlas Journal",
-  "version": 1,
+  "version": 2,
   "kinds": {
-    "journal.entry": { "plaintext_fields": [] },
-    "journal.preference": { "plaintext_fields": [] }
+    "journal.entry": { "wire": "journal.sealed" },
+    "journal.preference": { "wire": "journal.sealed" }
   }
 }
