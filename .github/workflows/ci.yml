@@ -120,7 +120,7 @@ jobs:
           # rust-cache keys on every installed toolchain, so the runner image's preinstalled stable
           # would change the key (and miss the cache) each time the image bumps it. Keep only ours.
           rustup toolchain list | grep -v default | cut -d" " -f1 | xargs -r -n1 rustup toolchain uninstall
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           # PR caches are only visible to that PR; main's are visible to every run, and dev's to
           # dev pushes, where the work lands.
@@ -176,7 +176,7 @@ jobs:
           # rust-cache keys on every installed toolchain, so the runner image's preinstalled stable
           # would change the key (and miss the cache) each time the image bumps it. Keep only ours.
           rustup toolchain list | grep -v default | cut -d" " -f1 | xargs -r -n1 rustup toolchain uninstall
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
       - run: cargo check --workspace --all-targets --locked
@@ -214,11 +214,11 @@ jobs:
           # rust-cache keys on every installed toolchain, so the runner image's preinstalled stable
           # would change the key (and miss the cache) each time the image bumps it. Keep only ours.
           rustup toolchain list | grep -v default | cut -d" " -f1 | xargs -r -n1 rustup toolchain uninstall
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
       # Prebuilt, checksum-verified binary; version matches devenv's.
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: cargo-nextest@0.9.143
           fallback: none
@@ -279,7 +279,7 @@ jobs:
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --no-self-update
           rustup default "$RUST_TOOLCHAIN"
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: cargo-deny@0.20.2
           fallback: none
