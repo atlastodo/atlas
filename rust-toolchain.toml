@@ -1,0 +1,8 @@
+# The one Rust that builds core: rustup reads this file in CI, the release builds and the Docker
+# image; devenv takes its version (languages.rust in devenv.nix) and the flake builds atlas-server
+# with it (rust-overlay). Dependabot's rust-toolchain updates move it. The MSRV is separate: Cargo.toml's
+# rust-version, checked by CI's MSRV job.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

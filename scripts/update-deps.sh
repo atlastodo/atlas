@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Refreshes every dependency Dependabot can't reach, so nothing sits on an old version:
-#   devenv.lock (nixpkgs: Node, Bun, …) and flake.lock(s); the Bun pins in the workflows, the
-#   Dockerfile and the docs, which follow the Bun the devenv nixpkgs ships; the core pin (in the
+#   flake.lock(s) and devenv.lock (nixpkgs, shared by the two: Node, Bun, …); the Bun pins in the
+#   workflows, the Dockerfile and the docs, which follow the Bun that nixpkgs ships; the core pin (in the
 #   apps) and the app web pins (apps.lock.json, in core); the whole
 #   bun.lock, transitive dependencies and overrides included; each Expo app's SDK-managed packages
 #   (`expo install --fix`); Cargo.lock; and nix/bun.nix. Steps for files a repo doesn't have are
@@ -52,14 +52,15 @@ with_release_age() {
   return "$rc"
 }
 
-if [[ -f devenv.lock ]]; then
-  step "devenv.lock"
-  devenv update
-fi
-
+# flake.lock first: devenv.yaml follows the flake's nixpkgs, so `devenv update` copies the new pin.
 if [[ -f flake.lock ]]; then
   step "flake.lock"
   nix flake update
+fi
+
+if [[ -f devenv.lock ]]; then
+  step "devenv.lock"
+  devenv update
 fi
 
 # The nixpkgs pin shipped inside the desktop tarball's flake (as `desktop:flake-update`).

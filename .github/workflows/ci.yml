@@ -28,8 +28,6 @@ defaults:
     shell: bash
 
 env:
-  # Same stable as devenv's lock (rust-overlay). The MSRV job reads its version from Cargo.toml.
-  RUST_TOOLCHAIN: "1.98.1"
   # Bun is pinned in lockstep with devenv and docker/Dockerfile -- bump them together.
   BUN_VERSION: "1.4.2"
   NODE_VERSION: "26"
@@ -88,7 +86,7 @@ jobs:
           # The compare API lists at most 300 files; past that, assume everything changed.
           if [ "$(grep -c . <<<"$files")" -ge 300 ]; then set_all true; exit 0; fi
           ci='^\.github/workflows/ci\.yml$'
-          rust="^(crates/|migrations/|Cargo\.(toml|lock)$|\.config/nextest\.toml$|deny\.toml$)|$ci"
+          rust="^(crates/|migrations/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|\.config/nextest\.toml$|deny\.toml$)|$ci"
           shared="^(packages/|package\.json$|bun\.lock$|test-vectors/|manifests/)|$ci"
           deps="^(Cargo\.(toml|lock)|deny\.toml|bun\.lock|package\.json|crates/[^/]+/Cargo\.toml|packages/[^/]+/package\.json)$|$ci"
           has() { if grep -qE "$1" <<<"$files"; then echo true; else echo false; fi; }
@@ -113,13 +111,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+      - name: Install Rust (rust-toolchain.toml)
         run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy --no-self-update
-          rustup default "$RUST_TOOLCHAIN"
+          rustup toolchain install --no-self-update
           # rust-cache keys on every installed toolchain, so the runner image's preinstalled stable
           # would change the key (and miss the cache) each time the image bumps it. Keep only ours.
-          rustup toolchain list | grep -v default | cut -d" " -f1 | xargs -r -n1 rustup toolchain uninstall
+          ours="$(rustup show active-toolchain | cut -d" " -f1)"
+          rustup toolchain list | cut -d" " -f1 | grep -vxF "$ours" | xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           # PR caches are only visible to that PR; main's are visible to every run, and dev's to
@@ -154,6 +152,8 @@ jobs:
       - run: bun run --parallel --filter '*' typecheck
       # The licences of the JS packages the builds ship, against an allow-list.
       - run: node scripts/third-party-licenses.mjs --check
+      # devenv.lock's copy of the flake's nixpkgs and rust-overlay must match flake.lock.
+      - run: node scripts/check-devenv-lock.mjs
       - run: bunx oxlint .
       - run: bunx prettier --check .
 
@@ -172,10 +172,11 @@ jobs:
           msrv="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)"
           test -n "$msrv" || { echo "::error::No rust-version in Cargo.toml"; exit 1; }
           rustup toolchain install "$msrv" --profile minimal --no-self-update
-          rustup default "$msrv"
+          # Overrides rust-toolchain.toml, which names the everyday toolchain, for the rest of the job.
+          echo "RUSTUP_TOOLCHAIN=$msrv" >> "$GITHUB_ENV"
           # rust-cache keys on every installed toolchain, so the runner image's preinstalled stable
           # would change the key (and miss the cache) each time the image bumps it. Keep only ours.
-          rustup toolchain list | grep -v default | cut -d" " -f1 | xargs -r -n1 rustup toolchain uninstall
+          rustup toolchain list | cut -d" " -f1 | grep -v "^$msrv-" | xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
@@ -207,13 +208,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+      - name: Install Rust (rust-toolchain.toml)
         run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --no-self-update
-          rustup default "$RUST_TOOLCHAIN"
+          rustup toolchain install --no-self-update
           # rust-cache keys on every installed toolchain, so the runner image's preinstalled stable
           # would change the key (and miss the cache) each time the image bumps it. Keep only ours.
-          rustup toolchain list | grep -v default | cut -d" " -f1 | xargs -r -n1 rustup toolchain uninstall
+          ours="$(rustup show active-toolchain | cut -d" " -f1)"
+          rustup toolchain list | cut -d" " -f1 | grep -vxF "$ours" | xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
@@ -275,10 +276,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --no-self-update
-          rustup default "$RUST_TOOLCHAIN"
+      - name: Install Rust (rust-toolchain.toml)
+        run: rustup toolchain install --no-self-update
       - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: cargo-deny@0.20.2
