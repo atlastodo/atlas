@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import {
@@ -262,5 +262,24 @@ describe("Keyring Session Manager", () => {
     keyring.clear();
     expect(keyring.hasKeys()).toBe(false);
     expect(() => keyring.getDek()).toThrow();
+  });
+});
+
+describe("invite preview", () => {
+  it("opens only for the project and key it was sealed with, and hides the name's length", async () => {
+    const { sealInvitePreview, openInvitePreview, generatePek } = await import("./index");
+    const pek = generatePek();
+    const preview = { name: "Groceries", icon: "cart", color: "#00ff00", kind: "list" };
+    const sealed = sealInvitePreview(pek, "kid-1", "project-1", preview);
+    expect(sealed).toMatchObject({ v: 1, kid: "kid-1" });
+    expect(JSON.stringify(sealed)).not.toContain("Groceries");
+    expect(openInvitePreview(pek, "project-1", sealed)).toEqual(preview);
+    expect(() => openInvitePreview(pek, "project-2", sealed)).toThrow();
+    expect(() => openInvitePreview(generatePek(), "project-1", sealed)).toThrow();
+    expect(() => openInvitePreview(pek, "project-1", { ...sealed, kid: "kid-2" })).toThrow();
+    const short = sealInvitePreview(pek, "kid-1", "project-1", { name: "A" });
+    expect(short.ct.length).toBe(
+      sealInvitePreview(pek, "kid-1", "project-1", { name: "Abcdefgh" }).ct.length,
+    );
   });
 });

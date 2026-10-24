@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEK_KEY_ID, Keyring, generateDek, generatePek, projectKeyId } from "./crypto";
 import type { Hlc } from "./hlc";
+import type { ScopeKey } from "./scope";
 import { LocalStore } from "./store";
 import type { EntityKind, Operation } from "./types";
 import { decodeOps, encodeOp, isSealedPlaceholder, type DecodeContext, type WireOp } from "./wire";
@@ -152,7 +153,7 @@ describe("decodeOps", () => {
     const store = new LocalStore("device", { newId });
     const known = newId();
     store.applyRemote(set("label", known, "name", "Mine"));
-    const del = (id: string, k = personal, entity: EntityKind = "task") =>
+    const del = (id: string, k: ScopeKey = personal, entity: EntityKind = "task") =>
       encodeOp({ id: newId(), entity, entityId: id, ts: ts(9), op: "delete" }, k);
     const page = newId();
     const [byPage, setOnPage, byStore, unknown, project_] = decode(

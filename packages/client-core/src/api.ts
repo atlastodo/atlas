@@ -50,6 +50,7 @@ import {
   type EncryptedPayload,
   type KeyScope,
   type PasswordKdf,
+  type SealedInvitePreview,
   type SealedKey,
   type WrappedProjectKey,
 } from "./crypto";
@@ -72,6 +73,7 @@ import {
 } from "./scope";
 import { KEY_TRUST_ID, readKeyTrust } from "./trust";
 import { decodeOps, encodeOp, sealedRepair, type DecodeContext, type WireOp } from "./wire";
+import type { LegacyKeysPage } from "./legacy";
 
 export type { WireOp } from "./wire";
 
@@ -1262,6 +1264,41 @@ export class ApiClient {
     const out = decoded.map((d) => d.op);
     return { operations: out, cursor, from: typeof from === "number" ? from : undefined, repairs };
   }
+  /** The protocol 6 entities this partition still holds, a page at a time (`migrateLegacy`). */
+  legacyKeys(next?: string): Promise<LegacyKeysPage> {
+    const q = next === undefined ? "" : `?next=${encodeURIComponent(next)}`;
+    return this.request("GET", `/sync/legacy/keys${q}`);
+  }
+  /** Drop re-encoded protocol 6 entities from this partition; answers how many it still held. */
+  async dropLegacy(keys: { entity: string; entity_id: string }[]): Promise<number> {
+    const res = await this.request<{ dropped: number }>("POST", "/sync/legacy/drop", {
+      entities: keys,
+    });
+    return res.dropped;
+  }
+  /**
+   * Whether this account may re-write every field of the entity: its own activity only (the server
+   * names the pusher as the actor), a shared project only as its owner (archive and delete are
+   * owner-only), a shared project's item only as an active member.
+   */
+  mayReencode(kind: Operation["entity"], entityId: string): boolean {
+    const store = this.scopeStore;
+    const user = this.scopeUserId;
+    if (!store || !user) return false;
+    if (kind === "activity" && store.rawField("activity", entityId, "actor_id") !== user) {
+      return false;
+    }
+    const scope = resolveScope(store, kind, entityId);
+    if (scope.kind === "unknown") return false;
+    if (scope.kind === "personal") return true;
+    const rows = store
+      .list("project_member")
+      .filter((e) => e.fields.project_id === scope.projectId && e.fields.state === "active");
+    if (rows.length === 0) return true; // unshared: the account's own
+    const mine = rows.find((e) => e.fields.user_id === user);
+    if (!mine) return false;
+    return kind !== "project" || mine.fields.role === "owner";
+  }
   /** WebSockets cannot set headers and proxies may log the URL, so it carries a single-use 30 s ticket, never the access token. */
   async syncWsUrl(since: number): Promise<string | null> {
     if (!this.token) return null;
@@ -1272,8 +1309,18 @@ export class ApiClient {
   listMembers(projectId: string): Promise<MemberView[]> {
     return this.request("GET", `/projects/${projectId}/members`);
   }
-  inviteMember(projectId: string, email: string, role: MemberRole): Promise<MemberView> {
-    return this.request("POST", `/projects/${projectId}/members`, { email, role });
+  /** `preview`: what the invitee is shown before accepting (`sealInvitePreview`). */
+  inviteMember(
+    projectId: string,
+    email: string,
+    role: MemberRole,
+    preview?: SealedInvitePreview,
+  ): Promise<MemberView> {
+    return this.request("POST", `/projects/${projectId}/members`, {
+      email,
+      role,
+      ...(preview ? { preview } : {}),
+    });
   }
   acceptInvite(projectId: string): Promise<void> {
     return this.request("POST", `/projects/${projectId}/accept`);

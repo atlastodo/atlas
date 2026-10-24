@@ -481,6 +481,7 @@ describe("pull repairs", () => {
         return Response.json(pages[token]);
       }
       if (u.pathname === "/sync/pull") return Response.json({ operations: [], cursor: 9 });
+      if (u.pathname !== "/sync/push") return new Response("not found", { status: 404 });
       pushes.push(init?.body);
       return Response.json({ cursor: 9, applied: 0 });
     };

@@ -627,6 +627,12 @@ export class LocalStore {
     return { ...fs.ts };
   }
 
+  /** The entity's tombstone stamp, or null. */
+  tombstoneTs(entity: EntityKind, entityId: string): Hlc | null {
+    const deleted = this.state(entity, entityId)?.deleted;
+    return deleted ? { ...deleted } : null;
+  }
+
   visibleFieldStates(
     entity: EntityKind,
     entityId: string,

@@ -11,3 +11,4 @@ export * from "./blob";
 export * from "./apiToken";
 export * from "./rootKey";
 export * from "./passkey";
+export * from "./invitePreview";
