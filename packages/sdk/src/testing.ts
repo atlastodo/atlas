@@ -4,7 +4,7 @@ import {
   SyncClient,
   Keyring,
   SYNC_APPS_HEADER,
-  appOfKind,
+  appOfWire,
   deriveApiTokenKeys,
   formatApiToken,
   generateApiToken,
@@ -131,7 +131,7 @@ export class FakeServer {
     if (this.expired) return expired();
     const scopeHeader = headers[SYNC_APPS_HEADER] ?? null;
     const scope = scopeHeader ? scopeHeader.split(",").map((a) => a.trim()) : ["todo"];
-    const inScope = (op: WireOp) => scope.includes(appOfKind(op.entity)?.app ?? "");
+    const inScope = (op: WireOp) => scope.includes(appOfWire(op.entity)?.app ?? "");
     if (u.pathname.startsWith("/sync/")) {
       this.syncApps.push(scopeHeader);
       const outside = scope.find((a) => !this.apps.includes(a));
@@ -157,13 +157,14 @@ export class FakeServer {
         }
         const outside = (body.operations as WireOp[]).find((op) => !inScope(op));
         if (outside) {
-          const app = appOfKind(outside.entity)?.app ?? "unknown";
+          const app = appOfWire(outside.entity)?.app ?? "unknown";
           return json(403, { code: "app_not_enabled", app, scope: "session", error: "no" });
         }
         const from = this.seq;
         for (const op of body.operations as WireOp[]) {
           if (this.ops.some((o) => o.id === op.id)) continue;
-          this.ops.push({ ...op, seq: ++this.seq });
+          // The server names the pusher, which clients check activities against.
+          this.ops.push({ ...op, pushed_by: USER_ID, seq: ++this.seq });
         }
         return json(200, { applied: body.operations.length, from, cursor: this.seq });
       }

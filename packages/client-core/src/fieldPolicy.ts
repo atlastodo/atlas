@@ -145,6 +145,17 @@ function loadTable(
 export const PLAINTEXT_FIELDS: Readonly<Record<EntityKind, readonly string[] | "all">> =
   loadTable(BUNDLED_MANIFESTS);
 
+/**
+ * The app owning wire name `name`: a wire kind (`todo.sealed`), or a real kind name, which rows
+ * written before protocol 7 carry.
+ */
+export function appOfWire(name: string): AppManifest | undefined {
+  return (
+    appOfKind(name) ??
+    BUNDLED_MANIFESTS.find((m) => Object.values(m.kinds).some((k) => k.wire === name))
+  );
+}
+
 /** The wire kind `kind` travels as; null for a kind no bundled manifest names. */
 export function wireKindOf(kind: string): string | null {
   return kindSpec(kind)?.wire ?? null;
