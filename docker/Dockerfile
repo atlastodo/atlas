@@ -57,6 +57,11 @@ RUN set -eu; \
 FROM rust:1.99-bookworm AS server-builder
 WORKDIR /app
 
+# The image's own Rust only provides rustup: the build uses the one rust-toolchain.toml pins, as CI,
+# devenv and the flake do.
+COPY rust-toolchain.toml ./
+RUN rustup toolchain install --no-self-update
+
 # Cache dependencies: copy manifests first.
 COPY Cargo.toml Cargo.lock ./
 COPY crates/atlas-core/Cargo.toml crates/atlas-core/Cargo.toml

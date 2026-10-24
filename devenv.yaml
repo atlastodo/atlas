@@ -1,13 +1,16 @@
 # yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
 inputs:
+  # This repository's own flake: devenv takes nixpkgs and rust-overlay from its flake.lock, so the
+  # shell, the flake's packages and the NixOS module all build from one pin. `nix flake update`
+  # moves them; `devenv update` then copies them into devenv.lock (`lint` checks the two agree).
+  # A relative path input is locked without a hash, so editing the repository doesn't touch it.
+  atlas:
+    url: path:.
   nixpkgs:
-    url: github:cachix/devenv-nixpkgs/rolling
-  # Provides the Rust toolchain (channel + components) for languages.rust.
+    follows: atlas/nixpkgs
+  # Provides the Rust toolchain for languages.rust (version from rust-toolchain.toml).
   rust-overlay:
-    url: github:oxalica/rust-overlay
-    inputs:
-      nixpkgs:
-        follows: nixpkgs
+    follows: atlas/rust-overlay
   # Pre-commit / git hook integration used by git-hooks.hooks below.
   git-hooks:
     url: github:cachix/git-hooks.nix
