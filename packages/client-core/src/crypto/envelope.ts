@@ -112,15 +112,16 @@ export function isWrappedAttachmentKey(v: unknown): v is WrappedAttachmentKey {
 }
 
 /**
- * Whether a field value is still in encrypted wire form (`{ __enc: 2, kid, iv, ct }` or older
- * `__enc: 1`). A field no key here opens is stored as this object, so its presence means
- * "unreadable here", not "empty".
+ * Whether a field value is still in encrypted wire form (`{ __enc: 3, kid, iv, ct }`, or the older
+ * `__enc: 2` and `__enc: 1`). A field no key here opens is stored as this object, so its presence
+ * means "unreadable here", not "empty".
  */
 export function isEncryptedEnvelope(
   v: unknown,
-): v is { __enc: 1; iv: string; ct: string } | { __enc: 2; kid: string; iv: string; ct: string } {
+): v is
+  { __enc: 1; iv: string; ct: string } | { __enc: 2 | 3; kid: string; iv: string; ct: string } {
   if (typeof v !== "object" || v === null) return false;
   const o = v as Record<string, unknown>;
   if (typeof o.iv !== "string" || typeof o.ct !== "string") return false;
-  return o.__enc === 1 || (o.__enc === 2 && typeof o.kid === "string");
+  return o.__enc === 1 || ((o.__enc === 2 || o.__enc === 3) && typeof o.kid === "string");
 }

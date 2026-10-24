@@ -10,7 +10,6 @@ import type {
   BugReportPayload,
   BugReportSummary,
   BugReportView,
-  EncryptedFieldPayload,
   InviteView,
   MemberRole,
   MemberView,
@@ -46,18 +45,18 @@ import {
   DEK_KEY_ID,
   Keyring,
   MissingScopeKey,
-  encryptField,
   isEncryptedEnvelope,
   kdfToWire,
   type EncryptedPayload,
   type KeyScope,
   type PasswordKdf,
+  type SealedInvitePreview,
   type SealedKey,
   type WrappedProjectKey,
 } from "./crypto";
 import { SYNC_PROTOCOL, buildSyncWsUrl } from "./realtime";
 import { LEGACY_DISCOVERY, parseDiscovery, type ServerDiscovery } from "./discovery";
-import { shouldEncryptField } from "./fieldPolicy";
+import { isLegacyWireKind, legacyEncrypted } from "./fieldPolicy";
 import {
   EMPTY_SCOPE_STORE,
   batchLinksOf,
@@ -73,13 +72,10 @@ import {
   type ScopeStore,
 } from "./scope";
 import { KEY_TRUST_ID, readKeyTrust } from "./trust";
+import { decodeOps, encodeOp, sealedRepair, type DecodeContext, type WireOp } from "./wire";
+import type { LegacyKeysPage } from "./legacy";
 
-export type WireOp = {
-  id: string;
-  entity: Operation["entity"];
-  entity_id: string;
-  ts: { wall_ms: number; counter: number; node: string };
-} & ({ op: "set"; field: string; value: unknown } | { op: "delete" });
+export type { WireOp } from "./wire";
 
 /** Sync without an unlocked keyring would push plaintext or store ciphertext as content. Transient. */
 export class E2eeLockedError extends Error {
@@ -89,31 +85,14 @@ export class E2eeLockedError extends Error {
   }
 }
 
-/** Encrypts every non-plaintext field with `key()`, bound to entity, id and field. */
+/** Protocol 7: under its wire kind and scope, the field tagged and the value sealed with `key()`. */
 function encodeWireOp(
   op: Operation,
   keyring: Keyring | null | undefined,
   key: () => ScopeKey,
 ): WireOp {
-  const ts = { wall_ms: op.ts.wallMs, counter: op.ts.counter, node: op.ts.node };
-  const base = { id: op.id, entity: op.entity, entity_id: op.entityId, ts };
-  if (op.op === "delete") return { ...base, op: "delete" };
-
-  let value = op.value;
-  if (shouldEncryptField(op.entity, op.field)) {
-    if (!keyring?.hasKeys()) throw new E2eeLockedError();
-    const k = key();
-    const at = { entity: op.entity, entityId: op.entityId, field: op.field };
-    const encryptedValue: EncryptedFieldPayload = encryptField(
-      k.key,
-      k.keyId,
-      k.scope,
-      at,
-      op.value,
-    );
-    value = encryptedValue;
-  }
-  return { ...base, op: "set", field: op.field, value };
+  if (!keyring?.hasKeys()) throw new E2eeLockedError();
+  return encodeOp(op, key());
 }
 
 /** Explicit scope: `projectId`'s key (throws when not held) or the DEK when null; never falls back. */
@@ -132,17 +111,30 @@ export function toEncryptedWire(
   });
 }
 
-/** `projectId` null is personal, undefined unknown (any held key may open). Unopened values stay envelopes. */
+/**
+ * One wire op, decoded on its own: a current one opened with the keys of its scope (still sealed
+ * without them), a legacy one by the protocol 6 rules, where `projectId` null is personal and
+ * undefined unknown (any held key may open). Throws for an op the decoder drops.
+ */
 export function fromEncryptedWire(
   w: WireOp,
   keyring?: Keyring | null,
   projectId?: string | null,
 ): Operation {
+  if (!isLegacyWireKind(w.entity) && w.entity !== "project_member") {
+    const [d] = decodeOps([w], {
+      keyring: keyring?.hasKeys() ? keyring : null,
+      store: { kindOf: () => null },
+      openLegacy: () => null,
+    });
+    if (!d) throw new Error(`dropped ${w.entity} op ${w.id}`);
+    return d.op;
+  }
   const ts = { wallMs: w.ts.wall_ms, counter: w.ts.counter, node: w.ts.node };
-  const base = { id: w.id, entity: w.entity, entityId: w.entity_id, ts };
+  const base = { id: w.id, entity: w.entity as Operation["entity"], entityId: w.entity_id, ts };
   if (w.op === "delete") return { ...base, op: "delete" };
   let value = w.value;
-  if (keyring?.hasKeys() && isEncryptedEnvelope(value)) {
+  if (keyring?.hasKeys() && isEncryptedEnvelope(value) && legacyEncrypted(w.entity, w.field)) {
     const expected: KeyScope | null =
       projectId === undefined
         ? null
@@ -155,7 +147,7 @@ export function fromEncryptedWire(
       value,
       at,
       expected,
-      openOptionsFor(w.entity, w.entity_id, true),
+      openOptionsFor(base.entity, w.entity_id, true),
     );
     if (opened) value = opened.value;
     else console.warn(`[atlas-e2ee] no key opens ${w.entity}.${w.field} (${w.entity_id})`);
@@ -459,6 +451,13 @@ export class ApiClient {
 
   isLegacyMigrated(): boolean {
     return this.legacyDone || readKeyTrust(this.scopeStore ?? EMPTY_SCOPE_STORE).legacyMigrated;
+  }
+
+  /** The real kind of an entity the attached store holds by this id. */
+  private kindOfEntity(id: string): Operation["entity"] | null {
+    const store = this.scopeStore as
+      (ScopeStore & { kindOf?(id: string): Operation["entity"] | null }) | null;
+    return store?.kindOf?.(id) ?? null;
   }
 
   private isCanonical(keyId: string, scope: KeyScope): boolean {
@@ -1204,59 +1203,101 @@ export class ApiClient {
       throw new Error("malformed sync payload");
     const wireOps = operations as WireOp[];
     const store = this.scopeStore ?? EMPTY_SCOPE_STORE;
-    const decoded = wireOps.map((w) => fromEncryptedWire(w, null));
-    const batch = batchLinksOf(decoded);
-    const shared = sharedProjectIds(store);
     const legacy = !this.isLegacyMigrated();
-    const repairs: Repair[] = [];
-    const out: Operation[] = [];
-    for (const op of decoded) {
-      if (op.op !== "set" || !shouldEncryptField(op.entity, op.field)) {
-        out.push(op);
-        continue;
-      }
-      const at = { entity: op.entity, entityId: op.entityId, field: op.field, ts: op.ts };
-      const trustState = op.entity === "preference" && op.entityId === KEY_TRUST_ID;
-      if (!isEncryptedEnvelope(op.value)) {
-        // Plaintext in an encrypted field: before the legacy migration, old-client content to
-        // re-write encrypted; after it, only a forgery.
-        if (!legacy || trustState) {
-          console.warn(
-            `[atlas-e2ee] dropped plaintext in ${op.entity}.${op.field} (${op.entityId})`,
-          );
-          continue;
+    // Legacy rows (protocol 6) carry their links in plaintext, so their scopes resolve first.
+    const legacyLinks = batchLinksOf(
+      wireOps.filter((w) => isLegacyWireKind(w.entity)).map((w) => fromEncryptedWire(w, null)),
+    );
+    const shared = sharedProjectIds(store);
+    const ctx: DecodeContext = {
+      keyring,
+      store: { kindOf: (id) => this.kindOfEntity(id) },
+      openLegacy: (op) => {
+        const at = { entity: op.entity, entityId: op.entityId, field: op.field, ts: op.ts };
+        const trustState = op.entity === "preference" && op.entityId === KEY_TRUST_ID;
+        if (!isEncryptedEnvelope(op.value)) {
+          // Plaintext in an encrypted field: old-client content before the legacy migration;
+          // after it, only a forgery.
+          if (!legacy || trustState) {
+            console.warn(
+              `[atlas-e2ee] dropped plaintext in ${op.entity}.${op.field} (${op.entityId})`,
+            );
+            return null;
+          }
+          return op;
         }
-        repairs.push({ ...at, value: op.value, reason: "plaintext" });
-        out.push(op);
-        continue;
-      }
+        const expected = expectedKeyScope(
+          keyring,
+          resolveScope(store, op.entity, op.entityId, legacyLinks),
+          shared,
+        );
+        const opened = openFieldValue(
+          keyring,
+          op.value,
+          at,
+          expected,
+          openOptionsFor(op.entity, op.entityId, legacy),
+        );
+        if (!opened) {
+          // Kept as the envelope: a key that arrives later may open it where it is.
+          console.warn(`[atlas-e2ee] no key opens ${op.entity}.${op.field} (${op.entityId})`);
+          return op;
+        }
+        return { ...op, value: opened.value };
+      },
+    };
+    const decoded = decodeOps(wireOps, ctx);
+    // Current values opened with the keys of the scope they arrived in; their entities' scopes are
+    // known now that their links are readable.
+    const batch = batchLinksOf(decoded.map((d) => d.op));
+    const repairs: Repair[] = [];
+    for (const d of decoded) {
+      if (d.legacy || !d.opened) continue;
       const expected = expectedKeyScope(
         keyring,
-        resolveScope(store, op.entity, op.entityId, batch),
+        resolveScope(store, d.op.entity, d.op.entityId, batch),
         shared,
       );
-      const opened = openFieldValue(
-        keyring,
-        op.value,
-        at,
-        expected,
-        openOptionsFor(op.entity, op.entityId, legacy),
-      );
-      if (!opened) {
-        // Kept as the envelope: a key that arrives later may open it where it is.
-        console.warn(`[atlas-e2ee] no key opens ${op.entity}.${op.field} (${op.entityId})`);
-        out.push(op);
-        continue;
-      }
-      // Opened with a non-canonical key, in the old format, or before its scope is known:
-      // `confirmRepairs` decides.
-      if (!expected || opened.version === 1 || !this.isCanonical(opened.keyId, expected)) {
-        const { keyId, scope, version } = opened;
-        repairs.push({ ...at, value: opened.value, reason: "key", keyId, scope, version });
-      }
-      out.push({ ...op, value: opened.value });
+      const repair = sealedRepair(d, expected, (keyId, scope) => this.isCanonical(keyId, scope));
+      if (repair) repairs.push(repair);
     }
+    const out = decoded.map((d) => d.op);
     return { operations: out, cursor, from: typeof from === "number" ? from : undefined, repairs };
+  }
+  /** The protocol 6 entities this partition still holds, a page at a time (`migrateLegacy`). */
+  legacyKeys(next?: string): Promise<LegacyKeysPage> {
+    const q = next === undefined ? "" : `?next=${encodeURIComponent(next)}`;
+    return this.request("GET", `/sync/legacy/keys${q}`);
+  }
+  /** Drop re-encoded protocol 6 entities from this partition; answers how many it still held. */
+  async dropLegacy(keys: { entity: string; entity_id: string }[]): Promise<number> {
+    const res = await this.request<{ dropped: number }>("POST", "/sync/legacy/drop", {
+      entities: keys,
+    });
+    return res.dropped;
+  }
+  /**
+   * Whether this account may re-write every field of the entity: its own activity only (the server
+   * names the pusher as the actor), a shared project only as its owner (archive and delete are
+   * owner-only), a shared project's item only as an active member.
+   */
+  mayReencode(kind: Operation["entity"], entityId: string): boolean {
+    const store = this.scopeStore;
+    const user = this.scopeUserId;
+    if (!store || !user) return false;
+    if (kind === "activity" && store.rawField("activity", entityId, "actor_id") !== user) {
+      return false;
+    }
+    const scope = resolveScope(store, kind, entityId);
+    if (scope.kind === "unknown") return false;
+    if (scope.kind === "personal") return true;
+    const rows = store
+      .list("project_member")
+      .filter((e) => e.fields.project_id === scope.projectId && e.fields.state === "active");
+    if (rows.length === 0) return true; // unshared: the account's own
+    const mine = rows.find((e) => e.fields.user_id === user);
+    if (!mine) return false;
+    return kind !== "project" || mine.fields.role === "owner";
   }
   /** WebSockets cannot set headers and proxies may log the URL, so it carries a single-use 30 s ticket, never the access token. */
   async syncWsUrl(since: number): Promise<string | null> {
@@ -1268,8 +1309,18 @@ export class ApiClient {
   listMembers(projectId: string): Promise<MemberView[]> {
     return this.request("GET", `/projects/${projectId}/members`);
   }
-  inviteMember(projectId: string, email: string, role: MemberRole): Promise<MemberView> {
-    return this.request("POST", `/projects/${projectId}/members`, { email, role });
+  /** `preview`: what the invitee is shown before accepting (`sealInvitePreview`). */
+  inviteMember(
+    projectId: string,
+    email: string,
+    role: MemberRole,
+    preview?: SealedInvitePreview,
+  ): Promise<MemberView> {
+    return this.request("POST", `/projects/${projectId}/members`, {
+      email,
+      role,
+      ...(preview ? { preview } : {}),
+    });
   }
   acceptInvite(projectId: string): Promise<void> {
     return this.request("POST", `/projects/${projectId}/accept`);

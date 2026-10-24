@@ -19,6 +19,9 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::wire::{self, tag, value_of, SEALED};
+
 /// The credential a client sends for the account password: the auth hash it derives from it
 /// (64 lowercase hex characters), which is what the server stores and compares.
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -69,7 +72,7 @@ async fn http(
         .method(method)
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-atlas-sync-protocol", "6");
+        .header("x-atlas-sync-protocol", "7");
     if let Some(t) = token {
         b = b.header("authorization", format!("Bearer {t}"));
     }
@@ -148,7 +151,7 @@ async fn ticket(router: &Router, token: &str) -> String {
 }
 
 fn ws_url(addr: std::net::SocketAddr, ticket: &str, since: i64) -> String {
-    format!("ws://{addr}/sync/ws?ticket={ticket}&since={since}&protocol=6")
+    format!("ws://{addr}/sync/ws?ticket={ticket}&since={since}&protocol=7")
 }
 
 async fn connect(addr: std::net::SocketAddr, router: &Router, token: &str, since: i64) -> Ws {
@@ -177,11 +180,14 @@ async fn next_payload(ws: &mut Ws, secs: u64) -> Option<Value> {
 }
 
 fn set_op(entity_id: Uuid, field: &str, value: Value, wall: u64) -> Value {
-    json!({
-        "id": Uuid::now_v7(), "entity": "task", "entity_id": entity_id,
-        "op": "set", "field": field, "value": value,
-        "ts": { "wall_ms": wall, "counter": 0, "node": Uuid::now_v7() },
-    })
+    wire::set(
+        SEALED,
+        entity_id,
+        None,
+        field,
+        value,
+        (wall, 0, Uuid::now_v7()),
+    )
 }
 
 /// Read WS text messages until one whose pull-payload contains a matching field/value, or time out.
@@ -195,7 +201,7 @@ async fn wait_for_field(
             if let WsMessage::Text(text) = msg {
                 let payload: Value = serde_json::from_str(&text).unwrap();
                 for op in payload["operations"].as_array().unwrap_or(&vec![]) {
-                    if op["field"] == field && op["value"] == value {
+                    if op["field"] == tag(field) && value_of(op) == value {
                         return true;
                     }
                 }
@@ -257,18 +263,18 @@ async fn ws_refuses_a_missing_or_unknown_ticket_and_the_access_token() {
 
     let base = format!("ws://{addr}/sync/ws");
     for (url, what) in [
-        (format!("{base}?since=0&protocol=6"), "no ticket"),
+        (format!("{base}?since=0&protocol=7"), "no ticket"),
         (
-            format!("{base}?ticket={}&since=0&protocol=6", "0".repeat(64)),
+            format!("{base}?ticket={}&since=0&protocol=7", "0".repeat(64)),
             "an unknown ticket",
         ),
         // The access token is no longer accepted in the URL, under either name.
         (
-            format!("{base}?token={token}&since=0&protocol=6"),
+            format!("{base}?token={token}&since=0&protocol=7"),
             "the access token as `token`",
         ),
         (
-            format!("{base}?ticket={token}&since=0&protocol=6"),
+            format!("{base}?ticket={token}&since=0&protocol=7"),
             "the access token as `ticket`",
         ),
     ] {

@@ -21,6 +21,9 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::wire::{self, PROJECT, SEALED};
+
 /// The credential a client sends for the account password: the auth hash it derives from it
 /// (64 lowercase hex characters), which is what the server stores and compares.
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -71,7 +74,7 @@ async fn http(
         .method(method)
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-atlas-sync-protocol", "6");
+        .header("x-atlas-sync-protocol", "7");
     if let Some(t) = token {
         b = b.header("authorization", format!("Bearer {t}"));
     }
@@ -158,12 +161,24 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+/// A set op with op id `id`. A `project` is a project op; any other entity is a sealed one, in the
+/// project its `project_id` names (the scope a client encrypts it under) or under the account's key.
 fn op(id: &str, entity: &str, entity_id: &str, field: &str, value: Value, wall: u64) -> Value {
-    json!({
-        "id": id, "entity": entity, "entity_id": entity_id,
-        "op": "set", "field": field, "value": value,
-        "ts": { "wall_ms": wall, "counter": 0, "node": Uuid::now_v7() },
-    })
+    let (kind, scope) = match entity {
+        "project" => (PROJECT, None),
+        _ if field == "project_id" => (SEALED, value.as_str().map(str::to_owned)),
+        _ => (SEALED, None),
+    };
+    let mut op = wire::set(
+        kind,
+        entity_id,
+        scope.as_deref(),
+        field,
+        value,
+        (wall, 0, Uuid::now_v7()),
+    );
+    op["id"] = json!(id);
+    op
 }
 
 /// Follow pull cursors from `since` until the log is drained; returns the delivered op ids and the

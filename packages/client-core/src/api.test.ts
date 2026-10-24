@@ -264,7 +264,7 @@ describe("ApiClient", () => {
     });
 
     const url = await client.syncWsUrl(7);
-    expect(url).toBe("wss://api.example.com/sync/ws?ticket=a%2Fb%2Bc&since=7&protocol=6");
+    expect(url).toBe("wss://api.example.com/sync/ws?ticket=a%2Fb%2Bc&since=7&protocol=7");
     expect(url).not.toContain("access-jwt");
     const [ticketUrl, init] = fetchMock.mock.calls[0]!;
     expect(ticketUrl).toBe("https://api.example.com/sync/ws-ticket");
@@ -272,7 +272,7 @@ describe("ApiClient", () => {
     expect((init!.headers as Record<string, string>)["authorization"]).toBe("Bearer access-jwt");
     // One ticket per connect attempt.
     expect(await client.syncWsUrl(0)).toBe(
-      "wss://api.example.com/sync/ws?ticket=t2&since=0&protocol=6",
+      "wss://api.example.com/sync/ws?ticket=t2&since=0&protocol=7",
     );
 
     // Signed out: there is nothing to connect with, and nothing is asked.
@@ -296,7 +296,7 @@ describe("ApiClient", () => {
       fetch: fetchMock,
     });
 
-    expect(await client.syncWsUrl(0)).toBe("ws://x/sync/ws?ticket=t&since=0&protocol=6");
+    expect(await client.syncWsUrl(0)).toBe("ws://x/sync/ws?ticket=t&since=0&protocol=7");
     expect(fetchMock.mock.calls.map(([u]) => u)).toEqual([
       "http://x/sync/ws-ticket",
       "http://x/auth/refresh",
@@ -825,7 +825,7 @@ describe("ApiClient token rotation shared across clients (browser tabs)", () => 
 describe("ApiClient sync protocol version", () => {
   it("announces the sync protocol on every request, JSON and blob alike", async () => {
     // The server refuses sync from builds that predate the E2EE fixes; the header is how it tells.
-    expect(SYNC_PROTOCOL).toBe(6);
+    expect(SYNC_PROTOCOL).toBe(7);
     const fetchMock = vi.fn<FetchLike>().mockResolvedValue(jsonResponse(201, []));
     const client = new ApiClient({ baseUrl: "http://x", token: "t", fetch: fetchMock });
 
@@ -834,7 +834,7 @@ describe("ApiClient sync protocol version", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     for (const [, init] of fetchMock.mock.calls) {
-      expect((init!.headers as Record<string, string>)["x-atlas-sync-protocol"]).toBe("6");
+      expect((init!.headers as Record<string, string>)["x-atlas-sync-protocol"]).toBe("7");
     }
   });
 

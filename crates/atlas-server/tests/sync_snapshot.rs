@@ -11,6 +11,9 @@ use std::collections::HashSet;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::wire::{self, tag, value_of};
+
 /// The credential a client sends for the account password: the auth hash it derives from it
 /// (64 lowercase hex characters), which is what the server stores and compares.
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -61,7 +64,7 @@ async fn http(
         .method(method)
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-atlas-sync-protocol", "6");
+        .header("x-atlas-sync-protocol", "7");
     if let Some(t) = token {
         b = b.header("authorization", format!("Bearer {t}"));
     }
@@ -113,20 +116,18 @@ async fn new_user(router: &Router) -> (String, String) {
     (body["access_token"].as_str().unwrap().to_string(), email)
 }
 
-fn set_op(entity: &str, entity_id: &str, field: &str, value: Value, wall: u64) -> Value {
-    json!({
-        "id": Uuid::now_v7(), "entity": entity, "entity_id": entity_id,
-        "op": "set", "field": field, "value": value,
-        "ts": { "wall_ms": wall, "counter": 0, "node": Uuid::now_v7() },
-    })
+/// A set op of `field` on an entity of the real `kind`, as its client sends it (no scope).
+fn set_op(kind: &str, entity_id: &str, field: &str, value: Value, wall: u64) -> Value {
+    wire::set_of_kind(kind, entity_id, field, value, wall)
 }
 
-fn delete_op(entity: &str, entity_id: &str, wall: u64) -> Value {
-    json!({
-        "id": Uuid::now_v7(), "entity": entity, "entity_id": entity_id,
-        "op": "delete",
-        "ts": { "wall_ms": wall, "counter": 0, "node": Uuid::now_v7() },
-    })
+fn delete_op(kind: &str, entity_id: &str, wall: u64) -> Value {
+    wire::delete(
+        wire::wire_kind(kind),
+        entity_id,
+        None,
+        (wall, 0, Uuid::now_v7()),
+    )
 }
 
 async fn push(router: &Router, token: &str, ops: Vec<Value>) {
@@ -201,10 +202,10 @@ async fn snapshot_returns_materialized_state_with_tombstones() {
     assert_eq!(live_ops.len(), 2, "title + priority of the live task");
     assert!(live_ops
         .iter()
-        .any(|o| o["field"] == "title" && o["value"] == "keep me"));
+        .any(|o| o["field"] == tag("title") && value_of(o) == "keep me"));
     assert!(live_ops
         .iter()
-        .any(|o| o["field"] == "priority" && o["value"] == 3));
+        .any(|o| o["field"] == tag("priority") && value_of(o) == 3));
     // The deleted task is represented as its field Set AND its Delete op — the client's HLC-based
     // visibility rule resolves them exactly like a log replay would.
     let doomed_ops: Vec<&Value> = ops
@@ -213,7 +214,7 @@ async fn snapshot_returns_materialized_state_with_tombstones() {
         .collect();
     assert!(doomed_ops
         .iter()
-        .any(|o| o["op"] == "set" && o["field"] == "title"));
+        .any(|o| o["op"] == "set" && o["field"] == tag("title")));
     assert!(
         doomed_ops.iter().any(|o| o["op"] == "delete"),
         "the tombstone must be represented as a Delete op"
@@ -255,26 +256,33 @@ async fn snapshot_includes_shared_project_fan_in() {
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 
-    // A later edit by Alice fans out into Bob's partition; his snapshot must contain it. The batch
-    // links the task to the project first, so the edit resolves its owning project (the same
-    // emission order the real client uses).
+    // A later edit by Alice, in the project's scope, fans out into Bob's partition; his snapshot
+    // must contain it.
+    let in_project = |field: &str, value: Value| {
+        wire::set(
+            wire::SEALED,
+            &tid,
+            Some(&pid),
+            field,
+            value,
+            (500, 0, Uuid::now_v7()),
+        )
+    };
     push(
         &router,
         &alice,
         vec![
-            set_op("task", &tid, "project_id", json!(pid), 500),
-            set_op("task", &tid, "title", json!("shared work"), 500),
+            in_project("project_id", json!(pid)),
+            in_project("title", json!("shared work")),
         ],
     )
     .await;
 
     let (status, body) = http(&router, "GET", "/sync/snapshot", Some(&bob), Value::Null).await;
     assert_eq!(status, StatusCode::OK, "{body:?}");
-    let has_shared_task = body["operations"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|o| o["entity"] == "task" && o["field"] == "title" && o["value"] == "shared work");
+    let has_shared_task = body["operations"].as_array().unwrap().iter().any(|o| {
+        o["entity"] == wire::SEALED && o["field"] == tag("title") && value_of(o) == "shared work"
+    });
     assert!(
         has_shared_task,
         "snapshot must include fan-in from shared projects, like pull"
@@ -318,8 +326,8 @@ async fn snapshot_cursor_pulls_only_newer_ops() {
     assert_eq!(status, StatusCode::OK);
     let ops = pull["operations"].as_array().unwrap();
     assert_eq!(ops.len(), 1, "only the op committed after the snapshot");
-    assert_eq!(ops[0]["field"], "notes");
-    assert_eq!(ops[0]["value"], "second");
+    assert_eq!(ops[0]["field"], tag("notes"));
+    assert_eq!(value_of(&ops[0]), "second");
 }
 
 #[tokio::test]
@@ -365,10 +373,15 @@ async fn snapshot_pages_through_every_entity() {
         );
         cursor_seen = Some(cursor);
         for op in page["operations"].as_array().unwrap() {
+            let field = op["field"].as_str().unwrap();
+            let name = ["title", "priority"]
+                .into_iter()
+                .find(|n| tag(n) == field)
+                .expect("a field of the fixture");
             seen.insert((
                 op["entity_id"].as_str().unwrap().to_string(),
-                op["field"].as_str().unwrap().to_string(),
-                op["value"].clone(),
+                name.to_string(),
+                value_of(op),
             ));
         }
         pages += 1;
@@ -533,16 +546,17 @@ async fn the_server_fold_resolves_the_shared_conflict_vectors() {
                 .map(|op| {
                     let mut w = json!({
                         "id": Uuid::now_v7(),
-                        "entity": "task",
+                        "entity": wire::SEALED,
                         "entity_id": entity_id,
+                        "scope": null,
                         "ts": op["ts"],
                     });
                     if op["delete"].as_bool() == Some(true) {
                         w["op"] = json!("delete");
                     } else {
                         w["op"] = json!("set");
-                        w["field"] = op["field"].clone();
-                        w["value"] = op["value"].clone();
+                        w["field"] = json!(tag(op["field"].as_str().unwrap()));
+                        w["value"] = wire::sealed(op["value"].clone());
                     }
                     w
                 })
@@ -567,6 +581,15 @@ async fn the_server_fold_resolves_the_shared_conflict_vectors() {
         }
     }
 
+    // The vectors' field names, by the tags they travel as.
+    let names: std::collections::HashMap<String, String> = vectors["scenarios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|s| s["ops"].as_array().unwrap())
+        .filter_map(|op| op["field"].as_str())
+        .map(|f| (tag(f), f.to_owned()))
+        .collect();
     let snapshot = snapshot_ops(&router, &token).await;
     for (name, entity_id, want) in expected {
         let id = entity_id.to_string();
@@ -579,7 +602,7 @@ async fn the_server_fold_resolves_the_shared_conflict_vectors() {
         let mut fields = serde_json::Map::new();
         for op in ops.iter().filter(|o| o["op"] == "set") {
             if tomb.as_ref().is_none_or(|t| hlc_key(&op["ts"]) > *t) {
-                fields.insert(op["field"].as_str().unwrap().into(), op["value"].clone());
+                fields.insert(names[op["field"].as_str().unwrap()].clone(), value_of(op));
             }
         }
         let deleted = tomb.is_some() && fields.is_empty();

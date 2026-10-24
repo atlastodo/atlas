@@ -3,8 +3,10 @@ import { ApiClient, type FetchLike, type WireOp } from "./api";
 import {
   DEK_KEY_ID,
   Keyring,
-  decryptField,
   encryptField,
+  isFieldEnvelopeV3,
+  openSealedField,
+  type FieldEnvelopeV3,
   encryptJson,
   generateDek,
   generatePek,
@@ -28,6 +30,7 @@ import {
 import { LocalStore } from "./store";
 import { SyncClient } from "./sync-client";
 import type { EntityKind, Operation } from "./types";
+import { encodeOp } from "./wire";
 
 const ME = "0190a6f0-0000-7000-8000-0000000000e1";
 const OTHER = "0190a6f0-0000-7000-8000-0000000000e2";
@@ -93,11 +96,51 @@ function enc2(
   return encryptField(key, kid, scope, { entity, entityId, field }, value);
 }
 
-/** Open a pushed op's value as project `projectId`'s content (null: personal). */
-function openPushed(key: Uint8Array, projectId: string | null, op: WireOp): unknown {
+/** A pushed op's real field and value, opened as project `projectId`'s content (null: personal). */
+function openPushedSealed(key: Uint8Array, projectId: string | null, op: WireOp) {
   const scope = projectId ? { kind: "project" as const, projectId } : { kind: "personal" as const };
   const at = { entity: op.entity, entityId: op.entity_id, field: op.op === "set" ? op.field : "" };
-  return decryptField(key, scope, at, valueOf(op) as Parameters<typeof decryptField>[3]);
+  return openSealedField(key, scope, at, valueOf(op) as FieldEnvelopeV3);
+}
+
+/** Open a pushed op's value as project `projectId`'s content (null: personal). */
+function openPushed(key: Uint8Array, projectId: string | null, op: WireOp): unknown {
+  return openPushedSealed(key, projectId, op).value;
+}
+
+/** The (last, with `last`) pushed set of `field`: the server sees only tags, so each is opened. */
+function pushedSet(
+  ops: WireOp[],
+  key: Uint8Array,
+  projectId: string | null,
+  field: string,
+  last = false,
+): WireOp | undefined {
+  const sets = ops.filter((o) => {
+    if (o.op !== "set" || !isFieldEnvelopeV3(o.value)) return false;
+    try {
+      return openPushedSealed(key, projectId, o).field === field;
+    } catch {
+      return false;
+    }
+  });
+  return last ? sets[sets.length - 1] : sets[0];
+}
+
+/** A protocol 7 wire op: `entity.field` sealed with project `projectId`'s key `key` (null: the DEK). */
+function sealedWire(
+  key: Uint8Array,
+  projectId: string | null,
+  entity: EntityKind,
+  entityId: string,
+  field: string,
+  value: unknown,
+  at: Hlc,
+): WireOp {
+  const keyId = projectId ? projectKeyId(key) : DEK_KEY_ID;
+  const scope = projectId ? { kind: "project" as const, projectId } : { kind: "personal" as const };
+  const op: Operation = { id: newId(), entity, entityId, ts: at, op: "set", field, value };
+  return encodeOp(op, { key, keyId, scope });
 }
 
 /** A store in which `P` is shared: ME owns it, OTHER is an active editor. */
@@ -230,8 +273,9 @@ describe("push key choice", () => {
     const srv = server();
     store.set("task", T, "title", "Renamed");
     await client(srv.fetch, keyring, store).syncPush(store.unsyncedOps());
-    const title = srv.pushes[0]!.find((o) => o.op === "set" && o.field === "title")!;
+    const title = pushedSet(srv.pushes[0]!, pek, P, "title")!;
     expect(openPushed(pek, P, title)).toBe("Renamed");
+    expect(title.scope).toBe(P);
   });
 
   it("encrypts comments and attachments with the key of their task's project", async () => {
@@ -244,12 +288,14 @@ describe("push key choice", () => {
     store.set("attachment", A, "blob_size", 42);
     await client(srv.fetch, keyring, store).syncPush(store.unsyncedOps());
     const sent = srv.pushes[0]!;
-    const body = sent.find((o) => o.op === "set" && o.field === "body")!;
-    const size = sent.find((o) => o.op === "set" && o.field === "blob_size")!;
-    const link = sent.find((o) => o.op === "set" && o.field === "task_id")!;
+    const body = pushedSet(sent, pek, P, "body")!;
+    const size = pushedSet(sent, pek, P, "blob_size")!;
+    const link = pushedSet(sent, pek, P, "task_id")!;
     expect(openPushed(pek, P, body)).toBe("Looks good");
     expect(openPushed(pek, P, size)).toBe(42);
-    expect(valueOf(link)).toBe(T);
+    // The link is sealed like any field: the server routes by the scope.
+    expect(openPushed(pek, P, link)).toBe(T);
+    expect(sent.every((o) => o.scope === P)).toBe(true);
   });
 
   it("defers every op of a shared project without its key, then pushes them once keys load", async () => {
@@ -264,7 +310,8 @@ describe("push key choice", () => {
 
     await sync.sync();
     const first = srv.pushes.flat();
-    expect(first.map((o) => o.entity)).toEqual(["label"]);
+    expect(first).toHaveLength(1); // the label, under the account's own key
+    expect(first[0]!.scope).toBeNull();
     expect(sync.deferredCount()).toBe(2);
     expect(store.unsyncedOps()).toHaveLength(2); // kept, never quarantined
 
@@ -272,9 +319,9 @@ describe("push key choice", () => {
     await sync.sync();
     const second = srv.pushes.flat().slice(first.length);
     expect(second).toHaveLength(2);
-    // The plaintext link op waited too, so members never saw half of the new task.
-    expect(second.some((o) => o.op === "set" && o.field === "project_id")).toBe(true);
-    const title = second.find((o) => o.op === "set" && o.field === "title")!;
+    // The link op waited too, so members never saw half of the new task.
+    expect(pushedSet(second, pek, P, "project_id")).toBeDefined();
+    const title = pushedSet(second, pek, P, "title")!;
     expect(openPushed(pek, P, title)).toBe("Offline edit");
     expect(store.unsyncedOps()).toHaveLength(0);
     expect(sync.deferredCount()).toBe(0);
@@ -288,14 +335,12 @@ describe("pull repairs", () => {
     const forked = generatePek();
     keyring.addProjectKey(P, projectKeyId(forked), forked);
     const at = ts(20);
-    const srv = server([
-      wire("task", T, "notes", enc2(forked, P, "task", T, "notes", "Forked note"), at),
-    ]);
+    const srv = server([sealedWire(forked, P, "task", T, "notes", "Forked note", at)]);
     await new SyncClient(store, client(srv.fetch, keyring, store), { cursor: 7 }).sync();
 
     expect(store.get("task", T)!.notes).toBe("Forked note");
     expect(store.fieldTs("task", T, "notes")).toEqual(successorHlc(at));
-    const repaired = srv.pushes.flat().find((o) => o.op === "set" && o.field === "notes")!;
+    const repaired = pushedSet(srv.pushes.flat(), pek, P, "notes")!;
     expect(repaired.ts).toEqual({ wall_ms: 20, counter: 0, node: successorHlc(at).node });
     expect(openPushed(pek, P, repaired)).toBe("Forked note");
   });
@@ -306,14 +351,12 @@ describe("pull repairs", () => {
     const old = generatePek();
     keyring.addProjectKey(P, projectKeyId(old), old);
     keyring.setRetiredKeys(P, [projectKeyId(old)]);
-    const srv = server([
-      wire("task", T, "notes", enc2(old, P, "task", T, "notes", "Before the rotation"), ts(20)),
-    ]);
+    const srv = server([sealedWire(old, P, "task", T, "notes", "Before the rotation", ts(20))]);
     await new SyncClient(store, client(srv.fetch, keyring, store), { cursor: 7 }).sync();
 
     expect(store.get("task", T)!.notes).toBe("Before the rotation");
     expect(store.fieldTs("task", T, "notes")).toEqual(ts(20));
-    expect(srv.pushes.flat().filter((o) => o.op === "set" && o.field === "notes")).toEqual([]);
+    expect(srv.pushes.flat()).toEqual([]);
   });
 
   it("does not read or move a DEK value found in a shared project", async () => {
@@ -328,22 +371,21 @@ describe("pull repairs", () => {
     warn.mockRestore();
   });
 
-  it("rewrites a version-1 value in the current format, under the same key", async () => {
+  it("reads a protocol 6 version-1 value and leaves it to the migration, never a repair", async () => {
     const store = sharedStore();
     const { pek, keyring } = keys();
     const at = ts(22);
     const srv = server([wire("task", T, "title", enc(pek, "Old format"), at)]);
     await new SyncClient(store, client(srv.fetch, keyring, store), { cursor: 7 }).sync();
 
-    const pushed = srv.pushes.flat().find((o) => o.op === "set" && o.field === "title")!;
-    expect(pushed.ts.wall_ms).toBe(22);
-    expect((valueOf(pushed) as { __enc: number }).__enc).toBe(2);
-    expect(openPushed(pek, P, pushed)).toBe("Old format");
+    expect(store.get("task", T)!.title).toBe("Old format");
+    expect(store.fieldTs("task", T, "title")).toEqual(at); // a repair would have moved it
+    expect(srv.pushes).toHaveLength(0);
   });
 
-  it("re-encrypts content that reached the server in plaintext, before the legacy migration", async () => {
+  it("reads protocol 6 plaintext before the legacy migration, without pushing it again", async () => {
     const store = sharedStore();
-    const { pek, keyring } = keys();
+    const { keyring } = keys();
     const at = ts(21);
     const srv = server([
       wire("task", T, "title", "Leaked title", at),
@@ -352,12 +394,7 @@ describe("pull repairs", () => {
     await new SyncClient(store, client(srv.fetch, keyring, store), { cursor: 7 }).sync();
 
     expect(store.get("task", T)!.title).toBe("Leaked title");
-    const pushed = srv.pushes.flat();
-    const title = pushed.find((o) => o.op === "set" && o.field === "title")!;
-    expect(isEncryptedEnvelope(valueOf(title))).toBe(true);
-    expect(openPushed(pek, P, title)).toBe("Leaked title");
-    // A plaintext-by-design field is not a leak.
-    expect(pushed.some((o) => o.op === "set" && o.field === "project_id")).toBe(false);
+    expect(srv.pushes).toHaveLength(0);
   });
 
   it("leaves correctly keyed values alone", async () => {
@@ -365,10 +402,30 @@ describe("pull repairs", () => {
     const { pek, keyring } = keys();
     const srv = server([
       wire("task", T, "title", enc2(pek, P, "task", T, "title", "Fine"), ts(22)),
+      sealedWire(pek, P, "task", T, "notes", "Also fine", ts(23)),
     ]);
     await new SyncClient(store, client(srv.fetch, keyring, store), { cursor: 7 }).sync();
     expect(store.get("task", T)!.title).toBe("Fine");
+    expect(store.get("task", T)!.notes).toBe("Also fine");
     expect(srv.pushes).toHaveLength(0);
+  });
+
+  it("keeps a sealed value no key opens under its wire kind, and opens it once the key arrives", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = sharedStore();
+    const { pek, keyring } = keys(false);
+    const srv = server([sealedWire(pek, P, "task", T, "notes", "Sealed", ts(24))]);
+    await new SyncClient(store, client(srv.fetch, keyring, store), { cursor: 7 }).sync();
+    expect(store.get("task", T)!.notes).toBeUndefined();
+    expect(store.lockedCount()).toBe(1);
+
+    keyring.setProjectKey(P, pek);
+    expect(reviveLockedValues(store, keyring, ME).revived).toBe(1);
+    expect(store.get("task", T)!.notes).toBe("Sealed");
+    expect(store.fieldTs("task", T, "notes")).toEqual(ts(24));
+    expect(store.lockedCount()).toBe(0);
+    expect(store.unsyncedOps()).toHaveLength(0);
+    warn.mockRestore();
   });
 
   it("keeps a value no key opens as an envelope", async () => {
@@ -424,6 +481,7 @@ describe("pull repairs", () => {
         return Response.json(pages[token]);
       }
       if (u.pathname === "/sync/pull") return Response.json({ operations: [], cursor: 9 });
+      if (u.pathname !== "/sync/push") return new Response("not found", { status: 404 });
       pushes.push(init?.body);
       return Response.json({ cursor: 9, applied: 0 });
     };
@@ -569,9 +627,9 @@ describe("rescopeTask", () => {
     await client(srv.fetch, keyring, store).syncPush(store.unsyncedOps());
     const sent = srv.pushes[0]!;
     for (const field of ["title", "notes", "body"]) {
-      const op = [...sent].reverse().find((o) => o.op === "set" && o.field === field)!;
+      const op = pushedSet(sent, pek, P, field, true)!;
       expect(isEncryptedEnvelope(valueOf(op))).toBe(true);
-      expect(() => openPushed(pek, P, op)).not.toThrow();
+      expect(op.scope).toBe(P);
     }
     expect(projectKeyId(pek)).toBe(keyring.canonicalKeyId(P));
   });

@@ -9,8 +9,9 @@ use crate::hlc::Hlc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// The entity kinds that participate in sync, explicit so the server can validate and route.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// The entity kinds that participate in sync, as clients know them. The server sees them only on
+/// rows written before protocol 7 ([`WireKind::Legacy`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EntityKind {
     Task,
@@ -113,7 +114,8 @@ impl EntityKind {
     }
 }
 
-/// A single change to one field of one entity, or a delete (tombstone).
+/// A single change to one field of one entity, or a delete (tombstone), as clients hold it: the
+/// real kind and field name. On the wire it travels as a [`WireOperation`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Operation {
     /// Client-generated UUIDv7 for the op itself; also the idempotency key on the server.
@@ -169,6 +171,136 @@ impl Operation {
             entity_id,
             change: Change::Delete,
             ts,
+        }
+    }
+}
+
+/// The kind an op carries on the wire (sync protocol 7, `docs/decisions/0006-opaque-sync-metadata.md`).
+/// The server sees only these: whether an entity is a todo project, some other todo entity, a
+/// journal or vault entity, or a membership row it wrote itself. The real [`EntityKind`] travels
+/// inside the encrypted value. [`WireKind::Legacy`] names a row written before protocol 7 under
+/// its real kind, which stays readable until its client migrates it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WireKind {
+    /// A todo project: the server needs it for its creator, its owner-only fields and its
+    /// tombstones.
+    TodoProject,
+    /// Every other todo entity: task, section, label, comment, attachment, ….
+    TodoSealed,
+    /// A shared-project membership. Server-authored: clients never push it.
+    ProjectMember,
+    /// Every Atlas Journal entity.
+    JournalSealed,
+    /// Every Atlas Vault entity.
+    VaultSealed,
+    /// A row written before protocol 7, under its real kind (never [`EntityKind::ProjectMember`]).
+    Legacy(EntityKind),
+}
+
+impl WireKind {
+    /// Every current (non-legacy) wire kind.
+    pub const CURRENT: [WireKind; 5] = [
+        WireKind::TodoProject,
+        WireKind::TodoSealed,
+        WireKind::ProjectMember,
+        WireKind::JournalSealed,
+        WireKind::VaultSealed,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WireKind::TodoProject => "todo.project",
+            WireKind::TodoSealed => "todo.sealed",
+            WireKind::ProjectMember => "project_member",
+            WireKind::JournalSealed => "journal.sealed",
+            WireKind::VaultSealed => "vault.sealed",
+            WireKind::Legacy(kind) => kind.as_str(),
+        }
+    }
+
+    /// The wire kind with this name: a current one, or a legacy one named by a real kind.
+    pub fn from_wire(name: &str) -> Option<Self> {
+        if let Some(kind) = Self::CURRENT.into_iter().find(|k| k.as_str() == name) {
+            return Some(kind);
+        }
+        EntityKind::from_wire(name)
+            .filter(|kind| *kind != EntityKind::ProjectMember)
+            .map(WireKind::Legacy)
+    }
+
+    pub fn is_legacy(self) -> bool {
+        matches!(self, WireKind::Legacy(_))
+    }
+}
+
+impl Serialize for WireKind {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for WireKind {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let name = String::deserialize(d)?;
+        WireKind::from_wire(&name)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown entity kind: {name}")))
+    }
+}
+
+/// An op as the server stores and relays it (sync protocol 7): a wire kind, the scope whose key
+/// encrypted it, and a field that is an opaque tag or a public name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WireOperation {
+    /// Client-generated UUID for the op itself; also the idempotency key on the server.
+    pub id: Uuid,
+    pub entity: WireKind,
+    /// The target entity's client-generated UUID (created offline, stable forever).
+    pub entity_id: Uuid,
+    /// The project whose key encrypted the op, or `None` for the account's own key. The server
+    /// routes and authorizes by it.
+    #[serde(default)]
+    pub scope: Option<Uuid>,
+    #[serde(flatten)]
+    pub change: Change,
+    pub ts: Hlc,
+    /// The account that pushed the op, which the server sets on every op it delivers (`None` for
+    /// its own). Ignored on push.
+    #[serde(default)]
+    pub pushed_by: Option<Uuid>,
+}
+
+impl WireOperation {
+    pub fn set(
+        entity: WireKind,
+        entity_id: Uuid,
+        scope: Option<Uuid>,
+        field: &str,
+        value: serde_json::Value,
+        ts: Hlc,
+    ) -> Self {
+        Self {
+            id: Uuid::now_v7(),
+            entity,
+            entity_id,
+            scope,
+            change: Change::Set {
+                field: field.to_string(),
+                value,
+            },
+            ts,
+            pushed_by: None,
+        }
+    }
+
+    pub fn delete(entity: WireKind, entity_id: Uuid, scope: Option<Uuid>, ts: Hlc) -> Self {
+        Self {
+            id: Uuid::now_v7(),
+            entity,
+            entity_id,
+            scope,
+            change: Change::Delete,
+            ts,
+            pushed_by: None,
         }
     }
 }
@@ -344,6 +476,54 @@ mod tests {
             Some(EntityKind::VaultItem)
         );
         assert_eq!(EntityKind::from_wire("item"), None);
+    }
+
+    #[test]
+    fn wire_kinds_round_trip_and_name_legacy_rows_by_their_real_kind() {
+        for wire in WireKind::CURRENT {
+            assert_eq!(serde_json::to_value(wire).unwrap(), wire.as_str());
+            assert_eq!(WireKind::from_wire(wire.as_str()), Some(wire));
+            assert!(!wire.is_legacy());
+        }
+        assert_eq!(
+            WireKind::from_wire("task"),
+            Some(WireKind::Legacy(EntityKind::Task))
+        );
+        assert_eq!(
+            WireKind::from_wire("vault.item"),
+            Some(WireKind::Legacy(EntityKind::VaultItem))
+        );
+        assert_eq!(
+            WireKind::from_wire("project_member"),
+            Some(WireKind::ProjectMember)
+        );
+        assert_eq!(WireKind::from_wire("sealed"), None);
+        let op = WireOperation::set(
+            WireKind::TodoSealed,
+            Uuid::from_u128(42),
+            Some(Uuid::from_u128(7)),
+            "0123456789abcdef0123456789abcdef",
+            serde_json::json!({"__enc": 3}),
+            ts(),
+        );
+        let v = serde_json::to_value(&op).unwrap();
+        assert_eq!(v["entity"], "todo.sealed");
+        assert_eq!(v["scope"], Uuid::from_u128(7).to_string());
+        assert!(v["pushed_by"].is_null());
+        let decoded: WireOperation = serde_json::from_value(v).unwrap();
+        assert_eq!(op, decoded);
+        // A client may leave out scope and pushed_by.
+        let bare: WireOperation = serde_json::from_value(serde_json::json!({
+            "id": Uuid::from_u128(1), "entity": "journal.sealed", "entity_id": Uuid::from_u128(2),
+            "op": "delete", "ts": {"wall_ms": 1, "counter": 0, "node": Uuid::from_u128(1)}
+        }))
+        .unwrap();
+        assert_eq!((bare.scope, bare.pushed_by), (None, None));
+        assert!(serde_json::from_value::<WireOperation>(serde_json::json!({
+            "id": Uuid::from_u128(1), "entity": "sealed", "entity_id": Uuid::from_u128(2),
+            "op": "delete", "ts": {"wall_ms": 1, "counter": 0, "node": Uuid::from_u128(1)}
+        }))
+        .is_err());
     }
 
     #[test]

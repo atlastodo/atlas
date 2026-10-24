@@ -19,7 +19,7 @@ pinned release of its web build (`apps.lock.json`).
 | Path                   | Language              | Role                                                                                                                                                                                           |
 | ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `crates/atlas-core`    | Rust                  | The hybrid logical clock, the op log types and the bundled app manifest registry. No I/O.                                                                                                      |
-| `manifests/`           | JSON                  | One manifest per app of the suite (`todo.json`): its entity kinds and their plaintext fields. Compiled into the server, bundled by the clients.                                                |
+| `manifests/`           | JSON                  | One manifest per app of the suite (`todo.json`): its entity kinds, their wire kinds and their public and plaintext fields. Compiled into the server, bundled by the clients.                   |
 | `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.                                                                |
 | `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                                                                                  |
 | `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client.                                                                                                            |
@@ -55,32 +55,40 @@ The entity kinds are `task`, `project`, `section`, `label`, `comment`, `preferen
 `saved_filter`, `reminder`, `project_member`, `activity`, `focus_session`, `habit`,
 `habit_checkin` and `attachment`.
 
-Clients never update rows in place. Every change is an operation:
+Clients never update rows in place. Every change is an operation: it sets one field or deletes
+the entity (`"op": "delete"`, a tombstone), and its id makes pushes idempotent. Clients hold
+operations by real kind and field name. On the wire (sync protocol 7,
+[decision 0006](./decisions/0006-opaque-sync-metadata.md)) the server sees only a wire kind, the
+scope whose key encrypted the op, and an opaque per-entity tag for the field:
 
 ```json
 {
-  "id": "<uuidv7>",
-  "entity": "task",
-  "entity_id": "<uuidv7>",
+  "id": "<uuid>",
+  "entity": "todo.sealed",
+  "entity_id": "<uuid>",
+  "scope": "<project uuid, or null>",
   "op": "set",
-  "field": "title",
-  "value": { "__enc": 2, "kid": "dek", "iv": "…", "ct": "…" },
+  "field": "<tag: 32 hex digits>",
+  "value": { "__enc": 3, "kid": "dek", "iv": "…", "ct": "…" },
   "ts": { "wall_ms": 1767225600000, "counter": 0, "node": "<device uuid>" }
 }
 ```
 
-An operation either sets one field or deletes the entity (`"op": "delete"`, a tombstone). The
-op id makes pushes idempotent.
+The real kind and field travel inside the value (see [Field values](#field-values)). Codecs:
+`packages/client-core/src/wire.ts` and `crates/atlas-client/src/wire.rs`; the server's types are
+`WireKind` and `WireOperation` in `atlas-core`.
 
 ## Apps and manifests
 
 Atlas is becoming a suite of end-to-end encrypted apps (todo, journal and the vault now; notes
 later) on one generic server and one account. Each app has a first-party manifest in
-`manifests/<app>.json`: its id, a display name, a version, and its entity kinds with the fields
-of each that travel in plaintext. The manifests are part of the release: `atlas-core` compiles
+`manifests/<app>.json`: its id, a display name, a version, and its entity kinds, each with the
+wire kind it travels as, the `public_fields` that keep their names on the wire, the
+`plaintext_fields` whose values stay readable, and the `legacy_plaintext_fields` that rows written
+before protocol 7 carry. The manifests are part of the release: `atlas-core` compiles
 them in (`manifest.rs`, the `Registry`), and `packages/client-core` bundles the same files
 (`fieldPolicy.ts`), so server and clients read one table. Operators never load a manifest from
-disk. Bump a manifest's `version` whenever its kinds or plaintext fields change.
+disk. Bump a manifest's `version` whenever its kinds or their fields change.
 
 Todo's kinds keep their original bare wire names (`task`, `project`, …); every later app must
 namespace its kinds as `<app>.<kind>` (`notes.note`), which the registry enforces. The registry
@@ -144,9 +152,9 @@ apps are its scope intersected with the apps enabled for the instance and the ac
 #### Journal is personal
 
 Journal v1 has no sharing. Push resolves fan-out through `may_fan_out` and the project matches in
-`sync/push.rs`, which list every `EntityKind` with no wildcard arm: journal kinds are owner-only,
-the server reads none of their fields (not even one named `project_id`), and they never reach
-another partition. A new kind fails to compile until it chooses.
+`sync/push.rs`, which list every `WireKind` with no wildcard arm: `journal.sealed` is owner-only,
+its ops have no scope (the server refuses one), and they never reach another partition. A new
+wire kind fails to compile until it chooses.
 
 The vault is personal in v1 too, for the same reasons and the same way: its kinds are owner-only
 in those matches and the server reads none of their fields, so it sees an item's id and the
@@ -315,7 +323,7 @@ instead of silently dropping messages.
 
 Every sync request carries the client's protocol version (`x-atlas-sync-protocol`, or a
 `protocol` query parameter on the WebSocket). The server answers `426 Upgrade Required` below its
-minimum, and the app asks the user to update. The minimum is 6, the current version
+minimum, and the app asks the user to update. The minimum is 7, the current version
 (`MIN_SYNC_PROTOCOL` in `sync/mod.rs`, `SYNC_PROTOCOL` in `realtime.ts`). The minimums exist because
 older builds do harm that the server cannot detect:
 
@@ -325,6 +333,8 @@ older builds do harm that the server cannot detect:
 - 5: open the WebSocket with a single-use ticket instead of the access token in the URL.
 - 6: load only key deliveries signed by the owner, and follow rotations. A protocol 5 build keeps
   writing under a key that a rotation retired, which the member who left can still read.
+- 7: send wire kinds, scopes, field tags and `__enc: 3` envelopes. A protocol 6 build sends real
+  kinds, field names and plaintext links, everything decision 0006 hides.
 
 #### Clock skew
 
@@ -360,9 +370,18 @@ Each user has a private partition (rows keyed by user id) in three tables:
   reads from here.
 
 A push writes into the caller's partition. For a shared project the server also copies each op
-into every active member's partition (fan-out). It finds the project from the plaintext
-`project_id` (tasks, sections) or `task_id` (comments, activity, attachments). Pull, the
-WebSocket and the snapshot only read the caller's own partition.
+into every active member's partition (fan-out). It finds the project from the op's `scope`: an
+entity's scope is that of its newest op, kept in `entity_scopes` per partition, so a newer op
+under another scope moves the entity (the old project's members get the move, and those who
+cannot follow get a tombstone and a `revoked_entities` row). Pull, the WebSocket and the snapshot
+only read the caller's own partition, and every op they serve names its `pushed_by`.
+
+Rows written before protocol 7 keep their real kinds, field names and plaintext links. The server
+refuses new writes to those kinds but keeps reading them: revocation, the accept backfill, blob
+liveness and retention follow their plaintext links as before, until the client that holds them
+re-encodes them and drops them (`GET /sync/legacy/keys`, `POST /sync/legacy/drop`;
+`client-core/src/legacy.ts`). Project creators, which authorize a project's first share, are
+recorded in `project_creators` on the first write, so no op has to be kept for them.
 
 #### One lock for sync writes
 
@@ -740,14 +759,26 @@ The web and desktop apps run Argon2id in WebAssembly (hash-wasm), Android in a n
 
 ### Field values
 
-A field value is serialized to JSON, padded to a size bucket (at least 32 bytes, then powers of
-two up to 1 KiB, then whole KiB) and encrypted with AES-256-GCM and a random 96-bit IV. The wire
-form is `{ "__enc": 2, "kid": …, "iv": …, "ct": … }`, where `kid` is the key's id: `dek`, or the
-PEK's fingerprint.
+A field value is serialized to JSON as `[kind, field, value]` (the real kind and field travel with
+it), padded to a size bucket (at least 64 bytes, then powers of two up to 1 KiB, then whole KiB)
+and encrypted with AES-256-GCM and a random 96-bit IV. The wire form is
+`{ "__enc": 3, "kid": …, "iv": …, "ct": … }`, where `kid` is the key's id: `dek`, or the PEK's
+fingerprint.
 
-The associated data binds the value to the envelope version, entity kind, entity id, field name,
-key scope (`personal` or `project:<id>`) and key id. A value copied somewhere else does not
-open (`crypto/field.ts`).
+The associated data binds the value to the envelope version, the wire kind, the entity id, the
+wire field (its tag, or a public field's name), the key scope (`personal` or `project:<id>`) and
+the key id. A value copied somewhere else does not open (`crypto/field.ts`). The tag is
+`HMAC-SHA256` over the entity id, kind and field under a key HKDF derives from the encrypting key,
+so the same field of two entities, or of one entity under two keys, has unrelated tags. A move or a
+key rotation gives a field a new tag; the superseded row stays on the server, and clients resolve
+the two by their stamps after opening them.
+
+A value no held key opens stays aside under its wire kind and tag (with the scope it arrived in)
+until a key arrives (`reviveLockedValues`). A delete names no real kind: the client finds the
+entity by its id, or keeps the tombstone until the entity arrives.
+
+Rows written before protocol 7 carry version 2 envelopes (`{ "__enc": 2, … }`, the real kind and
+field name in their associated data), which are still read.
 
 The key is the project's PEK if the entity belongs to a shared project, and the DEK otherwise. A
 value is only opened with a key of the scope its entity is in, and automatic repairs only
@@ -1022,13 +1053,14 @@ held only while the app key is, and a locked client cannot read its own store. A
 not open under the key (another key, tampering, or written unsealed) fails to load with
 `SealedStoreError`; the client starts it over. Attachment queue rows are not sealed.
 
-## What stays plaintext
+## What stays readable
 
-A field is encrypted unless its app manifest lists it in `plaintext_fields`
-(`manifests/todo.json`; `manifests/journal.json` lists none). Those are the ids the server needs for routing and access checks
-(`project_id`, `task_id`, `assignee_id`, `actor_id`), the attachment blob hashes, and the
-already-encrypted attachment `wrapped_key` and `meta`. The client encrypts by this list, and the server only reads fields on it. See
-[SECURITY.md](../SECURITY.md#fields-that-stay-plaintext-and-why) for the table.
+Every field travels under a tag in a sealed value unless its app manifest lists it in
+`public_fields` (its name goes on the wire) and `plaintext_fields` (its value too). Only todo lists
+any: a project's `deleted_at` and `archived_at` are public so the server can keep them owner-only,
+and an attachment's `blob_sha` and `thumb_sha` are public and plaintext because blob downloads are
+authorized and blobs kept alive by them. The server refuses any other field name or plaintext
+value. See [SECURITY.md](../SECURITY.md#fields-the-server-reads-and-why) for the table.
 
 ## Server surfaces
 

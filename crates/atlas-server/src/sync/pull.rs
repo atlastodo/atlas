@@ -1,6 +1,6 @@
 //! `GET /sync/pull`: a partition's op log after a cursor, in pages the socket backfill reuses.
 
-use atlas_core::{Change, Hlc, Operation};
+use atlas_core::{Change, Hlc, WireOperation};
 use axum::extract::{Query, State};
 use axum::Json;
 use serde::Deserialize;
@@ -37,10 +37,12 @@ struct OpRow {
     hlc_wall_ms: i64,
     hlc_counter: i32,
     hlc_node: Uuid,
+    scope: Option<Uuid>,
+    pushed_by: Option<Uuid>,
 }
 
 impl OpRow {
-    fn into_operation(self) -> AppResult<Operation> {
+    fn into_operation(self) -> AppResult<WireOperation> {
         let change = if self.is_delete {
             Change::Delete
         } else {
@@ -49,10 +51,12 @@ impl OpRow {
                 value: self.value.unwrap_or(serde_json::Value::Null),
             }
         };
-        Ok(Operation {
+        Ok(WireOperation {
             id: self.op_id,
             entity: entity_from_str(&self.entity)?,
             entity_id: self.entity_id,
+            scope: self.scope,
+            pushed_by: self.pushed_by,
             change,
             ts: Hlc {
                 wall_ms: self.hlc_wall_ms as u64,
@@ -95,7 +99,7 @@ pub(super) async fn ops_page(
     let head = partition_head(&mut *pool.acquire().await?, user).await?;
     let rows = sqlx::query_as::<_, OpRow>(
         "SELECT server_seq, op_id, entity, entity_id, field, value, is_delete,
-                hlc_wall_ms, hlc_counter, hlc_node
+                hlc_wall_ms, hlc_counter, hlc_node, scope, pushed_by
          FROM operations
          WHERE user_id = $1 AND server_seq > $2 AND server_seq <= $3 AND entity = ANY($4)
          ORDER BY server_seq

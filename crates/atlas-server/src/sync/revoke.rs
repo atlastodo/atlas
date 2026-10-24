@@ -3,27 +3,37 @@
 
 use std::sync::PoisonError;
 
-use atlas_core::{Hlc, Operation};
+use atlas_core::{Hlc, WireOperation};
 use serde_json::Value;
 use sqlx::{PgConnection, Postgres, Transaction};
 use uuid::Uuid;
 
 use super::apply::{apply_to_members, publish_batches};
 use super::{
-    begin_sync_write, cap_future_skew, entity_from_str, physical_now_ms, server_ts, successor_hlc,
-    EntityKey,
+    begin_sync_write, cap_future_skew, entity_from_str, physical_now_ms, successor_hlc, EntityKey,
 };
 use crate::error::AppResult;
 use crate::state::AppState;
 
 /// The entity keys that make up `project_id` in `owner`'s partition, in backfill order: the
-/// project, sections, tasks, their comments/activity/attachments, and membership rows (with
-/// tombstones, so a returning member drops collaborators who left).
+/// project, the sealed entities scoped to it ([`entity_scopes`](super::apply)), the legacy rows
+/// linked to it by their plaintext `project_id`/`task_id` (until their clients migrate them), and
+/// membership rows (with tombstones, so a returning member drops collaborators who left).
 pub(super) async fn project_keys(
     conn: &mut PgConnection,
     owner: Uuid,
     project_id: Uuid,
 ) -> AppResult<Vec<EntityKey>> {
+    let sealed_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT entity_id FROM entity_scopes
+          WHERE user_id = $1 AND scope = $2 AND entity = 'todo.sealed'
+          ORDER BY entity_id",
+    )
+    .bind(owner)
+    .bind(project_id)
+    .fetch_all(&mut *conn)
+    .await?;
+
     let pid_json = Value::String(project_id.to_string());
 
     let task_ids: Vec<Uuid> = sqlx::query_scalar(
@@ -66,7 +76,15 @@ pub(super) async fn project_keys(
         .await?
     };
 
-    let mut keys: Vec<EntityKey> = vec![("project".to_string(), project_id)];
+    let mut keys: Vec<EntityKey> = vec![
+        ("todo.project".to_string(), project_id),
+        ("project".to_string(), project_id),
+    ];
+    keys.extend(
+        sealed_ids
+            .into_iter()
+            .map(|id| ("todo.sealed".to_string(), id)),
+    );
     keys.extend(
         section_ids
             .into_iter()
@@ -84,13 +102,13 @@ pub(super) async fn project_keys(
 
 /// Tombstones for whatever of `project_id` `user`'s partition still shows, for a member who
 /// left or was removed. Each beats the newest field and tombstone of its entity; an entity
-/// already hidden gets none. Runs inside a [`begin_sync_write`] transaction.
+/// already hidden, or absent, gets none. Runs inside a [`begin_sync_write`] transaction.
 pub(crate) async fn revoke_project_ops(
     tx: &mut Transaction<'_, Postgres>,
     state: &AppState,
     user: Uuid,
     project_id: Uuid,
-) -> AppResult<Vec<Operation>> {
+) -> AppResult<Vec<WireOperation>> {
     let keys = project_keys(tx, user, project_id).await?;
     let entities: Vec<&str> = keys.iter().map(|(e, _)| e.as_str()).collect();
     let ids: Vec<Uuid> = keys.iter().map(|(_, id)| *id).collect();
@@ -130,24 +148,29 @@ pub(crate) async fn revoke_project_ops(
     };
     let mut ops = Vec::new();
     for (entity, entity_id, fw, fc, fnode, tw, tc, tnode) in rows {
-        let field = hlc(fw, fc, fnode);
+        // A key the partition holds no field of (the project's legacy key once migrated, say) needs
+        // nothing.
+        let Some(field) = hlc(fw, fc, fnode) else {
+            continue;
+        };
         let tomb = hlc(tw, tc, tnode);
-        if tomb.is_some() && tomb >= field {
+        if tomb.is_some_and(|t| t >= field) {
             continue;
         }
-        let ts = match field.max(tomb) {
-            Some(floor) => {
-                let now = physical_now_ms();
-                state
-                    .clock
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .update(cap_future_skew(floor, now), now)
-                    .max(successor_hlc(floor))
-            }
-            None => server_ts(state),
-        };
-        ops.push(Operation::delete(entity_from_str(&entity)?, entity_id, ts));
+        let floor = tomb.map_or(field, |t| t.max(field));
+        let now = physical_now_ms();
+        let ts = state
+            .clock
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .update(cap_future_skew(floor, now), now)
+            .max(successor_hlc(floor));
+        ops.push(WireOperation::delete(
+            entity_from_str(&entity)?,
+            entity_id,
+            None,
+            ts,
+        ));
     }
     Ok(ops)
 }
@@ -175,7 +198,7 @@ pub(crate) async fn revoke_project(
 pub async fn revoke_left_projects(state: &AppState) -> AppResult<usize> {
     let candidates: Vec<(Uuid, Uuid)> = sqlx::query_as(
         "SELECT t.user_id, t.entity_id FROM entity_tombstones t
-          WHERE t.entity = 'project'
+          WHERE t.entity IN ('project', 'todo.project')
             AND EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = t.entity_id)
             AND NOT EXISTS (SELECT 1 FROM project_members m
                              WHERE m.project_id = t.entity_id AND m.user_id = t.user_id)",

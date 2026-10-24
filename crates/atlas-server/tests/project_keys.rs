@@ -14,6 +14,9 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::wire::{sealed, tag};
+
 /// The credential a client sends for the account password: the auth hash it derives from it
 /// (64 lowercase hex characters), which is what the server stores and compares.
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -67,7 +70,7 @@ async fn send(
         .method(method)
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-atlas-sync-protocol", "6");
+        .header("x-atlas-sync-protocol", "7");
     if let Some(t) = token {
         b = b.header("authorization", format!("Bearer {t}"));
     }
@@ -145,11 +148,11 @@ async fn push_project(router: &Router, owner: &User) -> String {
         Some(&owner.token),
         json!({ "operations": [{
             "id": Uuid::now_v7().to_string(),
-            "entity": "project",
+            "entity": "todo.project",
             "entity_id": pid,
             "op": "set",
-            "field": "name",
-            "value": { "__enc": 1, "iv": "AAAAAAAAAAAAAAAA", "ct": "bmFtZQ==" },
+            "field": tag("name"),
+            "value": sealed(json!("name")),
             "ts": { "wall_ms": 1000, "counter": 0, "node": Uuid::now_v7().to_string() }
         }] }),
     )
@@ -439,8 +442,8 @@ async fn own_key_requires_a_relationship_with_the_project() {
         "/sync/push",
         Some(&mallory.token),
         json!({ "operations": [{
-            "id": Uuid::now_v7().to_string(), "entity": "project", "entity_id": pid,
-            "op": "set", "field": "name", "value": "mine",
+            "id": Uuid::now_v7().to_string(), "entity": "todo.project", "entity_id": pid,
+            "op": "set", "field": tag("name"), "value": sealed(json!("mine")),
             "ts": { "wall_ms": 2000, "counter": 0, "node": Uuid::now_v7().to_string() }
         }] }),
     )

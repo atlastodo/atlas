@@ -1,5 +1,7 @@
 # 0003: A few routing fields stay plaintext
 
+Replaced by [0006](./0006-opaque-sync-metadata.md) (sync protocol 7).
+
 ## Decision
 
 Field values are encrypted, except a short list of routing fields the server must read, kept in

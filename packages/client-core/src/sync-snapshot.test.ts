@@ -8,6 +8,7 @@ import {
   type FetchLike,
 } from "./api";
 import { Keyring, generateDek, generatePek } from "./crypto";
+import { reviveLockedValues } from "./scope";
 import { LocalStore } from "./store";
 import { SyncClient, type SyncTransport } from "./sync-client";
 import { MemoryPersistence } from "./persistence";
@@ -792,17 +793,22 @@ describe("snapshot bootstrap E2EE", () => {
       fetch: snapshotFetch(snapshotPages(srcKeyring), requestedTokens),
     });
     // This device has the DEK but never received the project's PEK: the personal task still
-    // decrypts; the shared task's title must survive as ciphertext (not crash, not drop).
-    api.setKeyring(new Keyring({ dek }));
+    // decrypts; the shared task's fields, its link included, survive sealed under their wire kind
+    // (not crash, not drop) until the key arrives.
+    const keyring = new Keyring({ dek });
+    api.setKeyring(keyring);
 
     const s = store(NODE_A);
     const client = new SyncClient(s, api);
     await client.sync();
 
     expect(s.get("task", "t-personal")).toEqual({ title: "Personal secret" });
-    const shared = s.get("task", "t-shared");
-    expect(shared).not.toBeNull();
-    expect((shared!.title as { __enc?: number }).__enc).toBe(2);
+    expect(s.get("task", "t-shared")).toBeNull();
+    expect(s.lockedCount()).toBe(2);
+
+    keyring.setProjectKey(PROJECT_ID, pek);
+    expect(reviveLockedValues(s, keyring).revived).toBe(2);
+    expect(s.get("task", "t-shared")).toEqual({ project_id: PROJECT_ID, title: "Shared secret" });
   });
 });
 

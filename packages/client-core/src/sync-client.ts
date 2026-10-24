@@ -8,6 +8,7 @@ import { ApiError, E2eeLockedError, UpgradeRequiredError, apiErrorCode } from ".
 import { RealtimeClient, WS_CLOSE, type RealtimeSocket } from "./realtime";
 import type { BootstrapProgress, PageRepairs } from "./persistence";
 import { applyRepairs, type Repair } from "./scope";
+import { migrateLegacy, type LegacyKeysPage, type LegacyMigration } from "./legacy";
 import type { LocalStore } from "./store";
 import type { Operation } from "./types";
 
@@ -105,7 +106,14 @@ export interface SyncTransport {
     repairs?: Repair[];
   };
   confirmRepairs?(repairs: Repair[]): Repair[];
+  /** With both, rows written before protocol 7 are re-encoded and dropped (`migrateLegacy`). */
+  legacyKeys?(next?: string): Promise<LegacyKeysPage>;
+  dropLegacy?(keys: { entity: string; entity_id: string }[]): Promise<number>;
+  mayReencode?(kind: Operation["entity"], entityId: string): boolean;
 }
+
+/** A pass that left keys it could not re-encode yet runs again after this long. */
+export const LEGACY_RETRY_MS = 10 * 60_000;
 
 type SnapshotPage = Awaited<ReturnType<NonNullable<SyncTransport["syncSnapshot"]>>>;
 
@@ -138,6 +146,8 @@ export interface SyncClientOptions {
   /** Omit for polling only. The poll reconciles messages the hub dropped for a lagging device. */
   realtime?: SyncRealtimeOptions;
   onRemoteApplied?: (ops: Operation[]) => void;
+  /** After each pass of the protocol 6 migration that found something to do. */
+  onLegacyMigrated?: (result: LegacyMigration) => void;
 }
 
 export interface SyncResult {
@@ -181,6 +191,9 @@ export class SyncClient {
   private clockSkew: number | null = null;
   private resumeTimer: ReturnType<typeof setTimeout> | null = null;
   private epoch = 0;
+  /** Done: the partition holds no protocol 6 rows this device can move; else the next pass's time. */
+  private legacyDone = false;
+  private legacyNextAt = 0;
 
   constructor(
     private readonly store: LocalStore,
@@ -342,6 +355,7 @@ export class SyncClient {
         this.saveBootstrapProgress(null);
       }
       if (repaired > 0) await this.pushOutbox(this.store.unsyncedOps());
+      await this.migrateLegacyRows();
 
       this.initialSyncDone = true;
       this.firstCycleDone = true;
@@ -374,6 +388,27 @@ export class SyncClient {
       this.opts.onError?.(err);
       throw err;
     }
+  }
+
+  /** One pass of the protocol 6 migration, when due. Never fails the cycle. */
+  private async migrateLegacyRows(): Promise<void> {
+    const t = this.transport;
+    if (this.legacyDone || !t.legacyKeys || !t.dropLegacy || Date.now() < this.legacyNextAt) return;
+    try {
+      const result = await migrateLegacy(this.store, {
+        legacyKeys: (next) => t.legacyKeys!(next),
+        dropLegacy: (keys) => t.dropLegacy!(keys),
+        syncPush: (ops) => t.syncPush(ops),
+        mayReencode: t.mayReencode?.bind(t),
+      });
+      this.legacyDone = result.left === 0;
+      if (result.reencoded + result.covered > 0) this.opts.onLegacyMigrated?.(result);
+    } catch (err) {
+      // A server without the routes has nothing to migrate.
+      if (err instanceof ApiError && err.status === 404) this.legacyDone = true;
+      else console.warn("[atlas SyncClient] protocol 6 migration pass failed:", err);
+    }
+    this.legacyNextAt = Date.now() + LEGACY_RETRY_MS;
   }
 
   /** Applies all pages at once so listeners render only the converged state. */

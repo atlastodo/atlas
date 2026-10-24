@@ -1,5 +1,10 @@
 //! `POST /sync/push`: a client's batch validated, authorized against project membership,
 //! folded into the caller's partition and fanned out to co-members.
+//!
+//! Since protocol 7 (`docs/decisions/0006-opaque-sync-metadata.md`) an op tells the server only
+//! its wire kind, the scope (project) whose key encrypted it and an opaque field tag. Routing,
+//! the role check and moves read the scope; the server reads no field value but a few public
+//! plaintext names ([`SERVER_READ_FIELDS`]).
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -7,7 +12,7 @@ use std::sync::PoisonError;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use atlas_core::hlc::MAX_COUNTER;
-use atlas_core::{Change, EntityKind, Hlc, Operation};
+use atlas_core::{Change, Hlc, Registry, WireKind, WireOperation};
 use axum::extract::State;
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -29,7 +34,7 @@ use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct PushRequest {
-    pub operations: Vec<Operation>,
+    pub operations: Vec<WireOperation>,
 }
 
 #[derive(Debug, Serialize)]
@@ -50,39 +55,18 @@ const MAX_OP_VALUE_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ReadFieldKind {
-    Uuid,
     Sha256,
 }
 
-/// Every field whose value the server reads, per entity. Clients encrypt all other values, so
-/// these must arrive as plaintext: an envelope here silently breaks fan-out or authorization.
-/// The `plaintext_fields` of `manifests/<app>.json` are the client's side of this contract.
-pub(crate) const SERVER_READ_FIELDS: &[(&str, &[(&str, ReadFieldKind)])] = &[
-    (
-        "task",
-        &[
-            ("project_id", ReadFieldKind::Uuid),
-            ("assignee_id", ReadFieldKind::Uuid),
-        ],
-    ),
-    ("section", &[("project_id", ReadFieldKind::Uuid)]),
-    ("comment", &[("task_id", ReadFieldKind::Uuid)]),
-    (
-        "activity",
-        &[
-            ("task_id", ReadFieldKind::Uuid),
-            ("actor_id", ReadFieldKind::Uuid),
-        ],
-    ),
-    (
-        "attachment",
-        &[
-            ("task_id", ReadFieldKind::Uuid),
-            ("blob_sha", ReadFieldKind::Sha256),
-            ("thumb_sha", ReadFieldKind::Sha256),
-        ],
-    ),
-];
+/// Every field whose value the server reads, per wire kind: an attachment's blob addresses. They
+/// must be plaintext public fields in the manifests, which a test checks.
+pub(crate) const SERVER_READ_FIELDS: &[(&str, &[(&str, ReadFieldKind)])] = &[(
+    "todo.sealed",
+    &[
+        ("blob_sha", ReadFieldKind::Sha256),
+        ("thumb_sha", ReadFieldKind::Sha256),
+    ],
+)];
 
 fn server_read_field(entity: &str, field: &str) -> Option<ReadFieldKind> {
     SERVER_READ_FIELDS
@@ -94,246 +78,260 @@ fn server_read_field(entity: &str, field: &str) -> Option<ReadFieldKind> {
         .map(|(_, kind)| *kind)
 }
 
-/// Reject a push whose value for a [`SERVER_READ_FIELDS`] field is not the expected plaintext
-/// shape (or null, which clears a link).
-fn validate_server_read_field(op: &Operation) -> AppResult<()> {
+/// Whether `field` is a field tag: 32 lowercase hex digits.
+fn is_tag(field: &str) -> bool {
+    field.len() == 32
+        && field
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Whether `value` is a field envelope version 3 and nothing else, so a client cannot send a
+/// plaintext value by mistake.
+fn is_sealed_envelope(value: &Value) -> bool {
+    let Some(obj) = value.as_object() else {
+        return false;
+    };
+    obj.len() == 4
+        && obj.get("__enc").and_then(Value::as_u64) == Some(3)
+        && ["kid", "iv", "ct"]
+            .iter()
+            .all(|k| obj.get(*k).is_some_and(Value::is_string))
+}
+
+/// Check one op's shape: a current wire kind the client may write, a scope that fits it, and a
+/// field that is a tag or one of the kind's public names, with an envelope unless the server
+/// reads the value.
+fn validate_op(op: &WireOperation) -> AppResult<()> {
+    let entity = entity_str(op.entity);
+    match op.entity {
+        WireKind::Legacy(_) => {
+            return Err(AppError::BadRequest(format!(
+                "{entity} is a protocol 6 kind: it is read-only, re-encode it and drop it \
+                 (POST /sync/legacy/drop)"
+            )))
+        }
+        // Membership is server-managed.
+        WireKind::ProjectMember => {
+            return Err(AppError::Forbidden(
+                "project_member is server-managed".into(),
+            ))
+        }
+        WireKind::TodoProject => {
+            if op.scope.is_some_and(|s| s != op.entity_id) {
+                return Err(AppError::BadRequest(
+                    "a project op's scope is the project itself or none".into(),
+                ));
+            }
+        }
+        WireKind::TodoSealed => {}
+        // Journal and vault are personal: their ops are always under the account's own key.
+        WireKind::JournalSealed | WireKind::VaultSealed => {
+            if op.scope.is_some() {
+                return Err(AppError::BadRequest(format!("{entity} ops have no scope")));
+            }
+        }
+    }
     let Change::Set { field, value } = &op.change else {
         return Ok(());
     };
-    let entity = entity_str(op.entity);
-    let Some(kind) = server_read_field(entity, field) else {
-        return Ok(());
-    };
-    let ok = match value {
-        Value::Null => true,
-        Value::String(s) => match kind {
-            ReadFieldKind::Uuid => Uuid::parse_str(s).is_ok(),
+    let public = Registry::bundled()
+        .wire_kind(entity)
+        .is_some_and(|k| k.is_public(field));
+    if !public && !is_tag(field) {
+        return Err(AppError::BadRequest(format!(
+            "{entity}.{field} is neither a field tag nor a public field"
+        )));
+    }
+    match server_read_field(entity, field) {
+        Some(ReadFieldKind::Sha256) => {
             // Lowercase only: blob rows, downloads and the GC compare the lowercase form.
-            ReadFieldKind::Sha256 => {
-                s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-            }
-        },
-        _ => false,
-    };
-    if ok {
-        return Ok(());
-    }
-    let expected = match kind {
-        ReadFieldKind::Uuid => "a plaintext UUID string",
-        ReadFieldKind::Sha256 => "a plaintext lowercase 64-hex sha256 string",
-    };
-    Err(AppError::BadRequest(format!(
-        "{entity}.{field} must be {expected} or null (the server reads it, so it cannot be encrypted)"
-    )))
-}
-
-async fn field_value(
-    conn: &mut PgConnection,
-    user_id: Uuid,
-    entity: &str,
-    entity_id: Uuid,
-    field: &str,
-) -> AppResult<Option<Value>> {
-    let v: Option<Value> = sqlx::query_scalar(
-        "SELECT value FROM entity_fields
-         WHERE user_id = $1 AND entity = $2 AND entity_id = $3 AND field = $4",
-    )
-    .bind(user_id)
-    .bind(entity)
-    .bind(entity_id)
-    .bind(field)
-    .fetch_optional(conn)
-    .await?;
-    Ok(v)
-}
-
-fn as_uuid(v: &Value) -> Option<Uuid> {
-    v.as_str().and_then(|s| Uuid::parse_str(s).ok())
-}
-
-/// Resolves the `project_id`/`task_id` links a push batch's ops depend on. A link set anywhere
-/// in the batch counts for every op (last wins, null clears), so fan-out does not depend on
-/// field order; otherwise the caller's stored value holds. Stored values are read once.
-struct Links {
-    caller: Uuid,
-    batch: HashMap<(Uuid, &'static str), Option<Uuid>>,
-    stored: HashMap<(Uuid, &'static str), Option<Uuid>>,
-}
-
-impl Links {
-    fn new(caller: Uuid, ops: &[Operation]) -> Self {
-        let mut batch = HashMap::new();
-        // Only kinds that can be shared link anything; an owner-only op's fields are its own.
-        for op in ops.iter().filter(|op| may_fan_out(op.entity)) {
-            if let Change::Set { field, value } = &op.change {
-                let field = match field.as_str() {
-                    "project_id" => "project_id",
-                    "task_id" => "task_id",
-                    _ => continue,
-                };
-                batch.insert((op.entity_id, field), as_uuid(value));
+            let ok = match value {
+                Value::Null => true,
+                Value::String(s) => {
+                    s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                }
+                _ => false,
+            };
+            if !ok {
+                return Err(AppError::BadRequest(format!(
+                    "{entity}.{field} must be a plaintext lowercase 64-hex sha256 string or null \
+                     (the server reads it, so it cannot be encrypted)"
+                )));
             }
         }
-        Self {
-            caller,
-            batch,
-            stored: HashMap::new(),
+        None => {
+            if !is_sealed_envelope(value) {
+                return Err(AppError::BadRequest(format!(
+                    "{entity}.{field} must be a field envelope version 3 \
+                     ({{\"__enc\": 3, \"kid\", \"iv\", \"ct\"}})"
+                )));
+            }
         }
     }
+    Ok(())
+}
 
-    async fn get(
-        &mut self,
-        conn: &mut PgConnection,
-        entity: &str,
+/// Where the batch's sealed entities live as of its end: an entity's scope is that of its newest
+/// op, in the batch or stored (`entity_scopes`, see `apply.rs`). Stored scopes are read once.
+struct Scopes {
+    /// Per entity, the batch's set op with the greatest timestamp.
+    batch: HashMap<Uuid, usize>,
+    stored: HashMap<Uuid, (Option<Uuid>, HlcKey)>,
+}
+
+impl Scopes {
+    async fn load(conn: &mut PgConnection, caller: Uuid, ops: &[WireOperation]) -> AppResult<Self> {
+        let mut batch: HashMap<Uuid, usize> = HashMap::new();
+        let mut ids: Vec<Uuid> = Vec::new();
+        for (i, op) in ops.iter().enumerate() {
+            if op.entity != WireKind::TodoSealed {
+                continue;
+            }
+            ids.push(op.entity_id);
+            if !matches!(op.change, Change::Set { .. }) {
+                continue;
+            }
+            match batch.get(&op.entity_id) {
+                Some(&best) if ops[best].ts >= op.ts => {}
+                _ => {
+                    batch.insert(op.entity_id, i);
+                }
+            }
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        let stored = if ids.is_empty() {
+            HashMap::new()
+        } else {
+            let rows: Vec<(Uuid, Option<Uuid>, i64, i32, Uuid)> = sqlx::query_as(
+                "SELECT entity_id, scope, hlc_wall_ms, hlc_counter, hlc_node FROM entity_scopes
+                  WHERE user_id = $1 AND entity = 'todo.sealed' AND entity_id = ANY($2)",
+            )
+            .bind(caller)
+            .bind(&ids)
+            .fetch_all(conn)
+            .await?;
+            rows.into_iter()
+                .map(|(id, scope, wall, counter, node)| (id, (scope, (wall, counter, node))))
+                .collect()
+        };
+        Ok(Self { batch, stored })
+    }
+
+    /// The batch op that moves `entity_id` to another scope, with the scope it leaves: the batch's
+    /// newest set op of the entity, when it is newer than the stored scope and names another one.
+    fn move_of<'a>(
+        &self,
+        ops: &'a [WireOperation],
         entity_id: Uuid,
-        field: &'static str,
-    ) -> AppResult<Option<Uuid>> {
-        if let Some(link) = self.batch.get(&(entity_id, field)) {
-            return Ok(*link);
+    ) -> AppResult<Option<(usize, &'a WireOperation, Option<Uuid>)>> {
+        let Some(&i) = self.batch.get(&entity_id) else {
+            return Ok(None);
+        };
+        let op = &ops[i];
+        match self.stored.get(&entity_id) {
+            Some((old, ts)) if *old != op.scope && hlc_key(&op.ts)? > *ts => {
+                Ok(Some((i, op, *old)))
+            }
+            _ => Ok(None),
         }
-        if let Some(link) = self.stored.get(&(entity_id, field)) {
-            return Ok(*link);
-        }
-        let link = field_value(conn, self.caller, entity, entity_id, field)
-            .await?
-            .as_ref()
-            .and_then(as_uuid);
-        self.stored.insert((entity_id, field), link);
-        Ok(link)
     }
 
-    /// The uuid `op`'s entity links to through `field`: its own value, else as of batch end.
-    async fn of_op(
-        &mut self,
-        conn: &mut PgConnection,
-        op: &Operation,
-        field: &'static str,
+    /// The scope `entity_id` has as of the batch's end; `fallback` for an entity neither the batch
+    /// nor the partition gives one.
+    fn effective(
+        &self,
+        ops: &[WireOperation],
+        entity_id: Uuid,
+        fallback: Option<Uuid>,
     ) -> AppResult<Option<Uuid>> {
-        if let Change::Set { field: f, value } = &op.change {
-            if f == field {
-                return Ok(as_uuid(value));
+        let batch = self.batch.get(&entity_id).map(|&i| &ops[i]);
+        Ok(match (batch, self.stored.get(&entity_id)) {
+            (Some(op), Some((scope, ts))) => {
+                if hlc_key(&op.ts)? > *ts {
+                    op.scope
+                } else {
+                    *scope
+                }
             }
-        }
-        self.get(conn, entity_str(op.entity), op.entity_id, field)
-            .await
+            (Some(op), None) => op.scope,
+            (None, Some((scope, _))) => *scope,
+            (None, None) => fallback,
+        })
     }
 }
 
-async fn stored_project_link(
+/// The stored scope of a sealed entity in `user`'s partition, with the stamp of its newest op.
+async fn stored_scope(
     conn: &mut PgConnection,
     user: Uuid,
-    task_id: Uuid,
+    entity_id: Uuid,
 ) -> AppResult<Option<(Option<Uuid>, HlcKey)>> {
-    let row: Option<(Value, i64, i32, Uuid)> = sqlx::query_as(
-        "SELECT value, hlc_wall_ms, hlc_counter, hlc_node FROM entity_fields
-          WHERE user_id = $1 AND entity = 'task' AND entity_id = $2 AND field = 'project_id'",
+    let row: Option<(Option<Uuid>, i64, i32, Uuid)> = sqlx::query_as(
+        "SELECT scope, hlc_wall_ms, hlc_counter, hlc_node FROM entity_scopes
+          WHERE user_id = $1 AND entity = 'todo.sealed' AND entity_id = $2",
     )
     .bind(user)
-    .bind(task_id)
+    .bind(entity_id)
     .fetch_optional(conn)
     .await?;
-    Ok(row.map(|(value, wall, counter, node)| (as_uuid(&value), (wall, counter, node))))
+    Ok(row.map(|(scope, wall, counter, node)| (scope, (wall, counter, node))))
 }
 
-async fn newest_task_field(
+async fn newest_field(
     conn: &mut PgConnection,
     partitions: &[Uuid],
-    task_id: Uuid,
+    entity_id: Uuid,
 ) -> AppResult<Option<HlcKey>> {
     Ok(sqlx::query_as(
         "SELECT hlc_wall_ms, hlc_counter, hlc_node FROM entity_fields
-          WHERE user_id = ANY($1) AND entity = 'task' AND entity_id = $2
+          WHERE user_id = ANY($1) AND entity = 'todo.sealed' AND entity_id = $2
           ORDER BY hlc_wall_ms DESC, hlc_counter DESC, hlc_node DESC
           LIMIT 1",
     )
     .bind(partitions)
-    .bind(task_id)
+    .bind(entity_id)
     .fetch_optional(conn)
     .await?)
 }
 
-fn project_moves(ops: &[Operation]) -> HashMap<Uuid, usize> {
-    let mut winners: HashMap<Uuid, usize> = HashMap::new();
-    for (i, op) in ops.iter().enumerate() {
-        let sets_project = matches!(&op.change, Change::Set { field, .. } if field == "project_id");
-        if op.entity != EntityKind::Task || !sets_project {
-            continue;
-        }
-        match winners.get(&op.entity_id) {
-            Some(&best) if ops[best].ts >= op.ts => {}
-            _ => {
-                winners.insert(op.entity_id, i);
-            }
-        }
-    }
-    winners
-}
-
-/// A task leaving a shared project for somewhere a member cannot follow: that member gets a
-/// tombstone and a `revoked_tasks` row (see [`still_revoked`]).
+/// A sealed entity leaving a shared project for somewhere a member cannot follow: that member gets
+/// a tombstone and a `revoked_entities` row (see [`still_revoked`]).
 struct Revocation {
-    task_id: Uuid,
+    entity_id: Uuid,
     members: Vec<Uuid>,
     after: Hlc,
 }
 
-/// Whether ops of `kind` can reach another account's partition: only todo's project-scoped kinds,
-/// through a shared project. Every other kind stays in its owner's partition, whatever its fields
-/// say: the server neither reads their links nor fans them out. Exhaustive on purpose, so a new
-/// kind (another app's) cannot inherit todo's sharing by accident.
-fn may_fan_out(kind: EntityKind) -> bool {
+/// Whether ops of `kind` can reach another account's partition: only todo's, through a shared
+/// project. Every other kind stays in its owner's partition, whatever its scope says. Exhaustive
+/// on purpose, so a new kind (another app's) cannot inherit todo's sharing by accident.
+fn may_fan_out(kind: WireKind) -> bool {
     match kind {
-        EntityKind::Task
-        | EntityKind::Project
-        | EntityKind::Section
-        | EntityKind::Comment
-        | EntityKind::Activity
-        | EntityKind::Attachment => true,
-        EntityKind::Label
-        | EntityKind::Preference
-        | EntityKind::SavedFilter
-        | EntityKind::Reminder
-        | EntityKind::ProjectMember
-        | EntityKind::FocusSession
-        | EntityKind::Habit
-        | EntityKind::HabitCheckin => false,
-        // Journal v1 is personal: owner-only, no sharing.
-        EntityKind::JournalEntry | EntityKind::JournalPreference => false,
-        // Vault v1 is personal too: a stolen password is worse than a leaked task.
-        EntityKind::VaultItem | EntityKind::VaultFolder | EntityKind::VaultPreference => false,
+        WireKind::TodoProject | WireKind::TodoSealed => true,
+        WireKind::ProjectMember => false,
+        // Journal and vault v1 are personal: owner-only, no sharing. A stolen password is worse
+        // than a leaked task.
+        WireKind::JournalSealed | WireKind::VaultSealed => false,
+        // Refused on push ([`validate_op`]).
+        WireKind::Legacy(_) => false,
     }
 }
 
-async fn project_of(
-    conn: &mut PgConnection,
-    op: &Operation,
-    links: &mut Links,
+/// The project `op` belongs to as of the batch's end: a project op's own, a sealed entity's scope.
+fn project_of(
+    op: &WireOperation,
+    ops: &[WireOperation],
+    scopes: &Scopes,
 ) -> AppResult<Option<Uuid>> {
     match op.entity {
-        EntityKind::Project => Ok(Some(op.entity_id)),
-        EntityKind::Task | EntityKind::Section => links.of_op(conn, op, "project_id").await,
-        // Comments, activity and attachments follow their task's project (it may be created in
-        // this batch).
-        EntityKind::Comment | EntityKind::Activity | EntityKind::Attachment => {
-            match links.of_op(conn, op, "task_id").await? {
-                Some(task_id) => links.get(conn, "task", task_id, "project_id").await,
-                None => Ok(None),
-            }
-        }
-        // Private to their owner ([`may_fan_out`]).
-        EntityKind::Label
-        | EntityKind::Preference
-        | EntityKind::SavedFilter
-        | EntityKind::Reminder
-        | EntityKind::ProjectMember
-        | EntityKind::FocusSession
-        | EntityKind::Habit
-        | EntityKind::HabitCheckin
-        | EntityKind::JournalEntry
-        | EntityKind::JournalPreference
-        | EntityKind::VaultItem
-        | EntityKind::VaultFolder
-        | EntityKind::VaultPreference => Ok(None),
+        WireKind::TodoProject => Ok(Some(op.entity_id)),
+        WireKind::TodoSealed => scopes.effective(ops, op.entity_id, op.scope),
+        WireKind::ProjectMember
+        | WireKind::JournalSealed
+        | WireKind::VaultSealed
+        | WireKind::Legacy(_) => Ok(None),
     }
 }
 
@@ -386,35 +384,35 @@ impl ProjectMembers {
     }
 }
 
-/// The tasks the batch sets fields of that a move took away from `caller` ([`Revocation`]) and
+/// The sealed entities the batch writes that a move took away from `caller` ([`Revocation`]) and
 /// that are still out of their reach. The tombstone alone would not keep them away (a later
-/// field shows the task again, and retention purges it), so the caller may not write them while
-/// their partition links them to no project or a private one. One back in a shared project the
+/// field shows the entity again, and retention purges it), so the caller may not write them while
+/// their partition puts them in no project or a private one. One back in a shared project the
 /// caller is active in is theirs again, and its row is dropped.
 async fn still_revoked(
     tx: &mut Transaction<'_, Postgres>,
     members_cache: &mut HashMap<Uuid, ProjectMembers>,
     caller: Uuid,
-    ops: &[Operation],
+    ops: &[WireOperation],
 ) -> AppResult<HashSet<Uuid>> {
     let written: Vec<Uuid> = ops
         .iter()
-        .filter(|op| op.entity == EntityKind::Task && matches!(op.change, Change::Set { .. }))
+        .filter(|op| op.entity == WireKind::TodoSealed && matches!(op.change, Change::Set { .. }))
         .map(|op| op.entity_id)
         .collect();
     if written.is_empty() {
         return Ok(HashSet::new());
     }
     let recorded: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT task_id FROM revoked_tasks WHERE user_id = $1 AND task_id = ANY($2)",
+        "SELECT entity_id FROM revoked_entities WHERE user_id = $1 AND entity_id = ANY($2)",
     )
     .bind(caller)
     .bind(&written)
     .fetch_all(&mut **tx)
     .await?;
     let (mut revoked, mut returned) = (HashSet::new(), Vec::new());
-    for task in recorded {
-        let back = match stored_project_link(tx, caller, task).await? {
+    for entity_id in recorded {
+        let back = match stored_scope(tx, caller, entity_id).await? {
             Some((Some(pid), _)) => project_members(tx, members_cache, pid)
                 .await?
                 .active_role(caller)
@@ -422,13 +420,13 @@ async fn still_revoked(
             _ => false,
         };
         if back {
-            returned.push(task);
+            returned.push(entity_id);
         } else {
-            revoked.insert(task);
+            revoked.insert(entity_id);
         }
     }
     if !returned.is_empty() {
-        sqlx::query("DELETE FROM revoked_tasks WHERE user_id = $1 AND task_id = ANY($2)")
+        sqlx::query("DELETE FROM revoked_entities WHERE user_id = $1 AND entity_id = ANY($2)")
             .bind(caller)
             .bind(&returned)
             .execute(&mut **tx)
@@ -450,17 +448,14 @@ async fn project_members<'a>(
 
 /// The minimum role required to push this op onto a shared project.
 ///
-/// Tasks, sections, comments and activity need only `Commenter` (any active member). Editing the
-/// project entity's fields needs `Editor`. Deleting or archiving the project is owner-only, so
-/// an editor cannot remove it from under its owner. Membership changes go through REST.
-fn min_role_for_op(op: &Operation) -> Role {
+/// A sealed entity (task, section, comment, activity, attachment, …) needs only `Commenter` (any
+/// active member). Editing the project entity's fields needs `Editor`. Deleting or archiving the
+/// project is owner-only, so an editor cannot remove it from under its owner: `deleted_at` and
+/// `archived_at` keep their names on the wire for this. Membership changes go through REST.
+fn min_role_for_op(op: &WireOperation) -> Role {
     match op.entity {
-        EntityKind::Task
-        | EntityKind::Section
-        | EntityKind::Comment
-        | EntityKind::Activity
-        | EntityKind::Attachment => Role::Commenter,
-        EntityKind::Project => match &op.change {
+        WireKind::TodoSealed => Role::Commenter,
+        WireKind::TodoProject => match &op.change {
             Change::Delete => Role::Owner,
             Change::Set { field, .. } if field == "deleted_at" || field == "archived_at" => {
                 Role::Owner
@@ -468,19 +463,10 @@ fn min_role_for_op(op: &Operation) -> Role {
             Change::Set { .. } => Role::Editor,
         },
         // Never on a shared project ([`may_fan_out`]); the strictest answer if one were.
-        EntityKind::Label
-        | EntityKind::Preference
-        | EntityKind::SavedFilter
-        | EntityKind::Reminder
-        | EntityKind::ProjectMember
-        | EntityKind::FocusSession
-        | EntityKind::Habit
-        | EntityKind::HabitCheckin
-        | EntityKind::JournalEntry
-        | EntityKind::JournalPreference
-        | EntityKind::VaultItem
-        | EntityKind::VaultFolder
-        | EntityKind::VaultPreference => Role::Owner,
+        WireKind::ProjectMember
+        | WireKind::JournalSealed
+        | WireKind::VaultSealed
+        | WireKind::Legacy(_) => Role::Owner,
     }
 }
 
@@ -504,22 +490,29 @@ pub(super) async fn push(
     take_sync_write_lock(&mut tx).await?;
 
     // Authorize every op and resolve its fan-out before writing anything.
-    let moves = project_moves(&ops);
-    let mut fan_out = authorize(&mut tx, caller, &ops, &moves).await?;
+    let scopes = Scopes::load(&mut tx, caller, &ops).await?;
+    let mut fan_out = authorize(&mut tx, caller, &ops, &scopes).await?;
     drop_members_without_app(&mut tx, &ops, &mut fan_out.targets).await?;
-    let tombstones = revoke_moved_tasks(&mut tx, &state, fan_out.revocations).await?;
+    let tombstones = revoke_moved(&mut tx, &state, fan_out.revocations).await?;
     let (applied, batches) =
         apply_and_fan_out(&mut tx, caller, &ops, &fan_out.targets, &tombstones).await?;
 
-    // Keep each blob bound to the project its attachment lives in (`attachments::bind_blobs`).
-    let attachment_ids: Vec<Uuid> = ops
+    // Keep each blob bound to the project its attachment lives in (`attachments::bind_blobs`):
+    // the entities that name a blob or changed scope.
+    let mut rebind: Vec<Uuid> = ops
         .iter()
-        .filter(|op| op.entity == EntityKind::Attachment)
+        .filter(|op| {
+            op.entity == WireKind::TodoSealed
+                && matches!(&op.change, Change::Set { field, .. }
+                    if server_read_field("todo.sealed", field).is_some())
+        })
         .map(|op| op.entity_id)
         .collect();
-    let moved_tasks: Vec<Uuid> = moves.keys().copied().collect();
-    if !attachment_ids.is_empty() || !moved_tasks.is_empty() {
-        crate::attachments::bind_blobs(&mut tx, caller, &attachment_ids, &moved_tasks, &[]).await?;
+    rebind.extend(fan_out.moved);
+    rebind.sort_unstable();
+    rebind.dedup();
+    if !rebind.is_empty() {
+        crate::attachments::bind_blobs(&mut tx, caller, &rebind, &[]).await?;
     }
 
     let cursor = partition_head(&mut tx, caller).await?;
@@ -544,16 +537,13 @@ pub(super) async fn push(
 }
 
 /// Check a batch before the transaction, so a malformed one never takes the global write lock,
-/// and server-stamp its activities' `actor_id`. Returns the ops and their newest timestamp.
+/// and stamp every op with its pusher. Returns the ops and their newest timestamp.
 fn check_batch(
     caller: Uuid,
-    operations: Vec<Operation>,
-) -> SyncResult<(Vec<Operation>, Option<Hlc>)> {
+    operations: Vec<WireOperation>,
+) -> SyncResult<(Vec<WireOperation>, Option<Hlc>)> {
     if operations.len() > MAX_OPS_PER_PUSH {
         return Err(AppError::BadRequest("too many operations in one push".into()).into());
-    }
-    for op in &operations {
-        validate_server_read_field(op)?;
     }
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -561,10 +551,7 @@ fn check_batch(
         .unwrap_or(0);
     let mut newest: Option<Hlc> = None;
     for op in &operations {
-        // Membership is server-managed.
-        if op.entity == EntityKind::ProjectMember {
-            return Err(AppError::Forbidden("project_member is server-managed".into()).into());
-        }
+        validate_op(op)?;
 
         // Reject a future HLC wall clock before it can win LWW (see MAX_FUTURE_SKEW_MS).
         let wall = i64::try_from(op.ts.wall_ms)
@@ -589,14 +576,10 @@ fn check_batch(
         }
     }
 
-    // Server-stamp an activity's `actor_id` to the caller so it cannot be forged.
+    // Clients check an activity's actor against the pusher, which only the server may say.
     let mut ops = operations;
     for op in &mut ops {
-        if let Change::Set { field, value } = &mut op.change {
-            if op.entity == EntityKind::Activity && field == "actor_id" {
-                *value = Value::String(caller.to_string());
-            }
-        }
+        op.pushed_by = Some(caller);
     }
     Ok((ops, newest))
 }
@@ -605,24 +588,25 @@ fn check_batch(
 struct FanOut {
     /// Per op, in batch order: the co-members whose partitions receive it.
     targets: Vec<Vec<Uuid>>,
-    /// Tasks the batch moves away from members who cannot follow them.
+    /// Sealed entities the batch moves away from members who cannot follow them.
     revocations: Vec<Revocation>,
+    /// Sealed entities the batch moves to another scope.
+    moved: Vec<Uuid>,
 }
 
 /// Authorize every op of a batch against the caller's project roles and resolve its fan-out.
-/// Runs before any of the batch is written, so a refused op fails it whole. `moves` is
-/// [`project_moves`] of `ops`.
+/// Runs before any of the batch is written, so a refused op fails it whole.
 async fn authorize(
     tx: &mut Transaction<'_, Postgres>,
     caller: Uuid,
-    ops: &[Operation],
-    moves: &HashMap<Uuid, usize>,
+    ops: &[WireOperation],
+    scopes: &Scopes,
 ) -> AppResult<FanOut> {
     let mut members_cache: HashMap<Uuid, ProjectMembers> = HashMap::new();
-    let mut links = Links::new(caller, ops);
 
     let revoked = still_revoked(tx, &mut members_cache, caller, ops).await?;
     let mut revocations: Vec<Revocation> = Vec::new();
+    let mut moved: Vec<Uuid> = Vec::new();
     let mut fan_targets: Vec<Vec<Uuid>> = Vec::with_capacity(ops.len());
     for (i, op) in ops.iter().enumerate() {
         // Owner-only kinds: nothing to authorize against a project, and nobody else receives them.
@@ -630,43 +614,13 @@ async fn authorize(
             fan_targets.push(Vec::new());
             continue;
         }
-        let project = project_of(tx, op, &mut links).await?;
+        let project = project_of(op, ops, scopes)?;
 
-        // A task a move took away stays away (see `still_revoked`); its comments are kept.
-        if revoked.contains(&op.entity_id)
-            && op.entity == EntityKind::Task
-            && matches!(op.change, Change::Set { .. })
-        {
+        // An entity a move took away stays away (see `still_revoked`).
+        if revoked.contains(&op.entity_id) && matches!(op.change, Change::Set { .. }) {
             return Err(AppError::Forbidden(
-                "this task was moved to a project you are not a member of".into(),
+                "this item was moved to a project you are not a member of".into(),
             ));
-        }
-
-        // An assignee must be an active member of the shared project (or the caller on a
-        // private task); null (unassign) is always allowed.
-        if op.entity == EntityKind::Task {
-            if let Change::Set { field, value } = &op.change {
-                if field == "assignee_id" {
-                    if let Some(assignee) = as_uuid(value) {
-                        let ok = match project {
-                            Some(pid) => {
-                                let members = project_members(tx, &mut members_cache, pid).await?;
-                                if members.is_shared() {
-                                    members.active_role(assignee).is_some()
-                                } else {
-                                    assignee == caller
-                                }
-                            }
-                            None => assignee == caller,
-                        };
-                        if !ok {
-                            return Err(AppError::Forbidden(
-                                "assignee must be a project member".into(),
-                            ));
-                        }
-                    }
-                }
-            }
         }
 
         let mut targets = Vec::new();
@@ -678,28 +632,29 @@ async fn authorize(
             }
         }
 
-        // A task moving out of a shared project: the old project's members get the move too,
-        // and those who cannot see the new project lose the task, which takes an editor.
-        if moves.get(&op.entity_id) == Some(&i) {
-            if let Some((Some(old), stored_ts)) =
-                stored_project_link(tx, caller, op.entity_id).await?
-            {
-                if old != project.unwrap_or(Uuid::nil()) && hlc_key(&op.ts)? > stored_ts {
-                    let old_members = project_members(tx, &mut members_cache, old).await?;
-                    if old_members.is_shared() {
-                        old_members.require_role(caller, Role::Editor)?;
-                        let left_behind: Vec<Uuid> = old_members
-                            .active_ids()
-                            .into_iter()
-                            .filter(|m| *m != caller && !targets.contains(m))
-                            .collect();
-                        targets.extend(&left_behind);
-                        if !left_behind.is_empty() {
-                            revocations.push(Revocation {
-                                task_id: op.entity_id,
-                                members: left_behind,
-                                after: op.ts,
-                            });
+        // An entity moving out of a shared project: the old project's members get the move too,
+        // and those who cannot see the new scope lose the entity, which takes an editor.
+        if op.entity == WireKind::TodoSealed {
+            if let Some((winner, move_op, old)) = scopes.move_of(ops, op.entity_id)? {
+                if winner == i {
+                    moved.push(op.entity_id);
+                    if let Some(old) = old {
+                        let old_members = project_members(tx, &mut members_cache, old).await?;
+                        if old_members.is_shared() {
+                            old_members.require_role(caller, Role::Editor)?;
+                            let left_behind: Vec<Uuid> = old_members
+                                .active_ids()
+                                .into_iter()
+                                .filter(|m| *m != caller && !targets.contains(m))
+                                .collect();
+                            targets.extend(&left_behind);
+                            if !left_behind.is_empty() {
+                                revocations.push(Revocation {
+                                    entity_id: op.entity_id,
+                                    members: left_behind,
+                                    after: move_op.ts,
+                                });
+                            }
                         }
                     }
                 }
@@ -711,6 +666,7 @@ async fn authorize(
     Ok(FanOut {
         targets: fan_targets,
         revocations,
+        moved,
     })
 }
 
@@ -718,7 +674,7 @@ async fn authorize(
 /// none of their sessions would serve it.
 async fn drop_members_without_app(
     conn: &mut PgConnection,
-    ops: &[Operation],
+    ops: &[WireOperation],
     targets: &mut [Vec<Uuid>],
 ) -> AppResult<()> {
     let mut members: Vec<Uuid> = targets.iter().flatten().copied().collect();
@@ -734,7 +690,10 @@ async fn drop_members_without_app(
             .await?;
     let enabled: HashSet<(Uuid, String)> = rows.into_iter().collect();
     for (op, targets) in ops.iter().zip(targets.iter_mut()) {
-        let app = op.entity.app().to_owned();
+        let app = Registry::bundled()
+            .app_of_wire(entity_str(op.entity))
+            .map(|a| a.app.clone())
+            .unwrap_or_default();
         targets.retain(|member| enabled.contains(&(*member, app.clone())));
     }
     Ok(())
@@ -743,32 +702,30 @@ async fn drop_members_without_app(
 /// Record each [`Revocation`] and build the tombstone its members receive: it beats the move
 /// and every field its recipients hold, and the recorded revocation keeps it hidden from what
 /// they write later.
-async fn revoke_moved_tasks(
+async fn revoke_moved(
     tx: &mut Transaction<'_, Postgres>,
     state: &AppState,
     revocations: Vec<Revocation>,
-) -> AppResult<Vec<(Vec<Uuid>, Operation)>> {
-    let (revoked_users, revoked_tasks): (Vec<Uuid>, Vec<Uuid>) = revocations
+) -> AppResult<Vec<(Vec<Uuid>, WireOperation)>> {
+    let (revoked_users, revoked_ids): (Vec<Uuid>, Vec<Uuid>) = revocations
         .iter()
-        .flat_map(|rev| rev.members.iter().map(|member| (*member, rev.task_id)))
+        .flat_map(|rev| rev.members.iter().map(|member| (*member, rev.entity_id)))
         .unzip();
     if !revoked_users.is_empty() {
         sqlx::query(
-            "INSERT INTO revoked_tasks (user_id, task_id)
+            "INSERT INTO revoked_entities (user_id, entity_id)
              SELECT * FROM UNNEST($1::uuid[], $2::uuid[])
-             ON CONFLICT (user_id, task_id) DO NOTHING",
+             ON CONFLICT (user_id, entity_id) DO NOTHING",
         )
         .bind(&revoked_users)
-        .bind(&revoked_tasks)
+        .bind(&revoked_ids)
         .execute(&mut **tx)
         .await?;
     }
-    let mut revoke_ops: Vec<(Vec<Uuid>, Operation)> = Vec::with_capacity(revocations.len());
+    let mut revoke_ops: Vec<(Vec<Uuid>, WireOperation)> = Vec::with_capacity(revocations.len());
     for rev in revocations {
         let mut floor = rev.after;
-        if let Some((wall, counter, node)) =
-            newest_task_field(tx, &rev.members, rev.task_id).await?
-        {
+        if let Some((wall, counter, node)) = newest_field(tx, &rev.members, rev.entity_id).await? {
             floor = floor.max(Hlc {
                 wall_ms: wall as u64,
                 counter: counter as u32,
@@ -786,7 +743,7 @@ async fn revoke_moved_tasks(
             .max(successor_hlc(floor));
         revoke_ops.push((
             rev.members,
-            Operation::delete(EntityKind::Task, rev.task_id, ts),
+            WireOperation::delete(WireKind::TodoSealed, rev.entity_id, None, ts),
         ));
     }
     Ok(revoke_ops)
@@ -798,14 +755,14 @@ async fn revoke_moved_tasks(
 async fn apply_and_fan_out(
     tx: &mut Transaction<'_, Postgres>,
     caller: Uuid,
-    ops: &[Operation],
+    ops: &[WireOperation],
     targets: &[Vec<Uuid>],
-    tombstones: &[(Vec<Uuid>, Operation)],
+    tombstones: &[(Vec<Uuid>, WireOperation)],
 ) -> AppResult<(usize, MemberBatches)> {
-    let caller_rows: Vec<(Uuid, &Operation)> = ops.iter().map(|op| (caller, op)).collect();
+    let caller_rows: Vec<(Uuid, &WireOperation)> = ops.iter().map(|op| (caller, op)).collect();
     let (caller_seqs, mut batches) = apply_live(tx, &caller_rows).await?;
     let applied = caller_seqs.iter().filter(|seq| seq.is_some()).count();
-    let mut member_rows: Vec<(Uuid, &Operation)> = ops
+    let mut member_rows: Vec<(Uuid, &WireOperation)> = ops
         .iter()
         .zip(targets)
         .zip(&caller_seqs)
@@ -823,21 +780,20 @@ async fn apply_and_fan_out(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sync::entity_from_str;
+    use serde_json::json;
 
     #[test]
-    fn every_server_read_field_is_plaintext_on_the_client() {
-        let registry = atlas_core::Registry::bundled();
+    fn every_server_read_field_is_plaintext_and_public_in_the_manifests() {
+        let registry = Registry::bundled();
         for (entity, fields) in SERVER_READ_FIELDS {
-            entity_from_str(entity).unwrap_or_else(|_| panic!("unknown entity {entity}"));
             let kind = registry
-                .kind(entity)
-                .unwrap_or_else(|| panic!("{entity} is in no manifest"));
+                .wire_kind(entity)
+                .unwrap_or_else(|| panic!("{entity} is no wire kind of a manifest"));
             for (field, _) in *fields {
                 assert!(
-                    kind.plaintext_fields.contains(field),
-                    "{entity}.{field} is read by the server but its manifest's plaintext_fields \
-                     let the client encrypt it"
+                    kind.is_public(field) && kind.plaintext_fields.contains(field),
+                    "{entity}.{field} is read by the server but its manifest lets the client \
+                     tag or encrypt it"
                 );
             }
         }
@@ -858,14 +814,16 @@ mod tests {
 
     #[test]
     fn server_read_fields_cover_every_field_lookup_in_the_source() {
-        // A field matched by name only (never by value), or handed back to the client verbatim.
-        const NOT_INTERPRETED: &[&str] =
-            &["deleted_at", "archived_at", "name", "icon", "color", "kind"];
+        // A public field matched by name only (never by value).
+        const NOT_INTERPRETED: &[&str] = &["deleted_at", "archived_at"];
+        // The legacy invite preview reads a legacy project's fields by name and hands them back.
+        const LEGACY_PREVIEW: &[&str] = &["name", "icon", "color", "kind"];
         let sources = [
             include_str!("mod.rs"),
             include_str!("apply.rs"),
             include_str!("backfill.rs"),
             include_str!("hub.rs"),
+            include_str!("legacy.rs"),
             include_str!("pull.rs"),
             include_str!("push.rs"),
             include_str!("revoke.rs"),
@@ -875,6 +833,7 @@ mod tests {
             include_str!("../attachments.rs"),
             include_str!("../restore.rs"),
             include_str!("../projects.rs"),
+            include_str!("../retention.rs"),
         ];
         let mut seen = Vec::new();
         for src in sources {
@@ -893,15 +852,109 @@ mod tests {
                 );
             }
         }
-        assert!(seen.contains(&"project_id") && seen.contains(&"blob_sha"));
+        assert!(seen.contains(&"blob_sha") && seen.contains(&"archived_at"));
+        // The rows written before protocol 7, which the legacy read paths still follow until their
+        // clients migrate them, carry the manifests' `legacy_plaintext_fields`.
+        let legacy: Vec<&str> = Registry::bundled()
+            .apps()
+            .iter()
+            .flat_map(|a| a.kinds.values())
+            .flat_map(|k| k.legacy_plaintext_fields.iter().map(String::as_str))
+            .collect();
         for field in seen {
             let listed = SERVER_READ_FIELDS
                 .iter()
                 .any(|(_, fields)| fields.iter().any(|(f, _)| *f == field));
             assert!(
-                listed || NOT_INTERPRETED.contains(&field),
+                listed
+                    || NOT_INTERPRETED.contains(&field)
+                    || LEGACY_PREVIEW.contains(&field)
+                    || legacy.contains(&field),
                 "the server reads `{field}`; add it to SERVER_READ_FIELDS"
             );
+        }
+    }
+
+    fn set(entity: WireKind, scope: Option<Uuid>, field: &str, value: Value) -> WireOperation {
+        WireOperation::set(
+            entity,
+            Uuid::from_u128(1),
+            scope,
+            field,
+            value,
+            Hlc {
+                wall_ms: 1,
+                counter: 0,
+                node: Uuid::nil(),
+            },
+        )
+    }
+
+    fn envelope() -> Value {
+        json!({"__enc": 3, "kid": "dek", "iv": "aXY=", "ct": "Y3Q="})
+    }
+
+    #[test]
+    fn ops_are_checked_against_the_wire_kinds() {
+        let tag = "0123456789abcdef0123456789abcdef";
+        let sha = "a".repeat(64);
+        let pid = Uuid::from_u128(9);
+        let own = Some(Uuid::from_u128(1));
+        let delete = WireOperation::delete(
+            WireKind::TodoSealed,
+            Uuid::from_u128(1),
+            Some(pid),
+            Hlc {
+                wall_ms: 1,
+                counter: 0,
+                node: Uuid::nil(),
+            },
+        );
+        for ok in [
+            set(WireKind::TodoSealed, None, tag, envelope()),
+            set(WireKind::TodoSealed, Some(pid), tag, envelope()),
+            set(WireKind::TodoSealed, Some(pid), "blob_sha", json!(sha)),
+            set(WireKind::TodoSealed, None, "thumb_sha", Value::Null),
+            set(WireKind::TodoProject, None, "archived_at", envelope()),
+            set(WireKind::TodoProject, own, tag, envelope()),
+            set(WireKind::VaultSealed, None, tag, envelope()),
+            delete,
+        ] {
+            validate_op(&ok).unwrap_or_else(|e| panic!("{ok:?}: {e:?}"));
+        }
+        let wrong_version = json!({"__enc": 2, "kid": "k", "iv": "i", "ct": "c"});
+        let extra_key = json!({"__enc": 3, "kid": "k", "iv": "i", "ct": "c", "x": 1});
+        let legacy = WireKind::Legacy(atlas_core::EntityKind::Task);
+        for bad in [
+            // A field name instead of a tag, or a public name of another kind.
+            set(WireKind::TodoSealed, None, "title", envelope()),
+            set(WireKind::TodoSealed, None, "archived_at", envelope()),
+            set(WireKind::TodoProject, None, "blob_sha", json!(sha)),
+            // A tag of the wrong shape.
+            set(WireKind::TodoSealed, None, &tag.to_uppercase(), envelope()),
+            set(WireKind::TodoSealed, None, &tag[1..], envelope()),
+            // Plaintext, or another envelope, where a v3 envelope belongs.
+            set(WireKind::TodoSealed, None, tag, json!("Buy milk")),
+            set(WireKind::TodoSealed, None, tag, Value::Null),
+            set(WireKind::TodoSealed, None, tag, wrong_version),
+            set(WireKind::TodoSealed, None, tag, extra_key),
+            set(WireKind::TodoProject, None, "deleted_at", json!(1)),
+            // An envelope, or uppercase hex, where the server reads a plaintext hash.
+            set(WireKind::TodoSealed, None, "blob_sha", envelope()),
+            set(
+                WireKind::TodoSealed,
+                None,
+                "blob_sha",
+                json!(sha.to_uppercase()),
+            ),
+            // Scopes that do not fit the kind.
+            set(WireKind::TodoProject, Some(pid), tag, envelope()),
+            set(WireKind::JournalSealed, Some(pid), tag, envelope()),
+            // Legacy kinds are read-only, membership is the server's.
+            set(legacy, None, "title", json!("x")),
+            set(WireKind::ProjectMember, None, "role", json!("owner")),
+        ] {
+            assert!(validate_op(&bad).is_err(), "{bad:?}");
         }
     }
 }

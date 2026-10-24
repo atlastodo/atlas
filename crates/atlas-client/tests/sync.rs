@@ -97,19 +97,22 @@ fn writes_travel_encrypted_and_another_session_reads_them() {
     a.push().unwrap();
     assert!(a.store.unsynced_ops().is_empty());
     {
+        // The kind, the field names and the link stay inside the sealed values (protocol 7): the
+        // project has no key here, so both go under the account's own key.
         let st = server.state.lock().unwrap();
-        let title = st.ops.iter().find(|(_, o)| o["field"] == "title").unwrap();
-        assert_eq!(title.1["value"]["__enc"], 2);
-        assert_eq!(title.1["value"]["kid"], "dek");
-        let link = st
-            .ops
-            .iter()
-            .find(|(_, o)| o["field"] == "project_id")
-            .unwrap();
-        assert_eq!(
-            link.1["value"],
-            json!(project),
-            "routing fields stay plaintext"
+        assert_eq!(st.ops.len(), 2);
+        for (_, op) in &st.ops {
+            assert_eq!(op["entity"], "todo.sealed");
+            assert!(op["scope"].is_null());
+            assert_eq!(op["field"].as_str().unwrap().len(), 32);
+            assert_eq!(
+                (op["value"]["__enc"].as_u64(), op["value"]["kid"].as_str()),
+                (Some(3), Some("dek"))
+            );
+        }
+        let raw = serde_json::to_string(&st.ops).unwrap();
+        assert!(
+            !raw.contains("Renew passport") && !raw.contains(&project) && !raw.contains("title")
         );
     }
     let b = connect(&server);
@@ -238,12 +241,14 @@ fn signed_project_key_deliveries_open_shared_content() {
                 .ops
                 .iter()
                 .rev()
-                .find(|(_, o)| o["field"] == "notes")
+                .find(|(_, o)| o["entity_id"] == json!(task) && o["entity"] == "todo.sealed")
                 .unwrap();
             assert_eq!(notes.1["value"]["kid"], json!(key_id));
-            // The signer's identity got pinned in the synced trust state.
-            assert!(st.ops.iter().any(|(_, o)| o["entity"] == "preference"
-                && o["field"] == json!(format!("identity:{owner}"))));
+            assert_eq!(notes.1["scope"], json!(project));
+            // The signer's identity got pinned in the synced trust state, under the account's key.
+            assert!(st.ops.iter().any(|(_, o)| o["entity"] == "todo.sealed"
+                && o["entity_id"] == json!(atlas_client::trust::KEY_TRUST_ID)
+                && o["scope"].is_null()));
         } else {
             assert_eq!(title["__enc"], 2, "the value stays locked");
             assert!(s.keyring.project_key(&project, &key_id).is_none());
@@ -282,5 +287,60 @@ fn values_under_the_wrong_scope_stay_unread() {
     assert_eq!(
         s.store.get(EntityKind::Task, &task).unwrap()["title"]["__enc"],
         2
+    );
+}
+
+/// Rows a protocol 6 client wrote are re-encoded with their stamps and dropped by the first session
+/// that reads them (`migrate_legacy`).
+#[test]
+fn protocol_6_rows_are_re_encoded_and_dropped() {
+    let server = FakeServer::new();
+    let task = Uuid::new_v4().to_string();
+    let dek = server.dek;
+    let at = FieldLocation {
+        entity: "task",
+        entity_id: &task,
+        field: "title",
+    };
+    let title = encrypt_field(&dek, "dek", &KeyScope::Personal, at, &json!("Old title")).unwrap();
+    inject(
+        &server,
+        wire_set("task", &task, "title", title.to_value(), 7),
+    );
+    inject(&server, wire_set("task", &task, "priority", json!(3), 8));
+
+    let s = connect(&server);
+    assert_eq!(
+        s.store.get(EntityKind::Task, &task).unwrap()["title"],
+        "Old title"
+    );
+    let legacy = s.sync.legacy.clone().expect("the pass ran");
+    assert_eq!((legacy.reencoded, legacy.left), (1, 0));
+    let st = server.state.lock().unwrap();
+    assert!(
+        st.ops.iter().all(|(_, o)| o["entity"] != "task"),
+        "the originals are gone"
+    );
+    let copies: Vec<&Value> = st
+        .ops
+        .iter()
+        .map(|(_, o)| o)
+        .filter(|o| o["entity_id"] == json!(task))
+        .collect();
+    assert_eq!(copies.len(), 2);
+    let mut walls: Vec<u64> = copies
+        .iter()
+        .map(|o| o["ts"]["wall_ms"].as_u64().unwrap())
+        .collect();
+    walls.sort();
+    assert_eq!(walls, [7, 8], "every stamp kept");
+    drop(st);
+
+    // A later session reads the re-encoded copy.
+    let b = connect(&server);
+    let fields = b.store.get(EntityKind::Task, &task).unwrap();
+    assert_eq!(
+        (fields["title"].as_str(), fields["priority"].as_i64()),
+        (Some("Old title"), Some(3))
     );
 }

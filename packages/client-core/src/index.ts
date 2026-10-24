@@ -21,6 +21,8 @@ export * from "./attachments";
 export * from "./indexeddb";
 export * from "./expo-sqlite";
 export * from "./sync-client";
+export * from "./wire";
+export * from "./legacy";
 export * from "./realtime";
 export * from "./session";
 export * from "./password";

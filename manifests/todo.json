@@ -1,24 +1,27 @@
 {
-  "_doc": "The Atlas Todo app manifest, compiled into the server (atlas-core) and bundled by the clients (packages/client-core); operators never load manifests from disk. `kinds` lists the entity kinds the app syncs: todo's kinds keep their original bare names on the wire, every later app namespaces its kinds as `<app>.<kind>`. `plaintext_fields` lists, per kind, the fields a client sends WITHOUT end-to-end encryption; every other field value is encrypted. Only values the server must read stay plaintext: fan-out and membership checks (project_id, task_id, assignee_id, actor_id) and attachment blob addressing (blob_sha, thumb_sha); wrapped_key and meta are already ciphertext. project_member rows are server-authored (\"all\"). The client encrypts by this table and the server asserts that every field value it reads is listed here. Bump `version` whenever the kinds or their plaintext fields change.",
+  "_doc": "The Atlas Todo app manifest, compiled into the server (atlas-core) and bundled by the clients (packages/client-core); operators never load manifests from disk. `kinds` lists the entity kinds the app syncs, by their real names, which only clients see (sync protocol 7, docs/decisions/0006). `wire` is the kind the server sees instead: `todo.project` for a project, `todo.sealed` for everything else, `project_member` for the server-authored membership rows. Every field travels under an opaque per-entity tag inside an encrypted value, except `public_fields`, which keep their names because the server acts on them: a project's `deleted_at`/`archived_at` are owner-only (values still encrypted), an attachment's `blob_sha`/`thumb_sha` address its blobs. `plaintext_fields` (a subset of `public_fields`, or \"all\" for server-authored kinds) travel unencrypted. `legacy_plaintext_fields` are the fields protocol 6 sent in plaintext, under the real kind name as the wire kind; such rows stay readable until clients migrate them (POST /sync/legacy/drop). Bump `version` whenever the kinds or their fields change.",
   "app": "todo",
   "name": "Atlas Todo",
-  "version": 1,
+  "version": 2,
   "kinds": {
-    "task": { "plaintext_fields": ["project_id", "assignee_id"] },
-    "project": { "plaintext_fields": [] },
-    "section": { "plaintext_fields": ["project_id"] },
-    "label": { "plaintext_fields": [] },
-    "comment": { "plaintext_fields": ["task_id"] },
-    "preference": { "plaintext_fields": [] },
-    "saved_filter": { "plaintext_fields": [] },
-    "reminder": { "plaintext_fields": [] },
-    "project_member": { "plaintext_fields": "all" },
-    "activity": { "plaintext_fields": ["task_id", "actor_id"] },
-    "focus_session": { "plaintext_fields": [] },
-    "habit": { "plaintext_fields": [] },
-    "habit_checkin": { "plaintext_fields": [] },
+    "task": { "wire": "todo.sealed", "legacy_plaintext_fields": ["project_id", "assignee_id"] },
+    "project": { "wire": "todo.project", "public_fields": ["deleted_at", "archived_at"] },
+    "section": { "wire": "todo.sealed", "legacy_plaintext_fields": ["project_id"] },
+    "label": { "wire": "todo.sealed" },
+    "comment": { "wire": "todo.sealed", "legacy_plaintext_fields": ["task_id"] },
+    "preference": { "wire": "todo.sealed" },
+    "saved_filter": { "wire": "todo.sealed" },
+    "reminder": { "wire": "todo.sealed" },
+    "project_member": { "wire": "project_member", "plaintext_fields": "all" },
+    "activity": { "wire": "todo.sealed", "legacy_plaintext_fields": ["task_id", "actor_id"] },
+    "focus_session": { "wire": "todo.sealed" },
+    "habit": { "wire": "todo.sealed" },
+    "habit_checkin": { "wire": "todo.sealed" },
     "attachment": {
-      "plaintext_fields": ["task_id", "blob_sha", "thumb_sha", "wrapped_key", "meta"]
+      "wire": "todo.sealed",
+      "public_fields": ["blob_sha", "thumb_sha"],
+      "plaintext_fields": ["blob_sha", "thumb_sha"],
+      "legacy_plaintext_fields": ["task_id", "blob_sha", "thumb_sha", "wrapped_key", "meta"]
     }
   }
 }

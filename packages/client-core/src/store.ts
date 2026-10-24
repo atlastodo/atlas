@@ -1,12 +1,17 @@
 /**
  * Local-first store. Entities are bags of fields resolved by field-level LWW over HLC (as on the
  * server). Local mutations stamp an HLC and enqueue an {@link Operation}; remote ops merge idempotently.
+ *
+ * What the sync decoder could not attribute to a real kind waits under its wire kind (sync protocol
+ * 7): a value no key here opened ({@link SealedPlaceholder}, revived by {@link LocalStore.reviveSealed})
+ * and a tombstone of an entity not seen yet, which the entity takes over when it arrives.
  */
 
 import { isEncryptedEnvelope } from "./crypto/envelope";
 import { HlcClock, compareHlc, type Hlc } from "./hlc";
 import type { PersistedOp, Persistence } from "./persistence";
 import type { EntityKind, Operation } from "./types";
+import { isSealedPlaceholder, isSealedWireKind, type SealedPlaceholder } from "./wire";
 
 interface FieldState {
   value: unknown;
@@ -524,6 +529,7 @@ export class LocalStore {
     let state = byId.get(op.entityId);
     if (!state) {
       state = { fields: new Map(), deleted: null, deletedOp: null };
+      if (!isSealedWireKind(op.entity)) this.inheritTombstone(op.entityId, state);
       byId.set(op.entityId, state);
     }
 
@@ -547,6 +553,27 @@ export class LocalStore {
 
     if (changed) this.kindChanged.set(op.entity, ++this.changeSeq);
     return changed;
+  }
+
+  /** A tombstone that arrived before its entity's kind was known, now the entity's. */
+  private inheritTombstone(entityId: string, state: EntityState): void {
+    for (const [kind, byId] of this.entities) {
+      if (!isSealedWireKind(kind)) continue;
+      const pending = byId.get(entityId);
+      if (!pending?.deleted) continue;
+      if (state.deleted === null || compareHlc(pending.deleted, state.deleted) > 0) {
+        state.deleted = pending.deleted;
+        state.deletedOp = pending.deletedOp;
+      }
+    }
+  }
+
+  /** The real kind of the entity held by this id, or null. */
+  kindOf(entityId: string): EntityKind | null {
+    for (const [kind, byId] of this.entities) {
+      if (!isSealedWireKind(kind) && byId.has(entityId)) return kind;
+    }
+    return null;
   }
 
   private state(entity: EntityKind, entityId: string): EntityState | undefined {
@@ -600,6 +627,12 @@ export class LocalStore {
     return { ...fs.ts };
   }
 
+  /** The entity's tombstone stamp, or null. */
+  tombstoneTs(entity: EntityKind, entityId: string): Hlc | null {
+    const deleted = this.state(entity, entityId)?.deleted;
+    return deleted ? { ...deleted } : null;
+  }
+
   visibleFieldStates(
     entity: EntityKind,
     entityId: string,
@@ -632,6 +665,7 @@ export class LocalStore {
     const revived: (O & RevivedField)[] = [];
     const ops: Operation[] = [];
     for (const [entity, byId] of this.entities) {
+      if (isSealedWireKind(entity)) continue; // reviveSealed opens these
       for (const [entityId, state] of byId) {
         for (const [field, fs] of state.fields) {
           if (!isEncryptedEnvelope(fs.value)) continue;
@@ -659,6 +693,64 @@ export class LocalStore {
       this.persistBatch(ops, true);
       this.emit();
     }
+    return revived;
+  }
+
+  /**
+   * Opens the values that arrived sealed under a wire kind (protocol 7) with the keys now held:
+   * each becomes its real kind's field at the same timestamp, and the sealed copy goes. Nothing is
+   * pushed.
+   */
+  reviveSealed<O extends { kind: EntityKind; field: string; value: unknown; keyId: string }>(
+    open: (
+      wire: string,
+      entityId: string,
+      wireField: string,
+      sealed: SealedPlaceholder,
+    ) => O | null,
+  ): (O & RevivedField)[] {
+    const revived: (O & RevivedField)[] = [];
+    const ops: Operation[] = [];
+    const gone: string[] = [];
+    for (const [wire, byId] of this.entities) {
+      if (!isSealedWireKind(wire)) continue;
+      for (const [entityId, state] of byId) {
+        for (const [wireField, fs] of state.fields) {
+          if (!isSealedPlaceholder(fs.value)) continue;
+          const opened = open(wire, entityId, wireField, fs.value);
+          if (!opened) continue;
+          state.fields.delete(wireField);
+          gone.push(fs.op);
+          const op: Operation = {
+            id: this.newId(),
+            entity: opened.kind,
+            entityId,
+            ts: { ...fs.ts },
+            op: "set",
+            field: opened.field,
+            value: opened.value,
+          };
+          this.applied.add(op.id);
+          if (this.mergeInto(op)) ops.push(op);
+          revived.push({
+            ...opened,
+            entity: opened.kind,
+            entityId,
+            field: opened.field,
+            ts: { ...fs.ts },
+          });
+        }
+        if (state.fields.size === 0 && state.deleted === null) byId.delete(entityId);
+      }
+    }
+    if (ops.length > 0) this.persistBatch(ops, true);
+    const p = this.persistence;
+    if (p?.deleteOps && gone.length > 0) {
+      this.writeChain = this.writeChain
+        .then(() => p.deleteOps!(gone))
+        .catch((err) => this.reportPersistError(err));
+    }
+    if (revived.length > 0) this.emit();
     return revived;
   }
 

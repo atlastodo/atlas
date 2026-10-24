@@ -9,6 +9,9 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::wire::{self, opened, tag, SEALED};
+
 /// The credential a client sends for the account password: the auth hash it derives from it
 /// (64 lowercase hex characters), which is what the server stores and compares.
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -59,7 +62,7 @@ async fn send(
     token: Option<&str>,
     body: Value,
 ) -> (StatusCode, Value) {
-    send_with_protocol(router, method, uri, token, Some("6"), body).await
+    send_with_protocol(router, method, uri, token, Some("7"), body).await
 }
 
 /// [`send`] with explicit control over the `x-atlas-sync-protocol` header (`None` omits it).
@@ -128,7 +131,7 @@ async fn new_user_token(router: &Router) -> String {
     body["access_token"].as_str().unwrap().to_string()
 }
 
-/// Build a Set operation JSON with the given HLC components.
+/// Build a personal sealed entity's Set operation JSON with the given HLC components.
 fn set_op(
     entity_id: Uuid,
     field: &str,
@@ -137,25 +140,11 @@ fn set_op(
     counter: u32,
     node: Uuid,
 ) -> Value {
-    json!({
-        "id": Uuid::now_v7(),
-        "entity": "task",
-        "entity_id": entity_id,
-        "op": "set",
-        "field": field,
-        "value": value,
-        "ts": { "wall_ms": wall, "counter": counter, "node": node },
-    })
+    wire::set(SEALED, entity_id, None, field, value, (wall, counter, node))
 }
 
 fn delete_op(entity_id: Uuid, wall: u64, counter: u32, node: Uuid) -> Value {
-    json!({
-        "id": Uuid::now_v7(),
-        "entity": "task",
-        "entity_id": entity_id,
-        "op": "delete",
-        "ts": { "wall_ms": wall, "counter": counter, "node": node },
-    })
+    wire::delete(SEALED, entity_id, None, (wall, counter, node))
 }
 
 #[tokio::test]
@@ -189,8 +178,9 @@ async fn push_then_pull_round_trips_ops() {
     assert_eq!(status, StatusCode::OK);
     let ops = pulled["operations"].as_array().unwrap();
     assert_eq!(ops.len(), 1);
-    assert_eq!(ops[0]["field"], "title");
-    assert_eq!(ops[0]["value"], "Buy milk");
+    assert_eq!(ops[0]["entity"], SEALED);
+    assert_eq!(ops[0]["field"], tag("title"));
+    assert_eq!(opened(&ops[0]["value"]), "Buy milk");
     assert!(pulled["cursor"].as_i64().unwrap() > 0);
 }
 
@@ -279,7 +269,7 @@ async fn pull_since_cursor_returns_only_newer_ops() {
     .await;
     let ops = after["operations"].as_array().unwrap();
     assert_eq!(ops.len(), 1, "only the op after the cursor");
-    assert_eq!(ops[0]["field"], "notes");
+    assert_eq!(ops[0]["field"], tag("notes"));
 }
 
 #[tokio::test]
@@ -350,13 +340,15 @@ async fn empty_push_is_ok() {
 /// Read the LWW-resolved value of one field straight from the materialized state.
 async fn resolved_field(pool: &sqlx::PgPool, entity_id: Uuid, field: &str) -> Option<Value> {
     sqlx::query_scalar::<_, Value>(
-        "SELECT value FROM entity_fields WHERE entity = 'task' AND entity_id = $1 AND field = $2",
+        "SELECT value FROM entity_fields
+          WHERE entity = 'todo.sealed' AND entity_id = $1 AND field = $2",
     )
     .bind(entity_id)
-    .bind(field)
+    .bind(tag(field))
     .fetch_optional(pool)
     .await
     .unwrap()
+    .map(|v| opened(&v))
 }
 
 #[tokio::test]
@@ -459,7 +451,7 @@ async fn tombstone_records_delete() {
     })).await;
 
     let tomb: Option<i64> = sqlx::query_scalar(
-        "SELECT hlc_wall_ms FROM entity_tombstones WHERE entity = 'task' AND entity_id = $1",
+        "SELECT hlc_wall_ms FROM entity_tombstones WHERE entity = 'todo.sealed' AND entity_id = $1",
     )
     .bind(tid)
     .fetch_optional(&pool)
@@ -509,7 +501,7 @@ async fn oversized_push_body_answers_413() {
         .method("POST")
         .uri("/sync/push")
         .header("content-type", "application/json")
-        .header("x-atlas-sync-protocol", "6")
+        .header("x-atlas-sync-protocol", "7")
         .header("authorization", format!("Bearer {token}"))
         .body(Body::from(
             serde_json::to_vec(&json!({ "operations": [], "pad": pad })).unwrap(),
@@ -525,7 +517,7 @@ fn assert_upgrade_required(status: StatusCode, body: &Value, ctx: &str) {
     assert_eq!(status, StatusCode::UPGRADE_REQUIRED, "{ctx}: {body:?}");
     assert_eq!(
         body,
-        &json!({ "error": "client update required", "code": "upgrade_required", "min_protocol": 6 }),
+        &json!({ "error": "client update required", "code": "upgrade_required", "min_protocol": 7 }),
         "{ctx}"
     );
 }
@@ -571,6 +563,7 @@ async fn sync_with_old_or_unparsable_protocol_is_426() {
     let router = setup().await;
     let token = new_user_token(&router).await;
     for protocol in [
+        "6",
         "5",
         "4",
         "3",
@@ -602,7 +595,7 @@ async fn sync_with_old_or_unparsable_protocol_is_426() {
 async fn sync_with_current_or_newer_protocol_is_served() {
     let router = setup().await;
     let token = new_user_token(&router).await;
-    for protocol in ["6", "7", " 6 "] {
+    for protocol in ["7", "8", " 7 "] {
         for (method, uri) in SYNC_CALLS {
             let (status, body) = send_with_protocol(
                 &router,
@@ -637,17 +630,17 @@ async fn api_mount_is_gated_too() {
         "GET",
         "/api/sync/pull?since=0",
         Some(&token),
-        Some("5"),
+        Some("6"),
         Value::Null,
     )
     .await;
-    assert_upgrade_required(status, &body, "/api/sync/pull with protocol 5");
+    assert_upgrade_required(status, &body, "/api/sync/pull with protocol 6");
     let (status, _) = send_with_protocol(
         &router,
         "GET",
         "/api/sync/pull?since=0",
         Some(&token),
-        Some("6"),
+        Some("7"),
         Value::Null,
     )
     .await;
@@ -686,6 +679,7 @@ async fn ws_requires_the_protocol_query_param() {
         ("/sync/ws", "&protocol=3"),
         ("/sync/ws", "&protocol=4"),
         ("/sync/ws", "&protocol=5"),
+        ("/sync/ws", "&protocol=6"),
         ("/sync/ws", "&protocol=x"),
         ("/api/sync/ws", ""),
         ("/api/sync/ws", "&protocol=2"),
@@ -697,7 +691,7 @@ async fn ws_requires_the_protocol_query_param() {
                 assert_eq!(res.status().as_u16(), 426, "{path}{query}");
                 let body: Value = serde_json::from_slice(res.body().as_deref().unwrap()).unwrap();
                 assert_eq!(body["code"], "upgrade_required", "{path}{query}");
-                assert_eq!(body["min_protocol"], 6, "{path}{query}");
+                assert_eq!(body["min_protocol"], 7, "{path}{query}");
             }
             other => panic!("{path}{query}: expected a 426 handshake rejection, got {other:?}"),
         }
@@ -714,10 +708,10 @@ async fn ws_requires_the_protocol_query_param() {
         .await;
         assert_eq!(status, StatusCode::OK, "{body:?}");
         let ticket = body["ticket"].as_str().unwrap();
-        let url = format!("ws://{addr}{path}?ticket={ticket}&since=0&protocol=6");
+        let url = format!("ws://{addr}{path}?ticket={ticket}&since=0&protocol=7");
         tokio_tungstenite::connect_async(url)
             .await
-            .unwrap_or_else(|e| panic!("{path} with protocol=6 must connect: {e:?}"));
+            .unwrap_or_else(|e| panic!("{path} with protocol=7 must connect: {e:?}"));
     }
 }
 
@@ -803,7 +797,7 @@ async fn status_and_retry_after(
         .method(method)
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-atlas-sync-protocol", "6")
+        .header("x-atlas-sync-protocol", "7")
         .header("authorization", format!("Bearer {token}"))
         .body(body)
         .unwrap();
@@ -893,7 +887,7 @@ async fn a_batch_folds_like_its_ops_applied_one_by_one() {
         Some(json!("n"))
     );
     let tomb: i64 = sqlx::query_scalar(
-        "SELECT hlc_wall_ms FROM entity_tombstones WHERE entity = 'task' AND entity_id = $1",
+        "SELECT hlc_wall_ms FROM entity_tombstones WHERE entity = 'todo.sealed' AND entity_id = $1",
     )
     .bind(gone)
     .fetch_one(&state.pool)
