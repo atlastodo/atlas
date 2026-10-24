@@ -74,17 +74,21 @@ This page lists what it protects.
 
 ### What the server cannot see
 
-- Every field value is encrypted on the device with AES-256-GCM before it syncs, unless the
-  field is on the plaintext list below. That covers titles, notes, dates, priorities,
+- Every field value is encrypted on the device with AES-256-GCM before it syncs, except an
+  attachment's two blob addresses (below). That covers titles, notes, dates, priorities,
   recurrence, project, section and label names, comments, reminders, saved filters,
-  preferences, focus sessions and habits.
+  preferences, focus sessions and habits, and also which project a task is in, which task a
+  comment, activity or attachment belongs to, and who a task is assigned to.
+- What kind of item a change is about, and which field it changes: the server sees a todo item
+  as a sealed entity of a project or of nobody, and a field as an opaque tag that differs per
+  item ([decision 0006](./docs/decisions/0006-opaque-sync-metadata.md)).
 - Attachments are encrypted with a fresh key per file, and file names and types are encrypted
   too.
 - A field that nobody has put on the plaintext list is encrypted by default.
-- Each value is authenticated together with its entity type and id, its field name and the key
-  scope. The server cannot move a value to another field, task or project and have it open.
-- Values are padded to a size bucket, so size does not tell `true` from `false`, or a short
-  title from a slightly longer one.
+- Each value is authenticated together with its entity id, its tag, the key scope and the key.
+  The server cannot move a value to another field, item or project and have it open.
+- Values are padded to a size bucket (at least 64 bytes), so size does not tell `true` from
+  `false`, a short title from a slightly longer one, or one field from another.
 - Your password and master key never leave the device. The server stores only a hash of a login
   value derived from it.
 - The server has no copy of your recovery phrase.
@@ -92,40 +96,43 @@ This page lists what it protects.
 ### What the server can see
 
 - Your email address, account dates and sessions.
-- For every change: the entity type and id, the field name, the time of the edit and the size
-  bucket of the value.
-- Field names include those of the key trust records, which name the projects you accepted or
-  shared, the members you invited and the accounts whose keys you pinned or verified. The server
-  knows who shares projects with you anyway.
-- Project membership: who shares which project, with which role.
+- For every change: the item's id, whether it is a todo project, a todo item, a journal entry or
+  a vault item (the app), which shared project it belongs to (none for your own), an opaque tag
+  per field, the time of the edit, the size bucket of the value, and which account pushed it.
+- The tags let the server see that the same field of an item changed again, and how many fields
+  an item has, not which field it is. Tags change when an item moves or a project key rotates.
+- A project's `deleted_at` and `archived_at` keep their names, so the server can keep those
+  owner-only: it sees that a project was archived or deleted, not when you set it to.
+- Which items are attachments (they name their blobs) and the SHA-256 of each encrypted blob.
+- Project membership: who shares which project, with which role. Your invite preview of a
+  project (name, icon, color) is encrypted under the project key.
 - Public keys and wrapped (encrypted) keys.
-- Attachment sizes and the SHA-256 of each encrypted blob.
+- Attachment sizes.
+- Data written before sync protocol 7 keeps its plaintext kinds, field names and links until your
+  app has migrated it, which it does on its first sync after updating. A shared project's copy in
+  another member's account stays so until that member's app migrates it.
 - Bug reports, which carry diagnostics only and no task content.
 - Request IP addresses, which the rate limiters hold in memory. They are not stored in the
   database.
 
-### Fields that stay plaintext, and why
+### Fields the server reads, and why
 
-The list lives in the `plaintext_fields` of each kind in
-[`manifests/todo.json`](./manifests/todo.json), the todo app manifest that the server and the
-clients both bundle. Atlas Journal's manifest ([`manifests/journal.json`](./manifests/journal.json))
-lists none: every journal field is encrypted, and journal data never leaves your own account's
-partition (journal has no sharing). Atlas Vault's ([`manifests/vault.json`](./manifests/vault.json))
-lists none either: the server sees no vault item's name, type, folder, URLs, tags, timestamps or
-secrets, only that an item with some id changed, and vault data has no sharing yet.
-The client encrypts by it, and the server checks that every field value it reads is on it.
+The manifests ([`manifests/`](./manifests)), which the server and the clients both bundle, list
+per kind its wire kind, the `public_fields` that keep their names on the wire and the
+`plaintext_fields` whose values stay readable:
 
-| Entity         | Plaintext fields                                          | Why                                                                          |
-| -------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| task           | `project_id`, `assignee_id`                               | the server copies shared-project ops to members and checks access            |
-| section        | `project_id`                                              | same fan-out and access check                                                |
-| comment        | `task_id`                                                 | routes the comment to the task's project members                             |
-| activity       | `task_id`, `actor_id`                                     | routes the feed entry and names who made the change                          |
-| attachment     | `task_id`, `blob_sha`, `thumb_sha`, `wrapped_key`, `meta` | routing and blob addressing; `wrapped_key` and `meta` are already ciphertext |
-| project_member | all                                                       | written by the server itself                                                 |
+| Entity         | Public fields               | Plaintext values        | Why                                                        |
+| -------------- | --------------------------- | ----------------------- | ---------------------------------------------------------- |
+| project        | `deleted_at`, `archived_at` | none                    | deleting or archiving a shared project is owner-only       |
+| attachment     | `blob_sha`, `thumb_sha`     | `blob_sha`, `thumb_sha` | blob downloads are authorized and blobs kept alive by them |
+| project_member | all                         | all                     | written by the server itself                               |
 
-All other entities (project, label, preference, saved filter, reminder, focus session, habit,
-habit check-in) have no plaintext fields.
+Every other field of every kind, todo's links included, travels under a tag, encrypted. Atlas
+Journal ([`manifests/journal.json`](./manifests/journal.json)) and Atlas Vault
+([`manifests/vault.json`](./manifests/vault.json)) list nothing: the server sees no vault item's
+name, type, folder, URLs, tags, timestamps or secrets, only that a vault entity with some id
+changed, and neither app has sharing yet. The server refuses a push that names a field it does not
+act on or sends a plaintext value elsewhere.
 
 ### Recovery phrase
 
@@ -253,7 +260,8 @@ brute-force. Fresh installs are not affected.
   one.
 - The server cannot read your data, but a malicious one can attack its integrity. It cannot move
   an encrypted value to another field, item or project. It can drop or replay operations,
-  including an older value of the same field, delete items and change the plaintext fields.
+  including an older value of the same field, delete items, and change an op's scope or the
+  blob addresses.
 - The key trust records are ordinary synced data. The server can withhold them or delete the
   preference that holds them. That only delays new records on an existing device, but a new
   device that never receives them loads no project keys.
@@ -265,7 +273,10 @@ brute-force. Fresh installs are not affected.
   own code.
 - Android builds with Expo Updates enabled fetch JavaScript updates from the Expo project named
   by `ATLAS_EAS_PROJECT_ID`. Builds made with `ATLAS_EAS_PROJECT_ID=none` never do.
-- Metadata is visible: when you are active, how many items you have and which fields you edit.
+- Metadata is visible: when you are active, how many items you have, how many fields each item
+  has, how often each changes, and which shared project each item is in.
+- The server no longer checks that a task's assignee is a member of its project; the apps show
+  only members.
 - The app does not encrypt data on your devices. Each client keeps synced data unencrypted in its
   local database (SQLite on Android and iOS, IndexedDB in the browser and desktop app) and
   relies on the app sandbox and device encryption. Signing out deletes the database, after

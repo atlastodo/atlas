@@ -14,7 +14,7 @@ Every `/sync/*` HTTP request carries:
 
 - `Authorization: Bearer <access token>` (from `POST /auth/login`, renewed with
   `POST /auth/refresh`).
-- `x-atlas-sync-protocol: <version>`, the client's protocol version. The current version is 6.
+- `x-atlas-sync-protocol: <version>`, the client's protocol version. The current version is 7.
 - Optionally `x-atlas-sync-apps: <app>[,<app>…]`, the apps this client syncs (see
   [App scope](#app-scope)). Without it the client is a todo client.
 
@@ -64,39 +64,80 @@ See [architecture.md](./architecture.md#apps-and-manifests).
 
 ## Operations
 
-All data is a set of entities, each a bag of fields with a client-generated UUIDv7 id. A change is
-an operation that sets one field or deletes the entity:
+All data is a set of entities, each a bag of fields with a client-generated random UUID id. A change
+is an operation that sets one field or deletes the entity. On the wire it tells the server as
+little as the server needs ([decision 0006](./decisions/0006-opaque-sync-metadata.md)):
 
 ```json
 {
-  "id": "<uuidv7, unique per op>",
-  "entity": "task",
-  "entity_id": "<uuidv7>",
+  "id": "<uuid, unique per op>",
+  "entity": "todo.sealed",
+  "entity_id": "<uuid>",
+  "scope": "<project uuid, or null>",
   "op": "set",
-  "field": "title",
-  "value": { "__enc": 2, "kid": "<key id>", "iv": "…", "ct": "…" },
+  "field": "<32 lowercase hex digits>",
+  "value": { "__enc": 3, "kid": "<key id>", "iv": "…", "ct": "…" },
   "ts": { "wall_ms": 1767225600000, "counter": 0, "node": "<device uuid>" }
 }
 ```
 
 A delete has `"op": "delete"` and no `field` or `value`.
 
-- `entity` is one of todo's `task`, `project`, `section`, `label`, `comment`, `preference`,
-  `saved_filter`, `reminder`, `project_member`, `activity`, `focus_session`, `habit`,
-  `habit_checkin`, `attachment`, journal's `journal.entry` and `journal.preference`, or the
-  vault's `vault.item`, `vault.folder` and `vault.preference`. The server refuses other kinds,
-  and `project_member` ops, which only the server writes. Journal and vault ops never leave their
-  owner's partition, whatever their fields say.
+- `entity` is a **wire kind**: `todo.project` for a todo project, `todo.sealed` for every other todo
+  entity, `journal.sealed` and `vault.sealed` for the journal's and the vault's, and
+  `project_member` for the membership rows only the server writes. The real kind (`task`,
+  `comment`, `vault.item`, …) travels inside the value. The manifests
+  ([`manifests/`](../manifests)) map each real kind to its wire kind. The server refuses other kinds,
+  `project_member` ops and the legacy kinds below.
+- `scope` is the project whose key encrypted the op, or `null` for the account's own key. The
+  server routes the op by it: to the members of a shared project, else nowhere. A project op's
+  scope is the project itself or null; a journal or vault op's is always null. An entity's scope is
+  that of its newest op, so writing it under another project's key moves it (re-write every field,
+  and its comments, activity and attachments, which carry their own scope).
+- `field` is a **tag**, the first 16 bytes in hex of
+  `HMAC-SHA256(tag_key, JSON.stringify(["atlas-field-tag", 1, entity_id, kind, field]))`, where
+  `tag_key` is `HKDF-SHA256(key, no salt, "atlas-field-tag-v1", 32 bytes)` of the encrypting key and
+  `kind`/`field` are the real ones. A few **public fields** keep their names because the server acts
+  on them: a project's `deleted_at` and `archived_at` (owner-only) and an attachment's `blob_sha`
+  and `thumb_sha` (blob addresses). The manifests list them as `public_fields`.
+- `value` is at most 64 KiB serialized: a field envelope version 3 (below), or for the blob
+  addresses, which the server reads, a lowercase 64-hex sha256 or null. The server refuses any
+  other value, plaintext included.
 - `ts` is a hybrid logical clock stamp. `counter` is at most 65535; a clock that would pass it
   moves to the next millisecond instead. `wall_ms` may be at most five minutes ahead of the
   server's clock.
-- `value` is any JSON value of at most 64 KiB serialized. Values are encrypted, except the
-  routing fields listed in the `plaintext_fields` of [`manifests/todo.json`](../manifests/todo.json)
-  (such as a task's `project_id`), which the server reads to find who shares an entity.
-  [`manifests/journal.json`](../manifests/journal.json) and
-  [`manifests/vault.json`](../manifests/vault.json) list none: every journal and vault value is
-  encrypted.
-  [architecture.md](./architecture.md#field-values) describes the envelope.
+- In what the server serves, every op also carries `pushed_by`: the account that pushed it, or
+  `null` for the server's own ops. A client drops an `activity` whose `actor_id` is not its
+  `pushed_by`.
+
+### Field envelope version 3
+
+`{"__enc": 3, "kid": "<key id>", "iv": "<base64>", "ct": "<base64>"}`: AES-256-GCM, with `kid`
+`dek` for the account's own key or a project key's id.
+
+- The plaintext is the UTF-8 JSON of `[kind, field, value]`, padded ISO/IEC 7816-4 style (0x80,
+  then zeros) to at least 64 bytes, then the next power of two up to 1 KiB, then whole KiB.
+- The associated data is the UTF-8 JSON of
+  `["atlas-field", 3, entity, entity_id, field, scope, kid]` with the wire `entity` and `field`,
+  and `scope` as `"personal"` or `"project:<id>"`.
+
+A client opens a value only with a key of the op's scope, and accepts it only when its plaintext
+names a kind of the op's wire kind and the wire field is that field's tag (or the field itself,
+when public). [`test-vectors/envelope_vectors.json`](../test-vectors/envelope_vectors.json) has
+worked envelopes and tags.
+
+### Rows written before protocol 7
+
+Rows a protocol 6 client wrote are served as they were stored: their real kind as `entity`, their
+field names, version 2 or 1 envelopes, and the routing fields the manifests list as
+`legacy_plaintext_fields` in plaintext. A client reads them, re-encodes the live ones in protocol 7
+form keeping every field's stamp (so the copy changes no state), then drops the originals:
+
+- `GET /sync/legacy/keys?next=<token>&limit=<n>`: `{"entities": [{"entity", "entity_id",
+"covered"}], "next"}`, the legacy entities the caller's partition holds, of the session's apps.
+  `covered` means a current copy at least as complete and as new already exists: drop it as it is.
+- `POST /sync/legacy/drop` with `{"entities": [{"entity", "entity_id"}]}` (legacy kinds only, at most
+  5000): deletes their rows from the caller's partition only. Answers `{"dropped": <n>}`.
 
 ### Resolving state
 
@@ -175,12 +216,13 @@ The server pings every 30 seconds. Keep polling `pull` as a fallback in case the
 
 ## Versions
 
-| Version | Change                                                                                             |
-| ------- | -------------------------------------------------------------------------------------------------- |
-| 3       | Load every project key and encrypt with the project's canonical key.                               |
-| 4       | Field values use the `__enc: 2` envelope bound to entity and field.                                |
-| 5       | The WebSocket opens with a single-use ticket, not the access token.                                |
-| 6       | Load only owner-signed key deliveries and follow key rotations. Current, and the server's minimum. |
+| Version | Change                                                                                      |
+| ------- | ------------------------------------------------------------------------------------------- |
+| 3       | Load every project key and encrypt with the project's canonical key.                        |
+| 4       | Field values use the `__enc: 2` envelope bound to entity and field.                         |
+| 5       | The WebSocket opens with a single-use ticket, not the access token.                         |
+| 6       | Load only owner-signed key deliveries and follow key rotations.                             |
+| 7       | Wire kinds, scopes, field tags and `__enc: 3` envelopes. Current, and the server's minimum. |
 
 The app scope (`x-atlas-sync-apps`) is no protocol version: it is optional, its absence means
 todo, and clients detect it by the `app_scoped_sync` discovery capability.

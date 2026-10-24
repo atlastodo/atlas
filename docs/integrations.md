@@ -447,10 +447,12 @@ slot]`; `test-vectors/api_token_vectors.json` has a journal entry).
   and `journal` for its journal commands, and checks the session's `apps` first, so a token
   without the app fails before any sync.
 - In a journal session the journal app key does what the DEK does for todo: each field value is a
-  personal-scope field envelope (`{"__enc": 2, "kid": "dek", …}`, associated data naming the kind
-  `journal.entry`, the entity, the field and the scope `personal`) under the journal key. There
-  are no shared projects, project keys or legacy values in a journal session. A vault session
-  works the same way with the vault key (`vault.item`, `vault.folder`).
+  personal-scope sealed envelope (`{"__enc": 3, "kid": "dek", …}`) under the journal key, on a
+  `journal.sealed` op whose field is an opaque tag; the kind (`journal.entry`) and the field name
+  travel inside it ([sync-protocol.md](./sync-protocol.md#operations)). There are no shared
+  projects or project keys in a journal session. A vault session works the same way with the vault
+  key (`vault.sealed`; `vault.item`, `vault.folder` inside). A session re-encodes the rows its
+  partition still holds from before sync protocol 7 and drops the originals, once per run.
 
 ### Vault tokens for CI
 
