@@ -3,6 +3,12 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # The Rust in rust-toolchain.toml, which atlas-server builds with (as CI and the image do).
+    # devenv.yaml follows this input and nixpkgs, so the dev shell uses the same pins.
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # No build here uses it since the todo app moved to atlastodo/atlas-todo. Kept so existing
     # `inputs.atlas.inputs.bun2nix.follows` overrides and the `nix:bun-lock` devenv script keep
     # working.
@@ -16,6 +22,7 @@
     {
       self,
       nixpkgs,
+      rust-overlay,
       ...
     }:
     let
@@ -38,7 +45,17 @@
 
       # Adds atlas-server and atlas-web-dist to a package set.
       overlay = final: _prev: {
-        atlas-server = final.callPackage ./nix/packages/atlas-server.nix { inherit version; };
+        atlas-server = final.callPackage ./nix/packages/atlas-server.nix {
+          inherit version;
+          rustPlatform =
+            let
+              toolchain = (rust-overlay.lib.mkRustBin { } final).fromRustupToolchainFile ./rust-toolchain.toml;
+            in
+            final.makeRustPlatform {
+              cargo = toolchain;
+              rustc = toolchain;
+            };
+        };
         atlas-web-dist = final.callPackage ./nix/packages/web-dist-pinned.nix { pin = todoWebPin; };
       };
 

@@ -39,8 +39,24 @@ updates:
       cargo-minor-patch:
         update-types: [minor, patch]
 
-  # Bun workspace (root bun.lock covers packages/*). Bun itself follows the devenv nixpkgs, moved by
-  # deps-refresh.yml.
+  # rust-toolchain.toml: the one Rust that devenv, CI, the image and the flake build with. The group
+  # gives the branch the `-minor-patch-` name deps-automerge.yml merges on green CI.
+  - package-ecosystem: rust-toolchain
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      rust-toolchain-minor-patch:
+        update-types: [minor, patch]
+
+  # Bun workspace (root bun.lock covers packages/*). Bun itself follows the flake's nixpkgs (which
+  # devenv shares), moved by deps-refresh.yml.
   - package-ecosystem: bun
     directory: /
     target-branch: dev

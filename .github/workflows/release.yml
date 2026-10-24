@@ -28,8 +28,6 @@ defaults:
 env:
   BUN_VERSION: "1.4.2"
   NODE_VERSION: "26"
-  # The CLI builds with the same stable as ci.yml's RUST_TOOLCHAIN (and devenv) -- bump them together.
-  RUST_TOOLCHAIN: "1.98.1"
   CARGO_TERM_COLOR: always
 
 jobs:
@@ -132,12 +130,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+      - name: Install Rust (rust-toolchain.toml)
         run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target "$TARGET" --no-self-update
-          rustup default "$RUST_TOOLCHAIN"
+          rustup toolchain install --no-self-update
+          rustup target add "$TARGET"
       - if: ${{ matrix.zig }}
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: cargo-zigbuild@0.23.4
           fallback: none

@@ -46,7 +46,9 @@ in
 
   languages.rust = {
     enable = true;
+    # The version rust-toolchain.toml pins, which CI, the image and the flake build with too.
     channel = "stable";
+    version = (lib.importTOML ./rust-toolchain.toml).toolchain.channel;
     # rust-src lets rust-analyzer/RustRover resolve the stdlib.
     components = [ "rustc" "cargo" "clippy" "rustfmt" "rust-analyzer" "rust-src" ];
   };
@@ -160,6 +162,8 @@ in
       cmp -s "$fresh" nix/bun.nix || { rm -f "$fresh"; echo "nix/bun.nix is stale: run nix:bun-lock" >&2; exit 1; }
       rm -f "$fresh"
     fi
+    # devenv.yaml follows the flake's nixpkgs and rust-overlay; devenv.lock holds a copy of them.
+    node scripts/check-devenv-lock.mjs
   '';
   scripts.fmt.exec = ''
     cargo fmt --all
