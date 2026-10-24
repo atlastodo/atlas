@@ -69,7 +69,7 @@ async fn http(
         .method(method)
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-atlas-sync-protocol", "6");
+        .header("x-atlas-sync-protocol", "7");
     if let Some(t) = token {
         b = b.header("authorization", format!("Bearer {t}"));
     }
@@ -148,7 +148,7 @@ async fn ticket(router: &Router, token: &str) -> String {
 }
 
 fn ws_url(addr: std::net::SocketAddr, ticket: &str, since: i64) -> String {
-    format!("ws://{addr}/sync/ws?ticket={ticket}&since={since}&protocol=6")
+    format!("ws://{addr}/sync/ws?ticket={ticket}&since={since}&protocol=7")
 }
 
 async fn connect(addr: std::net::SocketAddr, router: &Router, token: &str, since: i64) -> Ws {
@@ -257,18 +257,18 @@ async fn ws_refuses_a_missing_or_unknown_ticket_and_the_access_token() {
 
     let base = format!("ws://{addr}/sync/ws");
     for (url, what) in [
-        (format!("{base}?since=0&protocol=6"), "no ticket"),
+        (format!("{base}?since=0&protocol=7"), "no ticket"),
         (
-            format!("{base}?ticket={}&since=0&protocol=6", "0".repeat(64)),
+            format!("{base}?ticket={}&since=0&protocol=7", "0".repeat(64)),
             "an unknown ticket",
         ),
         // The access token is no longer accepted in the URL, under either name.
         (
-            format!("{base}?token={token}&since=0&protocol=6"),
+            format!("{base}?token={token}&since=0&protocol=7"),
             "the access token as `token`",
         ),
         (
-            format!("{base}?ticket={token}&since=0&protocol=6"),
+            format!("{base}?ticket={token}&since=0&protocol=7"),
             "the access token as `ticket`",
         ),
     ] {

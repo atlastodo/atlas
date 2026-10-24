@@ -17,7 +17,7 @@
 
 use std::collections::HashSet;
 
-use atlas_core::{Operation, Registry};
+use atlas_core::{Registry, WireOperation};
 use axum::extract::{FromRequestParts, Path, State};
 use axum::http::request::Parts;
 use axum::routing::{get, put};
@@ -345,30 +345,34 @@ impl SessionApps {
         &self.scope
     }
 
-    /// The wire names of every kind this session reads, for SQL filters.
+    /// Every wire name this session reads (its apps' wire kinds and legacy kinds), for SQL
+    /// filters.
     pub(crate) fn kinds(&self) -> Vec<String> {
         Registry::bundled()
             .apps()
             .iter()
             .filter(|m| self.scope.contains(&m.app) && self.enabled.allows_app(&m.app))
-            .flat_map(|m| m.kinds.keys().cloned())
+            .flat_map(|m| m.wire_names().map(str::to_owned))
             .collect()
     }
 
-    /// Whether ops of the kind with this wire name reach this session. A kind no bundled manifest
-    /// lists does not.
+    /// Whether ops with this wire name (a wire kind or a legacy kind) reach this session. A name no
+    /// bundled manifest lists does not.
     pub(crate) fn allows_kind(&self, kind: &str) -> bool {
         Registry::bundled()
-            .app_of(kind)
+            .app_of_wire(kind)
             .is_some_and(|m| self.scope.contains(&m.app) && self.enabled.allows_app(&m.app))
     }
 
     /// Refuse the first op this session may not write: 403 `app_not_enabled` with scope
     /// `instance` or `account` for an app switched off there, `session` for an enabled app
     /// outside the session's scope.
-    pub(crate) fn check_ops(&self, ops: &[Operation]) -> AppResult<()> {
+    pub(crate) fn check_ops(&self, ops: &[WireOperation]) -> AppResult<()> {
         for op in ops {
-            let app = op.entity.app();
+            let app = Registry::bundled()
+                .app_of_wire(op.entity.as_str())
+                .map(|m| m.app.as_str())
+                .ok_or(AppError::Internal)?;
             self.enabled.check_app(app)?;
             if !self.scope.iter().any(|a| a == app) {
                 return Err(AppError::AppNotEnabled {
@@ -412,20 +416,24 @@ mod tests {
     fn a_session_sees_and_writes_only_its_enabled_scope() {
         let both = ["todo", "journal"];
         let journal = session(&["journal"], &both, &both);
-        assert!(journal.allows_kind("journal.entry"));
-        assert!(!journal.allows_kind("task"));
+        assert!(journal.allows_kind("journal.sealed") && journal.allows_kind("journal.entry"));
+        assert!(!journal.allows_kind("task") && !journal.allows_kind("todo.sealed"));
         assert!(!journal.allows_kind("no_such_kind"));
         let mut kinds = journal.kinds();
         kinds.sort();
-        assert_eq!(kinds, ["journal.entry", "journal.preference"]);
+        assert_eq!(
+            kinds,
+            ["journal.entry", "journal.preference", "journal.sealed"]
+        );
 
         let todo = session(&["todo"], &both, &both);
-        assert!(todo.allows_kind("task") && todo.allows_kind("preference"));
+        assert!(todo.allows_kind("todo.sealed") && todo.allows_kind("todo.project"));
+        assert!(todo.allows_kind("task") && todo.allows_kind("project_member"));
         assert!(!todo.allows_kind("journal.preference"));
 
         let off = session(&["journal", "todo"], &both, &["todo"]);
-        assert!(off.allows_kind("task"));
-        assert!(!off.allows_kind("journal.entry"));
+        assert!(off.allows_kind("todo.sealed"));
+        assert!(!off.allows_kind("journal.sealed"));
         assert!(off.kinds().iter().all(|k| !k.starts_with("journal.")));
         assert!(session(&["todo"], &[], &["todo"]).kinds().is_empty());
     }

@@ -4,7 +4,7 @@
 //! `owner` row and `pending` rows for invitees; accepting flips a row to `active`. Roles order
 //! `commenter < editor < owner`; [`require_role`] gates cross-user op delivery in `sync/push.rs`.
 
-use atlas_core::Operation;
+use atlas_core::WireOperation;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, patch, post};
@@ -139,22 +139,19 @@ async fn lock_owners(conn: &mut PgConnection, project_id: Uuid) -> AppResult<Vec
 }
 
 /// True if `user_id` is the creator of this project: the first user to have pushed any op for
-/// it into the global operation log (lowest `server_seq`).
+/// it into the global operation log (lowest `server_seq`), as `project_creators` recorded it.
 ///
 /// This is the trustworthy ownership signal for a not-yet-shared project. It must not be
 /// inferred from the per-user `entity_fields` partition, which is caller-writable: an attacker
 /// who learned a victim's project UUID could plant a matching op and bootstrap as owner. The
-/// log's `server_seq` is monotonic and append-only.
+/// record is written once, by the first write (`sync::apply`), and survives the op log's purges
+/// and the legacy drop.
 pub async fn is_project_creator(pool: &PgPool, project_id: Uuid, user_id: Uuid) -> AppResult<bool> {
-    let creator: Option<Uuid> = sqlx::query_scalar(
-        "SELECT user_id FROM operations
-         WHERE entity = 'project' AND entity_id = $1
-         ORDER BY server_seq ASC
-         LIMIT 1",
-    )
-    .bind(project_id)
-    .fetch_optional(pool)
-    .await?;
+    let creator: Option<Uuid> =
+        sqlx::query_scalar("SELECT user_id FROM project_creators WHERE project_id = $1")
+            .bind(project_id)
+            .fetch_optional(pool)
+            .await?;
     Ok(creator == Some(user_id))
 }
 
@@ -214,7 +211,7 @@ async fn broadcast_members(
 ) -> AppResult<()> {
     let mut tx = crate::sync::begin_sync_write(&state.pool).await?;
     let rows = member_list_rows(&mut tx, state, project_id, changed, joined).await?;
-    let rows: Vec<(Uuid, &Operation)> = rows.iter().map(|(member, op)| (*member, op)).collect();
+    let rows: Vec<(Uuid, &WireOperation)> = rows.iter().map(|(member, op)| (*member, op)).collect();
     let batches = crate::sync::apply_to_partitions(&mut tx, &rows).await?;
     tx.commit().await?;
     crate::sync::publish_batches(state, batches);
@@ -227,7 +224,7 @@ async fn member_list_rows(
     project_id: Uuid,
     changed: &[Uuid],
     joined: Option<Uuid>,
-) -> AppResult<Vec<(Uuid, Operation)>> {
+) -> AppResult<Vec<(Uuid, WireOperation)>> {
     let rows: Vec<(Uuid, String, String, String, String, bool)> = sqlx::query_as(
         "SELECT pm.user_id, u.email::text AS email, u.display_name, pm.role, pm.state,
                 (u.deletion_scheduled_at IS NOT NULL) AS deletion_scheduled
@@ -296,7 +293,12 @@ pub struct InviteView {
     pub role: String,
     pub invited_at: i64,
     pub inviter: Option<InviterView>,
+    /// The project's name, icon, color and kind as the inviter's legacy (protocol 6) project rows
+    /// hold them, each an envelope or null. Null once those rows are migrated: see `preview`.
     pub project: InviteProject,
+    /// What the inviter encrypted under the project key for the invitee to see before accepting
+    /// (opaque to the server), or null.
+    pub preview: Option<Value>,
     pub sealed_key: Option<SealedKeyView>,
 }
 
@@ -332,6 +334,7 @@ struct InviteRow {
     inviter_email: Option<String>,
     inviter_display_name: Option<String>,
     project_fields: Option<Value>,
+    invite_preview: Option<Value>,
     sealed_key_id: Option<String>,
     sealed_pek: Option<Value>,
 }
@@ -344,7 +347,7 @@ async fn list_invites(
 ) -> AppResult<Json<Vec<InviteView>>> {
     let rows = sqlx::query_as::<_, InviteRow>(
         "WITH inv AS (
-             SELECT pm.project_id, pm.role, pm.created_at,
+             SELECT pm.project_id, pm.role, pm.created_at, pm.invite_preview,
                     COALESCE(pm.invited_by,
                              (SELECT o.user_id FROM project_members o
                                WHERE o.project_id = pm.project_id
@@ -361,6 +364,7 @@ async fn list_invites(
                   WHERE ef.user_id = inv.source AND ef.entity = 'project'
                     AND ef.entity_id = inv.project_id
                     AND ef.field IN ('name', 'icon', 'color', 'kind')) AS project_fields,
+                inv.invite_preview,
                 sk.key_id AS sealed_key_id, sk.encrypted_pek AS sealed_pek
            FROM inv
            LEFT JOIN users u ON u.id = inv.source
@@ -394,6 +398,7 @@ async fn list_invites(
                     color: field("color"),
                     kind: field("kind"),
                 },
+                preview: r.invite_preview,
                 sealed_key: r
                     .sealed_key_id
                     .zip(r.sealed_pek)
@@ -481,7 +486,13 @@ async fn list_members(
 pub struct InviteRequest {
     pub email: String,
     pub role: String,
+    /// What the invitee is shown before accepting, encrypted by the inviter (opaque here).
+    #[serde(default)]
+    pub preview: Option<Value>,
 }
+
+/// Cap on an invite preview's serialized size: a name, an icon, a color and a kind, encrypted.
+const MAX_INVITE_PREVIEW_BYTES: usize = 4 * 1024;
 
 /// `POST /projects/:id/members`: invite an existing user by email (owner-only; bootstraps the
 /// caller as owner on first share). Re-inviting a pending invitee updates the invite; an active
@@ -493,6 +504,15 @@ async fn invite_member(
     Json(req): Json<InviteRequest>,
 ) -> AppResult<(StatusCode, Json<MemberView>)> {
     let role = Role::parse(req.role.trim())?;
+    if req
+        .preview
+        .as_ref()
+        .is_some_and(|p| !p.is_object() || p.to_string().len() > MAX_INVITE_PREVIEW_BYTES)
+    {
+        return Err(AppError::BadRequest(
+            "preview must be an object of at most 4 KiB".into(),
+        ));
+    }
     if role == Role::Owner {
         return Err(AppError::BadRequest(
             "cannot invite another user as owner".into(),
@@ -524,16 +544,19 @@ async fn invite_member(
     // `clock_timestamp()`, not `now()`: on a first share the owner row must stay the older one,
     // as the earliest owner's key is canonical.
     let n = sqlx::query(
-        "INSERT INTO project_members (project_id, user_id, role, state, invited_by, created_at)
-         VALUES ($1, $2, $3, 'pending', $4, clock_timestamp())
+        "INSERT INTO project_members
+             (project_id, user_id, role, state, invited_by, created_at, invite_preview)
+         VALUES ($1, $2, $3, 'pending', $4, clock_timestamp(), $5)
          ON CONFLICT (project_id, user_id)
-             DO UPDATE SET role = EXCLUDED.role, invited_by = EXCLUDED.invited_by, updated_at = now()
+             DO UPDATE SET role = EXCLUDED.role, invited_by = EXCLUDED.invited_by,
+                           invite_preview = EXCLUDED.invite_preview, updated_at = now()
              WHERE project_members.state = 'pending'",
     )
     .bind(project_id)
     .bind(invitee)
     .bind(role.as_str())
     .bind(user.user_id)
+    .bind(&req.preview)
     .execute(&mut *tx)
     .await?
     .rows_affected();
@@ -639,7 +662,7 @@ async fn accept_invite(
         Some(user.user_id),
     )
     .await?;
-    let rows: Vec<(Uuid, &Operation)> = backfill
+    let rows: Vec<(Uuid, &WireOperation)> = backfill
         .iter()
         .map(|op| (user.user_id, op))
         .chain(list.iter().map(|(member, op)| (*member, op)))
@@ -799,7 +822,7 @@ pub(crate) async fn announce_key_change(state: &AppState, project_id: Uuid) -> A
     .bind(project_id)
     .fetch_all(&mut *tx)
     .await?;
-    let ops: Vec<(Uuid, Operation)> = rows
+    let ops: Vec<(Uuid, WireOperation)> = rows
         .iter()
         .flat_map(|(id, email, display_name, role, deletion_scheduled)| {
             crate::sync::member_set_ops(
@@ -816,7 +839,7 @@ pub(crate) async fn announce_key_change(state: &AppState, project_id: Uuid) -> A
             .map(|op| (*id, op))
         })
         .collect();
-    let rows: Vec<(Uuid, &Operation)> = ops.iter().map(|(member, op)| (*member, op)).collect();
+    let rows: Vec<(Uuid, &WireOperation)> = ops.iter().map(|(member, op)| (*member, op)).collect();
     let batches = crate::sync::apply_to_partitions(&mut tx, &rows).await?;
     tx.commit().await?;
     crate::sync::publish_batches(state, batches);

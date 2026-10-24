@@ -75,7 +75,7 @@ async fn send(
         .method(method)
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-atlas-sync-protocol", "6");
+        .header("x-atlas-sync-protocol", "7");
     if let Some(t) = token {
         builder = builder.header("authorization", format!("Bearer {t}"));
     }
@@ -189,8 +189,8 @@ async fn discovery_is_public_and_describes_the_server() {
         assert_eq!(status, StatusCode::OK, "{path}: {body:?}");
         assert_eq!(body["service"], "atlas-server");
         assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(body["protocol_version"], 6);
-        assert_eq!(body["min_protocol_version"], 6);
+        assert_eq!(body["protocol_version"], 7);
+        assert_eq!(body["min_protocol_version"], 7);
         let capabilities: Vec<&str> = body["capabilities"]
             .as_array()
             .unwrap()

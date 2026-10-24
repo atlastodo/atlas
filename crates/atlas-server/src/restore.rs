@@ -1,5 +1,10 @@
 //! Admin restore for tasks hard-deleted by outdated clients.
 //!
+//! Only rows written before sync protocol 7 name a task: since then the server sees an opaque
+//! `todo.sealed` entity (`docs/decisions/0006-opaque-sync-metadata.md`), and the clients that
+//! hard-deleted tasks are refused anyway. So this restores legacy `task` rows (and their legacy
+//! attachments) as legacy rows, which clients read and re-encode like any other.
+//!
 //! A tombstone only hides an entity: field rows stay in `entity_fields`, and a field with an HLC
 //! newer than the tombstone is visible again. A restore re-writes each field's last value as a
 //! server-authored Set whose HLC beats every tombstone of the task, through the locked push
@@ -13,7 +18,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use atlas_core::{EntityKind, Hlc, HlcClock, Operation};
+use atlas_core::{EntityKind, Hlc, HlcClock, WireKind, WireOperation};
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::{PgConnection, PgPool};
@@ -160,25 +165,27 @@ pub async fn restore_tasks(pool: &PgPool, opts: &RestoreOptions) -> AppResult<Re
             let plan = plan_task(&mut tx, pool, opts, task_id).await?;
             if plan.report.skip.is_none() {
                 clock.update(plan.floor, now_ms());
-                let ops: Vec<Operation> = plan
+                let task = WireKind::Legacy(EntityKind::Task);
+                let ops: Vec<WireOperation> = plan
                     .restore
                     .iter()
                     .map(|(field, value)| {
                         let ts = clock.now(now_ms());
-                        Operation::set(EntityKind::Task, task_id, field, value.clone(), ts)
+                        WireOperation::set(task, task_id, None, field, value.clone(), ts)
                     })
                     .collect();
                 sync::apply_to_members(&mut tx, &plan.report.partitions, &ops).await?;
                 for child in &plan.attachments {
                     clock.update(child.floor, now_ms());
-                    let ops: Vec<Operation> = child
+                    let ops: Vec<WireOperation> = child
                         .restore
                         .iter()
                         .map(|(field, value)| {
                             let ts = clock.now(now_ms());
-                            Operation::set(
-                                EntityKind::Attachment,
+                            WireOperation::set(
+                                WireKind::Legacy(EntityKind::Attachment),
                                 child.id,
+                                None,
                                 field,
                                 value.clone(),
                                 ts,

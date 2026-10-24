@@ -106,7 +106,7 @@ async fn http_raw(
         .method(method)
         .uri(uri)
         .header("content-type", content_type)
-        .header("x-atlas-sync-protocol", "6");
+        .header("x-atlas-sync-protocol", "7");
     if let Some(t) = token {
         b = b.header("authorization", format!("Bearer {t}"));
     }

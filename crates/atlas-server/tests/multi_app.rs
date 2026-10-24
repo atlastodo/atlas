@@ -84,7 +84,7 @@ async fn send(
         .method(method)
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-atlas-sync-protocol", "6");
+        .header("x-atlas-sync-protocol", "7");
     if let Some(t) = token {
         builder = builder.header("authorization", format!("Bearer {t}"));
     }
@@ -737,7 +737,7 @@ async fn connect(
     assert_eq!(status, StatusCode::OK, "{body:?}");
     let ticket = body["ticket"].as_str().unwrap();
     tokio_tungstenite::connect_async(format!(
-        "ws://{addr}/sync/ws?ticket={ticket}&since=0&protocol=6"
+        "ws://{addr}/sync/ws?ticket={ticket}&since=0&protocol=7"
     ))
     .await
     .expect("ws connect")

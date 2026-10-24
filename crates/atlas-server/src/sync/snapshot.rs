@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use atlas_core::{Hlc, Operation};
+use atlas_core::{Change, Hlc, WireOperation};
 use axum::extract::{Query, State};
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -35,7 +35,7 @@ pub struct SnapshotQuery {
 
 #[derive(Debug, Serialize)]
 pub struct SnapshotResponse {
-    pub operations: Vec<Operation>,
+    pub operations: Vec<WireOperation>,
     /// Cursor to pass as `since` on the pull after the last page: the partition's max
     /// `server_seq` when the first page was served. Ops committed during the walk are
     /// re-delivered by that pull (idempotent), not skipped.
@@ -147,7 +147,7 @@ pub(crate) async fn partition_ops(
     pool: &sqlx::PgPool,
     user: Uuid,
     kinds: &[String],
-) -> AppResult<Vec<Operation>> {
+) -> AppResult<Vec<WireOperation>> {
     let keys: Vec<(String, Uuid)> = sqlx::query_as(
         "SELECT entity, entity_id FROM entity_fields
           WHERE user_id = $1 AND entity = ANY($2)
@@ -163,22 +163,33 @@ pub(crate) async fn partition_ops(
 }
 
 /// Materialize `(entity, entity_id)` keys from `user`'s partition as ops: every stored field
-/// Set with its HLC plus the tombstone Delete. Folding them with field-level LWW reproduces the
+/// Set with its HLC, scope and pusher, plus the tombstone Delete. Folding them with field-level LWW reproduces the
 /// server's view. Shared by the accept backfill, `GET /sync/snapshot` and the account export;
 /// reads a bounded chunk of keys per query.
 pub(super) async fn keys_ops(
     conn: &mut PgConnection,
     user: Uuid,
     keys: &[(String, Uuid)],
-) -> AppResult<Vec<Operation>> {
+) -> AppResult<Vec<WireOperation>> {
     type Key = (String, Uuid);
+    type FieldRow = (
+        String,
+        Uuid,
+        String,
+        Value,
+        i64,
+        i32,
+        Uuid,
+        Option<Uuid>,
+        Option<Uuid>,
+    );
     let mut ops = Vec::new();
     for chunk in keys.chunks(MAX_SNAPSHOT_KEYS_PER_PAGE as usize) {
         let entities: Vec<&str> = chunk.iter().map(|(e, _)| e.as_str()).collect();
         let ids: Vec<Uuid> = chunk.iter().map(|(_, id)| *id).collect();
-        let fields: Vec<(String, Uuid, String, Value, i64, i32, Uuid)> = sqlx::query_as(
+        let fields: Vec<FieldRow> = sqlx::query_as(
             "SELECT f.entity, f.entity_id, f.field, f.value,
-                    f.hlc_wall_ms, f.hlc_counter, f.hlc_node
+                    f.hlc_wall_ms, f.hlc_counter, f.hlc_node, f.scope, f.pushed_by
                FROM UNNEST($2::text[], $3::uuid[]) AS k(entity, entity_id)
                JOIN entity_fields f
                  ON f.user_id = $1 AND f.entity = k.entity AND f.entity_id = k.entity_id
@@ -206,21 +217,24 @@ pub(super) async fn keys_ops(
             counter: counter as u32,
             node,
         };
-        let mut by_key: HashMap<Key, Vec<Operation>> = HashMap::new();
-        for (entity, entity_id, field, value, wall, counter, node) in fields {
-            let op = Operation::set(
-                entity_from_str(&entity)?,
+        let mut by_key: HashMap<Key, Vec<WireOperation>> = HashMap::new();
+        for (entity, entity_id, field, value, wall, counter, node, scope, pushed_by) in fields {
+            let op = WireOperation {
+                id: Uuid::now_v7(),
+                entity: entity_from_str(&entity)?,
                 entity_id,
-                &field,
-                value,
-                hlc(wall, counter, node),
-            );
+                scope,
+                change: Change::Set { field, value },
+                ts: hlc(wall, counter, node),
+                pushed_by,
+            };
             by_key.entry((entity, entity_id)).or_default().push(op);
         }
         for (entity, entity_id, wall, counter, node) in tombs {
-            let op = Operation::delete(
+            let op = WireOperation::delete(
                 entity_from_str(&entity)?,
                 entity_id,
+                None,
                 hlc(wall, counter, node),
             );
             by_key.entry((entity, entity_id)).or_default().push(op);

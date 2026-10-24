@@ -146,7 +146,7 @@ async fn ws_ticket(router: &Router, token: &str) -> String {
             Request::builder()
                 .method("POST")
                 .uri("/sync/ws-ticket")
-                .header("x-atlas-sync-protocol", "6")
+                .header("x-atlas-sync-protocol", "7")
                 .header("authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -162,7 +162,7 @@ async fn ws_ticket(router: &Router, token: &str) -> String {
 /// An open socket, past its connect-time backfill.
 async fn open_socket(addr: std::net::SocketAddr, router: &Router, token: &str) -> Ws {
     let ticket = ws_ticket(router, token).await;
-    let url = format!("ws://{addr}/sync/ws?ticket={ticket}&since=0&protocol=6");
+    let url = format!("ws://{addr}/sync/ws?ticket={ticket}&since=0&protocol=7");
     let mut ws = tokio_tungstenite::connect_async(url).await.expect("ws").0;
     assert!(next_text(&mut ws, 5).await, "backfill");
     ws
