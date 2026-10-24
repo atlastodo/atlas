@@ -125,7 +125,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-cli"
-version = "0.1.13"
+version = "0.1.14-rc.1"
 dependencies = [
  "atlas-client",
  "atlas-core",
@@ -140,7 +140,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-client"
-version = "0.1.13"
+version = "0.1.14-rc.1"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -165,7 +165,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-core"
-version = "0.1.13"
+version = "0.1.14-rc.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -174,7 +174,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-secretspec"
-version = "0.1.13"
+version = "0.1.14-rc.1"
 dependencies = [
  "async-trait",
  "atlas-client",
@@ -189,7 +189,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-server"
-version = "0.1.13"
+version = "0.1.14-rc.1"
 dependencies = [
  "aes-gcm",
  "argon2",

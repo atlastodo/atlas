@@ -1,6 +1,6 @@
 {
   "name": "@atlastodo/client-core",
-  "version": "0.1.13",
+  "version": "0.1.14-rc.1",
   "description": "Atlas core client: hybrid logical clocks, the op log and per-field LWW merge, end-to-end encryption, the local store and the sync client",
   "license": "AGPL-3.0-only",
   "homepage": "https://github.com/atlastodo/atlas/tree/main/packages/client-core",
