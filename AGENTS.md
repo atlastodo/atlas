@@ -4,6 +4,7 @@
 
 - Before planning work on a bug, ask questions until the bug is properly understood (symptoms, reproduction, expected vs actual).
 - Also ask questions about the proposed solution before implementing — don't assume intent.
+- Never mention Claude, Claude Code or any other AI in commits, pull requests, tags or release notes: no `Co-Authored-By` trailers, session links or "Generated with" footers.
 
 ## Dev environment
 
