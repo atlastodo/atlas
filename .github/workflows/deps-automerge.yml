@@ -1,5 +1,6 @@
 # Merges dependency PRs into `dev` once CI has passed on their head commit: the weekly refresh
-# (deps-refresh.yml, branch `chore/deps-refresh`) and Dependabot's grouped minor/patch updates
+# (deps-refresh.yml, branch `chore/deps-refresh`), the app web pin (app-web-pin.yml, branch
+# `chore/app-web-pin`) and Dependabot's grouped minor/patch updates
 # (branches `dependabot/*-minor-patch-*`). Dependabot's majors arrive one package per PR and wait for
 # review. Security updates target `main` and are not touched.
 #
@@ -43,7 +44,7 @@ jobs:
           merged=0
           while read -r number branch sha; do
             case "$branch" in
-              chore/deps-refresh | dependabot/*-minor-patch-*) ;;
+              chore/deps-refresh | chore/app-web-pin | dependabot/*-minor-patch-*) ;;
               *) continue ;;
             esac
             passed="$(gh run list --workflow ci.yml --commit "$sha" --json conclusion --jq 'map(select(.conclusion == "success")) | length')"

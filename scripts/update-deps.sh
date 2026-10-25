@@ -118,23 +118,17 @@ if [[ -n "$core_old" ]]; then
   fi
 fi
 
-# The app web builds core's image and flake serve (apps.lock.json) follow each app's latest stable
-# release; scripts/pin-app-web.mjs checks the build and its notices against the release's sums.
+# The app web builds core's image and flake serve (apps.lock.json) follow each app's newest
+# release, rc or stable, and never move back (`pin-app-web.mjs --latest`, which also checks the build
+# and its notices against the release's sums). app-web-pin.yml does the same hourly.
 if [[ -f apps.lock.json && -f scripts/pin-app-web.mjs ]]; then
   step "apps.lock.json"
-  while read -r app repo pinned; do
-    latest="$(gh api "repos/$repo/releases/latest" --jq .tag_name)"
-    latest="${latest#v}"
-    if [[ "$latest" != "$pinned" ]]; then
-      echo "$app web $pinned -> $latest"
-      node scripts/pin-app-web.mjs "$latest" --repo "$repo" --app "$app"
-    else
-      echo "$app web stays at $pinned"
-    fi
+  while read -r app repo; do
+    node scripts/pin-app-web.mjs --latest --repo "$repo" --app "$app"
   done < <(bun -e '
     const lock = await Bun.file("apps.lock.json").json();
     for (const [app, pin] of Object.entries(lock))
-      if (pin?.url) console.log(app, new URL(pin.url).pathname.split("/").slice(1, 3).join("/"), pin.version)')
+      if (pin?.url) console.log(app, new URL(pin.url).pathname.split("/").slice(1, 3).join("/"))')
 fi
 
 if [[ -f bun.lock ]]; then
