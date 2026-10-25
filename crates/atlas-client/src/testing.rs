@@ -75,10 +75,13 @@ fn json_res(status: u16, body: Value) -> HttpResponse {
     }
 }
 
-/// The app of a wire op's entity kind, if a bundled manifest lists it.
+/// The app of a wire op's wire kind (or the real kind of a protocol 6 row), if a bundled
+/// manifest lists it.
 fn app_of_op(op: &Value) -> Option<&'static str> {
     let kind = op.get("entity")?.as_str()?;
-    Registry::bundled().app_of(kind).map(|m| m.app.as_str())
+    Registry::bundled()
+        .app_of_wire(kind)
+        .map(|m| m.app.as_str())
 }
 
 fn token_expired() -> HttpResponse {
@@ -313,10 +316,12 @@ impl FakeServer {
                     return refused(app_of_op(op).unwrap_or("unknown"), "session");
                 }
                 let applied = ops.len();
-                for op in ops {
+                for mut op in ops {
                     if st.ops.iter().any(|(_, o)| o["id"] == op["id"]) {
                         continue;
                     }
+                    // The server names the pusher, which clients check activities against.
+                    op["pushed_by"] = json!(USER_ID);
                     st.seq += 1;
                     let seq = st.seq;
                     st.ops.push((seq, op));
@@ -325,6 +330,41 @@ impl FakeServer {
                     200,
                     json!({"applied": applied, "from": from, "cursor": st.seq}),
                 )
+            }
+            ("GET", "/sync/legacy/keys") => {
+                // The protocol 6 entities the log still holds, in the session's apps, none covered.
+                let mut keys: Vec<(String, String)> = Vec::new();
+                for (_, op) in &st.ops {
+                    let entity = op["entity"].as_str().unwrap_or_default();
+                    if !crate::field_policy::is_legacy_wire_kind(entity) || !in_scope(op) {
+                        continue;
+                    }
+                    let key = (
+                        entity.to_owned(),
+                        op["entity_id"].as_str().unwrap_or_default().to_owned(),
+                    );
+                    if !keys.contains(&key) {
+                        keys.push(key);
+                    }
+                }
+                let entities: Vec<Value> = keys
+                    .into_iter()
+                    .map(|(entity, id)| json!({ "entity": entity, "entity_id": id, "covered": false }))
+                    .collect();
+                json_res(200, json!({ "entities": entities }))
+            }
+            ("POST", "/sync/legacy/drop") => {
+                let keys = body.unwrap_or_default()["entities"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                let before = st.ops.len();
+                st.ops.retain(|(_, op)| {
+                    !keys
+                        .iter()
+                        .any(|k| k["entity"] == op["entity"] && k["entity_id"] == op["entity_id"])
+                });
+                json_res(200, json!({ "dropped": before - st.ops.len() }))
             }
             ("GET", "/project-keys") => json_res(200, st.project_keys.clone()),
             ("PUT", p) if p.starts_with("/projects/") && p.ends_with("/keys") => {

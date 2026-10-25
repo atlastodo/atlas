@@ -1,5 +1,5 @@
-//! App manifests: which app owns each synced entity kind, and which of its fields travel in
-//! plaintext.
+//! App manifests: which app owns each synced entity kind, which wire kind it travels as, and
+//! which of its fields keep their name or travel in plaintext.
 //!
 //! Atlas is a suite of apps (todo, journal, vault) on one server and one account. Each app ships a
 //! first-party manifest in the repository's `manifests/` directory, compiled in here
@@ -7,11 +7,14 @@
 //! table. Operators never load manifests from disk; they choose which bundled apps an instance
 //! offers (`ATLAS_APPS`, in the server).
 //!
-//! The [`Registry`] is keyed by wire names, not by [`EntityKind`]. The enum stays closed: the
-//! server's authorization and fan-out match on todo's kinds exhaustively, and an open kind would
-//! let an op of an unknown kind past those matches. A later app adds its namespaced kinds
-//! (`notes.note`) as variants with an explicit `#[serde(rename)]` and ships its manifest here;
-//! [`tests::every_entity_kind_belongs_to_exactly_one_bundled_app`] fails until both agree.
+//! Since sync protocol 7 (`docs/decisions/0006-opaque-sync-metadata.md`) the server sees wire
+//! kinds ([`WireKind`](crate::WireKind): `todo.project`, `todo.sealed`, …), and the real kinds
+//! ([`EntityKind`]) are the clients' business. A real kind's own name is still a wire name for
+//! the rows written before protocol 7 (a legacy kind). The [`Registry`] is keyed by names, not
+//! by the enums, which stay closed: the server's authorization and fan-out match on wire kinds
+//! exhaustively. A later app adds its namespaced kinds (`notes.note`) as [`EntityKind`] variants
+//! and its sealed wire kind as a [`WireKind`](crate::WireKind) variant and ships its manifest
+//! here; [`tests::every_entity_kind_belongs_to_exactly_one_bundled_app`] fails until all agree.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -134,10 +137,36 @@ impl TokenPolicy {
     }
 }
 
-/// One entity kind an app syncs.
+/// One entity kind an app syncs, by its real name, which only clients see (sync protocol 7,
+/// `docs/decisions/0006-opaque-sync-metadata.md`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KindManifest {
+    /// The kind the server sees instead ([`WireKindManifest`]).
+    pub wire: String,
+    /// Fields sent under their own name instead of an opaque tag, because the server acts on them.
+    pub public_fields: Vec<String>,
+    /// Fields sent unencrypted: a subset of `public_fields`, or every field of a server-authored
+    /// kind.
     pub plaintext_fields: PlaintextFields,
+    /// What protocol 6 sent unencrypted under the real kind name, which rows written before
+    /// protocol 7 still carry.
+    pub legacy_plaintext_fields: Vec<String>,
+}
+
+/// One wire kind: the union of the kinds that travel as it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WireKindManifest {
+    /// Field names allowed on the wire instead of a tag.
+    pub public_fields: Vec<String>,
+    /// Which of them carry plaintext values.
+    pub plaintext_fields: PlaintextFields,
+}
+
+impl WireKindManifest {
+    pub fn is_public(&self, field: &str) -> bool {
+        matches!(self.plaintext_fields, PlaintextFields::All)
+            || self.public_fields.iter().any(|f| f == field)
+    }
 }
 
 /// One app's manifest.
@@ -147,10 +176,12 @@ pub struct AppManifest {
     pub app: String,
     /// Display name.
     pub name: String,
-    /// The manifest's version, bumped whenever its kinds or their plaintext fields change.
+    /// The manifest's version, bumped whenever its kinds or their fields change.
     pub version: u32,
-    /// Entity kinds by wire name.
+    /// Entity kinds by real name.
     pub kinds: BTreeMap<String, KindManifest>,
+    /// Wire kinds by name, derived from `kinds`.
+    pub wire_kinds: BTreeMap<String, WireKindManifest>,
     /// What the app asks of API tokens that include it.
     pub api_tokens: TokenPolicy,
 }
@@ -159,6 +190,18 @@ fn is_ident(s: &str) -> bool {
     let mut bytes = s.bytes();
     bytes.next().is_some_and(|b| b.is_ascii_lowercase())
         && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
+fn name_list(app: &str, kind: &str, key: &str, spec: &Value) -> Result<Vec<String>, String> {
+    match spec.get(key) {
+        None => Ok(Vec::new()),
+        Some(Value::Array(fields)) => fields
+            .iter()
+            .map(|f| f.as_str().filter(|f| is_ident(f)).map(str::to_owned))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| format!("manifest {app}: {kind}.{key} has a bad entry")),
+        Some(_) => Err(format!("manifest {app}: {kind}.{key} must be a list")),
+    }
 }
 
 impl AppManifest {
@@ -201,23 +244,77 @@ impl AppManifest {
                 return Err(format!("manifest {app}: invalid kind name {kind:?}"));
             }
             let plaintext_fields = match spec.get("plaintext_fields") {
+                None => PlaintextFields::Only(Vec::new()),
                 Some(Value::String(s)) if s == "all" => PlaintextFields::All,
-                Some(Value::Array(fields)) => PlaintextFields::Only(
-                    fields
-                        .iter()
-                        .map(|f| f.as_str().filter(|f| is_ident(f)).map(str::to_owned))
-                        .collect::<Option<Vec<_>>>()
-                        .ok_or_else(|| {
-                            format!("manifest {app}: {kind}.plaintext_fields has a bad entry")
-                        })?,
-                ),
+                Some(Value::Array(_)) => {
+                    PlaintextFields::Only(name_list(&app, kind, "plaintext_fields", spec)?)
+                }
                 _ => {
                     return Err(format!(
                         "manifest {app}: {kind}.plaintext_fields must be \"all\" or a list"
                     ))
                 }
             };
-            kinds.insert(kind.clone(), KindManifest { plaintext_fields });
+            let public_fields = name_list(&app, kind, "public_fields", spec)?;
+            if let PlaintextFields::Only(plain) = &plaintext_fields {
+                if let Some(f) = plain.iter().find(|f| !public_fields.contains(f)) {
+                    return Err(format!(
+                        "manifest {app}: {kind}.{f} is plaintext but not in public_fields"
+                    ));
+                }
+            }
+            let wire = spec
+                .get("wire")
+                .and_then(Value::as_str)
+                .ok_or_else(|| format!("manifest {app}: {kind}.wire must be a string"))?
+                .to_owned();
+            // A wire kind is the app's namespace plus a name, or, for a server-authored kind only,
+            // the kind's own name.
+            let own = wire == *kind && plaintext_fields == PlaintextFields::All;
+            let namespaced_wire = wire.strip_prefix(&format!("{app}.")).is_some_and(is_ident);
+            if !own && !namespaced_wire {
+                return Err(format!(
+                    "manifest {app}: {kind}.wire {wire:?} must be `{app}.<name>`"
+                ));
+            }
+            let legacy_plaintext_fields = name_list(&app, kind, "legacy_plaintext_fields", spec)?;
+            kinds.insert(
+                kind.clone(),
+                KindManifest {
+                    wire,
+                    public_fields,
+                    plaintext_fields,
+                    legacy_plaintext_fields,
+                },
+            );
+        }
+        let mut wire_kinds: BTreeMap<String, WireKindManifest> = BTreeMap::new();
+        for (kind, spec) in &kinds {
+            if kinds.contains_key(&spec.wire) && spec.wire != *kind {
+                return Err(format!(
+                    "manifest {app}: wire kind {:?} is also a kind name",
+                    spec.wire
+                ));
+            }
+            let entry = wire_kinds
+                .entry(spec.wire.clone())
+                .or_insert_with(|| WireKindManifest {
+                    public_fields: Vec::new(),
+                    plaintext_fields: PlaintextFields::Only(Vec::new()),
+                });
+            for f in &spec.public_fields {
+                if !entry.public_fields.contains(f) {
+                    entry.public_fields.push(f.clone());
+                }
+            }
+            entry.plaintext_fields = match (&entry.plaintext_fields, &spec.plaintext_fields) {
+                (PlaintextFields::All, _) | (_, PlaintextFields::All) => PlaintextFields::All,
+                (PlaintextFields::Only(a), PlaintextFields::Only(b)) => {
+                    let mut all = a.clone();
+                    all.extend(b.iter().filter(|f| !a.contains(f)).cloned());
+                    PlaintextFields::Only(all)
+                }
+            };
         }
         let api_tokens = TokenPolicy::parse(&app, doc.get("api_tokens"))?;
         Ok(Self {
@@ -225,23 +322,44 @@ impl AppManifest {
             name,
             version,
             kinds,
+            wire_kinds,
             api_tokens,
         })
     }
+
+    /// The names of the kinds whose rows written before protocol 7 carry the real kind name as
+    /// their wire kind: every kind travelling as another wire kind now.
+    pub fn legacy_kinds(&self) -> impl Iterator<Item = &str> {
+        self.kinds
+            .iter()
+            .filter(|(kind, spec)| spec.wire != **kind)
+            .map(|(kind, _)| kind.as_str())
+    }
+
+    /// Every wire name the app's rows can carry: its wire kinds and its legacy kinds.
+    pub fn wire_names(&self) -> impl Iterator<Item = &str> {
+        self.wire_kinds
+            .keys()
+            .map(String::as_str)
+            .chain(self.legacy_kinds())
+    }
 }
 
-/// Every bundled manifest, and which app owns each kind.
+/// Every bundled manifest, and which app owns each kind and each wire kind.
 #[derive(Debug, Clone)]
 pub struct Registry {
     apps: Vec<AppManifest>,
     kind_app: BTreeMap<String, usize>,
+    wire_app: BTreeMap<String, usize>,
 }
 
 impl Registry {
-    /// Build a registry from manifest JSON: app ids unique, and each kind owned by one app.
+    /// Build a registry from manifest JSON: app ids unique, and each kind and wire name owned by
+    /// one app.
     pub fn from_manifests(sources: &[&str]) -> Result<Self, String> {
         let mut apps: Vec<AppManifest> = Vec::with_capacity(sources.len());
         let mut kind_app = BTreeMap::new();
+        let mut wire_app = BTreeMap::new();
         for source in sources {
             let manifest = AppManifest::parse(source)?;
             if apps.iter().any(|a| a.app == manifest.app) {
@@ -257,9 +375,23 @@ impl Registry {
                 }
                 kind_app.insert(kind.clone(), apps.len());
             }
+            for wire in manifest.wire_names() {
+                if let Some(&other) = wire_app.get(wire) {
+                    let other: &AppManifest = &apps[other];
+                    return Err(format!(
+                        "wire name {wire:?} is claimed by both {} and {}",
+                        other.app, manifest.app
+                    ));
+                }
+                wire_app.insert(wire.to_owned(), apps.len());
+            }
             apps.push(manifest);
         }
-        Ok(Self { apps, kind_app })
+        Ok(Self {
+            apps,
+            kind_app,
+            wire_app,
+        })
     }
 
     /// The manifests compiled into this build ([`BUNDLED_MANIFESTS`]).
@@ -278,13 +410,23 @@ impl Registry {
         self.apps.iter().find(|a| a.app == id)
     }
 
-    /// The app owning the kind with this wire name.
+    /// The app owning the kind with this real name.
     pub fn app_of(&self, kind: &str) -> Option<&AppManifest> {
         self.kind_app.get(kind).map(|&i| &self.apps[i])
     }
 
     pub fn kind(&self, kind: &str) -> Option<&KindManifest> {
         self.app_of(kind)?.kinds.get(kind)
+    }
+
+    /// The app owning this wire name (a wire kind or a legacy kind).
+    pub fn app_of_wire(&self, wire: &str) -> Option<&AppManifest> {
+        self.wire_app.get(wire).map(|&i| &self.apps[i])
+    }
+
+    /// The wire kind with this name; `None` for a legacy kind or an unknown name.
+    pub fn wire_kind(&self, wire: &str) -> Option<&WireKindManifest> {
+        self.app_of_wire(wire)?.wire_kinds.get(wire)
     }
 }
 
@@ -317,6 +459,18 @@ mod tests {
                     .unwrap_or_else(|| panic!("{name} ({}) is no EntityKind", app.app));
                 assert_eq!(kind.as_str(), name);
             }
+            for name in app.wire_names() {
+                let wire = crate::WireKind::from_wire(name)
+                    .unwrap_or_else(|| panic!("{name} ({}) is no WireKind", app.app));
+                assert_eq!(wire.as_str(), name);
+                assert_eq!(registry.app_of_wire(name).unwrap().app, app.app);
+            }
+        }
+        for wire in crate::WireKind::CURRENT {
+            assert!(
+                registry.wire_kind(wire.as_str()).is_some(),
+                "{wire:?} is in no bundled manifest"
+            );
         }
     }
 
@@ -328,13 +482,39 @@ mod tests {
         assert_eq!(EntityKind::Task.app(), "todo");
         assert_eq!(EntityKind::Attachment.app(), "todo");
         let task = registry.kind("task").unwrap();
-        assert!(task.plaintext_fields.contains("project_id"));
-        assert!(!task.plaintext_fields.contains("title"));
+        assert_eq!(task.wire, "todo.sealed");
+        assert!(!task.plaintext_fields.contains("project_id"));
+        assert!(task
+            .legacy_plaintext_fields
+            .contains(&"project_id".to_owned()));
+        assert_eq!(registry.kind("project").unwrap().wire, "todo.project");
         assert!(registry
             .kind("project_member")
             .unwrap()
             .plaintext_fields
             .contains("anything"));
+
+        // The server's view: three wire kinds, a few public names, and the legacy kinds.
+        let mut wires: Vec<&str> = todo.wire_kinds.keys().map(String::as_str).collect();
+        wires.sort_unstable();
+        assert_eq!(wires, ["project_member", "todo.project", "todo.sealed"]);
+        let sealed = registry.wire_kind("todo.sealed").unwrap();
+        assert!(sealed.is_public("blob_sha") && sealed.plaintext_fields.contains("blob_sha"));
+        assert!(!sealed.is_public("project_id") && !sealed.is_public("title"));
+        let project = registry.wire_kind("todo.project").unwrap();
+        assert!(
+            project.is_public("archived_at") && !project.plaintext_fields.contains("archived_at")
+        );
+        assert!(registry
+            .wire_kind("project_member")
+            .unwrap()
+            .is_public("email"));
+        assert_eq!(registry.app_of_wire("task").unwrap().app, "todo");
+        assert!(
+            registry.wire_kind("task").is_none(),
+            "a legacy kind has no wire kind entry"
+        );
+        assert!(todo.legacy_kinds().all(|k| k != "project_member"));
     }
 
     #[test]
@@ -347,6 +527,8 @@ mod tests {
         assert_eq!(journal.kinds.len(), 2);
         for kind in journal.kinds.values() {
             assert_eq!(kind.plaintext_fields, PlaintextFields::Only(Vec::new()));
+            assert!(kind.public_fields.is_empty());
+            assert_eq!(kind.wire, "journal.sealed");
         }
         assert_eq!(registry.app_of("preference").unwrap().app, "todo");
     }
@@ -362,7 +544,10 @@ mod tests {
         assert_eq!(vault.kinds.len(), 3);
         for kind in vault.kinds.values() {
             assert_eq!(kind.plaintext_fields, PlaintextFields::Only(Vec::new()));
+            assert!(kind.public_fields.is_empty());
+            assert_eq!(kind.wire, "vault.sealed");
         }
+        assert_eq!(registry.app_of_wire("vault.item").unwrap().app, "vault");
         assert_eq!(
             vault.api_tokens,
             TokenPolicy {
@@ -410,7 +595,7 @@ mod tests {
     fn token_policies_are_checked() {
         let with = |policy: &str| {
             format!(
-                r#"{{"app":"x","name":"x","version":1,"kinds":{{"x.t":{{"plaintext_fields":[]}}}},"api_tokens":{policy}}}"#
+                r#"{{"app":"x","name":"x","version":1,"kinds":{{"x.t":{{"wire":"x.sealed"}}}},"api_tokens":{policy}}}"#
             )
         };
         let parsed = AppManifest::parse(&with(r#"{"expiry_required":true}"#)).unwrap();
@@ -432,15 +617,22 @@ mod tests {
     #[test]
     fn later_apps_must_namespace_their_kinds() {
         let notes = r#"{"app":"notes","name":"Notes","version":1,
-            "kinds":{"note":{"plaintext_fields":[]}}}"#;
+            "kinds":{"note":{"wire":"notes.sealed"}}}"#;
         let err = Registry::from_manifests(&[notes]).unwrap_err();
         assert!(err.contains("notes.<kind>"), "{err}");
         let notes = r#"{"app":"notes","name":"Notes","version":1,
-            "kinds":{"notes.note":{"plaintext_fields":["folder_id"]}}}"#;
+            "kinds":{"notes.note":{"wire":"todo.sealed"}}}"#;
+        let err = Registry::from_manifests(&[notes]).unwrap_err();
+        assert!(err.contains("notes.<name>"), "{err}");
+        let notes = r#"{"app":"notes","name":"Notes","version":1,
+            "kinds":{"notes.note":{"wire":"notes.sealed","public_fields":["folder_id"],
+                                   "plaintext_fields":["folder_id"]}}}"#;
         let registry = Registry::from_manifests(&[BUNDLED_MANIFESTS[0], notes]).unwrap();
         assert_eq!(registry.app_of("notes.note").unwrap().app, "notes");
         assert_eq!(registry.app_of("task").unwrap().app, "todo");
         assert_eq!(registry.app_of("note"), None);
+        assert_eq!(registry.app_of_wire("notes.sealed").unwrap().app, "notes");
+        assert_eq!(registry.app_of_wire("notes.note").unwrap().app, "notes");
     }
 
     #[test]
@@ -453,12 +645,18 @@ mod tests {
     #[test]
     fn malformed_manifests_are_refused() {
         for bad in [
-            r#"{"app":"Todo","name":"x","version":1,"kinds":{"t":{"plaintext_fields":[]}}}"#,
-            r#"{"app":"x","name":"x","version":0,"kinds":{"x.t":{"plaintext_fields":[]}}}"#,
+            r#"{"app":"Todo","name":"x","version":1,"kinds":{"t":{"wire":"todo.s"}}}"#,
+            r#"{"app":"x","name":"x","version":0,"kinds":{"x.t":{"wire":"x.s"}}}"#,
             r#"{"app":"x","name":"x","version":1,"kinds":{}}"#,
-            r#"{"app":"x","name":"x","version":1,"kinds":{"x.t":{"plaintext_fields":"some"}}}"#,
-            r#"{"app":"x","name":"x","version":1,"kinds":{"x.t":{"plaintext_fields":[1]}}}"#,
+            r#"{"app":"x","name":"x","version":1,"kinds":{"x.t":{"wire":"x.s","plaintext_fields":"some"}}}"#,
+            r#"{"app":"x","name":"x","version":1,"kinds":{"x.t":{"wire":"x.s","plaintext_fields":[1]}}}"#,
             r#"{"app":"x","version":1,"kinds":{"x.t":{"plaintext_fields":[]}}}"#,
+            // No wire kind, a wire kind outside the namespace, or the name of a kind.
+            r#"{"app":"x","name":"x","version":1,"kinds":{"x.t":{}}}"#,
+            r#"{"app":"x","name":"x","version":1,"kinds":{"x.t":{"wire":"y.sealed"}}}"#,
+            r#"{"app":"x","name":"x","version":1,"kinds":{"x.t":{"wire":"x.u"},"x.u":{"wire":"x.s"}}}"#,
+            // A plaintext field that is not public.
+            r#"{"app":"x","name":"x","version":1,"kinds":{"x.t":{"wire":"x.s","plaintext_fields":["a"]}}}"#,
         ] {
             assert!(AppManifest::parse(bad).is_err(), "{bad}");
         }

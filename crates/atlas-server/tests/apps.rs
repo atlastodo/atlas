@@ -14,6 +14,9 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::wire::{self, SEALED};
+
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
 
 fn test_database_url() -> String {
@@ -75,7 +78,7 @@ async fn send(
         .method(method)
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-atlas-sync-protocol", "6");
+        .header("x-atlas-sync-protocol", "7");
     if let Some(t) = token {
         builder = builder.header("authorization", format!("Bearer {t}"));
     }
@@ -139,15 +142,14 @@ fn task_op(entity_id: Uuid, field: &str, value: Value) -> Value {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64;
-    json!({
-        "id": Uuid::now_v7(),
-        "entity": "task",
-        "entity_id": entity_id,
-        "op": "set",
-        "field": field,
-        "value": value,
-        "ts": { "wall_ms": wall, "counter": 0, "node": Uuid::now_v7() },
-    })
+    wire::set(
+        SEALED,
+        entity_id,
+        None,
+        field,
+        value,
+        (wall, 0, Uuid::now_v7()),
+    )
 }
 
 async fn push(router: &Router, token: &str, ops: Vec<Value>) -> (StatusCode, Value) {
@@ -189,8 +191,8 @@ async fn discovery_is_public_and_describes_the_server() {
         assert_eq!(status, StatusCode::OK, "{path}: {body:?}");
         assert_eq!(body["service"], "atlas-server");
         assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(body["protocol_version"], 6);
-        assert_eq!(body["min_protocol_version"], 6);
+        assert_eq!(body["protocol_version"], 7);
+        assert_eq!(body["min_protocol_version"], 7);
         let capabilities: Vec<&str> = body["capabilities"]
             .as_array()
             .unwrap()
@@ -202,7 +204,7 @@ async fn discovery_is_public_and_describes_the_server() {
         }
         assert_eq!(
             body["apps"],
-            json!([{ "id": "todo", "name": "Atlas Todo", "version": 1 }])
+            json!([{ "id": "todo", "name": "Atlas Todo", "version": 2 }])
         );
     }
     // No sync protocol header needed: discovery is how an old client learns it is old.
@@ -258,7 +260,7 @@ async fn a_new_account_has_todo_and_can_list_and_enable_its_apps() {
     let apps = body["apps"].as_array().unwrap();
     assert_eq!(apps.len(), 1);
     assert_eq!(apps[0]["id"], "todo");
-    assert_eq!(apps[0]["version"], 1);
+    assert_eq!(apps[0]["version"], 2);
     assert_eq!(apps[0]["enabled"], true);
     assert!(apps[0]["enabled_at"].is_i64());
 

@@ -12,10 +12,11 @@ use std::process::Command;
 use atlas_client::api::{ApiClient, UreqTransport};
 use atlas_client::client::{AtlasClient, TaskQuery};
 use atlas_client::crypto::{
-    decrypt_field, format_api_token, generate_api_token, random_bytes, wrap_app_keys_for_api_token,
-    wrap_keys_for_api_token, x25519_public_key, FieldEnvelope, FieldLocation, KeyScope,
+    format_api_token, generate_api_token, random_bytes, wrap_app_keys_for_api_token,
+    wrap_keys_for_api_token, x25519_public_key, FieldEnvelope, Keyring,
 };
 use atlas_client::session::ConnectOptions;
+use atlas_client::wire::open_sealed;
 use atlas_server::{app, config::Config, db, state::AppState};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -404,14 +405,18 @@ fn the_cli_writes_journal_entries_with_a_journal_only_token() {
     let ops = pulled["operations"].as_array().unwrap();
     assert!(!ops.is_empty());
     for op in ops {
-        assert_eq!(op["entity"], "journal.entry");
-        let envelope = FieldEnvelope::from_value(&op["value"]).expect("encrypted");
-        let at = FieldLocation {
-            entity: "journal.entry",
-            entity_id: op["entity_id"].as_str().unwrap(),
-            field: op["field"].as_str().unwrap(),
-        };
-        assert!(decrypt_field(&journal_key, &KeyScope::Personal, at, &envelope).is_ok());
+        assert_eq!(op["entity"], "journal.sealed");
+        let envelope = FieldEnvelope::from_value_v3(&op["value"]).expect("encrypted");
+        let opened = open_sealed(
+            &Keyring::new(journal_key, [0; 32], None),
+            "journal.sealed",
+            op["entity_id"].as_str().unwrap(),
+            op["field"].as_str().unwrap(),
+            None,
+            &envelope,
+        )
+        .expect("the journal key opens it");
+        assert_eq!(opened.kind.as_str(), "journal.entry");
     }
 
     // The token carries no todo key: todo commands fail with a clear JSON error, before any sync.
@@ -615,7 +620,7 @@ fn the_cli_keeps_vault_secrets_for_ci_with_scoped_tokens() {
     assert_eq!(refused.status(), Some(403));
     assert_eq!(refused.api_code(), Some("api_token_read_only"));
 
-    // What the server holds is ciphertext under the vault key, as vault.* ops.
+    // What the server holds is ciphertext under the vault key, as vault.sealed ops.
     let pulled = client
         .session()
         .api
@@ -624,15 +629,18 @@ fn the_cli_keeps_vault_secrets_for_ci_with_scoped_tokens() {
     let raw = pulled.to_string();
     assert!(!raw.contains("sk_live_e2e") && !raw.contains("Deploy key"));
     for op in pulled["operations"].as_array().unwrap() {
-        let entity = op["entity"].as_str().unwrap();
-        assert!(entity.starts_with("vault."), "{entity}");
-        let envelope = FieldEnvelope::from_value(&op["value"]).expect("encrypted");
-        let at = FieldLocation {
-            entity,
-            entity_id: op["entity_id"].as_str().unwrap(),
-            field: op["field"].as_str().unwrap(),
-        };
-        assert!(decrypt_field(&vault_key, &KeyScope::Personal, at, &envelope).is_ok());
+        assert_eq!(op["entity"], "vault.sealed");
+        let envelope = FieldEnvelope::from_value_v3(&op["value"]).expect("encrypted");
+        let opened = open_sealed(
+            &Keyring::new(vault_key, [0; 32], None),
+            "vault.sealed",
+            op["entity_id"].as_str().unwrap(),
+            op["field"].as_str().unwrap(),
+            None,
+            &envelope,
+        )
+        .expect("the vault key opens it");
+        assert!(opened.kind.as_str().starts_with("vault."));
     }
 
     // Revoked, the token opens nothing; a vault token without an expiry is never made.

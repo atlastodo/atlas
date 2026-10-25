@@ -4,7 +4,7 @@ import { Keyring, generateDek, generatePek } from "./crypto";
 import type { Operation } from "./types";
 
 /** A wire op as the fake server received or serves it. */
-type SentOp = { field?: string; value?: unknown };
+type SentOp = { entity?: string; scope?: string | null; field?: string; value?: unknown };
 type Envelope = { __enc: number; iv: string; ct: string };
 
 /** The pulled `set` op of `field`, if any. */
@@ -57,14 +57,16 @@ describe("ApiClient Sync Encryption", () => {
     expect(sentBody).toBeDefined();
     expect(sentBody!.operations.length).toBe(2);
 
-    const title = sentBody!.operations.find((o) => o.field === "title")!.value as Envelope;
-    expect(title.__enc).toBe(2);
-    expect(title.iv).toBeDefined();
-    expect(title.ct).toBeDefined();
-    expect(title.ct).not.toContain("Secret meeting");
-
-    const projOp = sentBody!.operations.find((o) => o.field === "project_id");
-    expect(projOp!.value).toBe("proj-123");
+    // Neither the kind, the field names nor the link reach the server.
+    const [title, projOp] = sentBody!.operations;
+    for (const op of [title!, projOp!]) {
+      expect(op.entity).toBe("todo.sealed");
+      expect(op.scope).toBeNull(); // no key was made for proj-123: the account's own key
+      expect(op.field).toMatch(/^[0-9a-f]{32}$/);
+      expect((op.value as Envelope).__enc).toBe(3);
+    }
+    expect(title!.field).not.toBe(projOp!.field);
+    expect(JSON.stringify(sentBody)).not.toMatch(/title|project_id|proj-123|Secret meeting/);
   });
 
   test("syncPull decrypts sensitive field values when Keyring is present", async () => {
@@ -159,8 +161,9 @@ describe("ApiClient Sync Encryption", () => {
       },
     ]);
 
-    const titleWireOp = sentWireOps.find((o) => o.field === "title");
-    expect((titleWireOp!.value as Envelope).__enc).toBe(2);
+    const titleWireOp = sentWireOps[1]!;
+    expect((titleWireOp.value as Envelope).__enc).toBe(3);
+    expect(titleWireOp.scope).toBe(projectId);
 
     // Client with only userDek (wrong key) cannot decrypt the project task
     const clientWrongKey = new ApiClient({
@@ -170,10 +173,12 @@ describe("ApiClient Sync Encryption", () => {
     });
     clientWrongKey.setKeyring(new Keyring({ dek: userDek })); // missing project key!
 
-    // When unable to decrypt, value remains the ciphertext object gracefully with a warning
+    // When unable to decrypt, the value stays sealed under its wire kind and tag, with a warning.
     const pullWrong = await clientWrongKey.syncPull(0);
-    const pulledTitleWrong = setOf(pullWrong.operations, "title");
-    expect((pulledTitleWrong!.value as Envelope).__enc).toBe(2);
+    expect(setOf(pullWrong.operations, "title")).toBeUndefined();
+    const sealed = setOf(pullWrong.operations, titleWireOp.field!);
+    expect(sealed!.entity).toBe("todo.sealed");
+    expect((sealed!.value as Envelope).__enc).toBe(3);
 
     // Client with the project PEK decrypts successfully!
     const clientWithPek = new ApiClient({
@@ -231,12 +236,21 @@ describe("ApiClient sync fails closed without an unlocked keyring", () => {
     expect(() => client.decodeWirePayload({ operations: [], cursor: 1 })).toThrow(E2eeLockedError);
   });
 
-  test("toEncryptedWire never passes a sensitive value through as plaintext", () => {
+  test("toEncryptedWire never converts without keys", () => {
+    // Every field is tagged and sealed with its scope's key, links and tombstones included.
     expect(() => toEncryptedWire(titleOp, null)).toThrow(E2eeLockedError);
-    // Routing fields and tombstones carry no content and still convert without keys.
     const link: Operation = { ...titleOp, field: "project_id", value: "p-1" };
-    expect(toEncryptedWire(link, null)).toMatchObject({ field: "project_id", value: "p-1" });
+    expect(() => toEncryptedWire(link, null)).toThrow(E2eeLockedError);
     const del: Operation = { id: "d", entity: "task", entityId: "t", ts: titleOp.ts, op: "delete" };
-    expect(toEncryptedWire(del, null)).toMatchObject({ op: "delete" });
+    expect(() => toEncryptedWire(del, null)).toThrow(E2eeLockedError);
+    const keyring = new Keyring({ dek: generateDek() });
+    expect(toEncryptedWire(del, keyring)).toEqual({
+      id: "d",
+      entity: "todo.sealed",
+      entity_id: "t",
+      scope: null,
+      op: "delete",
+      ts: { wall_ms: 1000, counter: 0, node: "node-1" },
+    });
   });
 });

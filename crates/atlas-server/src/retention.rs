@@ -4,9 +4,8 @@
 //! `entity_fields` and `entity_tombstones` can be purged (`OP_RETENTION_DAYS`, default 30, 0
 //! disables). The refresh-token purge (`REFRESH_TOKEN_RETENTION_DAYS`) only removes rows dead for
 //! longer than the window, so a live token can never be touched. The task ([`spawn_if_enabled`])
-//! deletes in bounded batches and never removes a `project` entity's ops:
-//! `members::is_project_creator` reads the earliest one, so purging it could make a project
-//! permanently unsharable.
+//! deletes in bounded batches. Project creators, which the first share is authorized by, are
+//! recorded in `project_creators`, so no op has to be kept for them.
 
 use std::time::Duration;
 
@@ -77,24 +76,24 @@ pub struct PurgeStats {
 ///
 /// A stale tombstone takes the fields it hides with it (HLC not newer than the delete) and is
 /// itself removed only when no field of the key is newer; a newer field means the entity was
-/// restored and must survive. A restored entity keeps its hidden scope links (`project_id`, `task_id`):
-/// clients pick the key a field opens with from them (client-core `resolveScope`, which reads
-/// hidden fields too), so purging one would lock the surviving encrypted fields.
+/// restored and must survive. A restored legacy (protocol 6) entity keeps its hidden scope links
+/// (`project_id`, `task_id`): clients pick the key its fields open with from them, so purging one
+/// would lock the surviving encrypted fields. Protocol 7 fields carry their scope on the row, and
+/// a purged entity's `entity_scopes` row goes with it.
 /// Age is the server's receipt time, never the client's HLC.
 pub async fn purge_once(pool: &PgPool, days: i64) -> AppResult<PurgeStats> {
     if days <= 0 {
         return Ok(PurgeStats::default());
     }
 
-    // Old operations except every `project` entity op (see the module docs). The same statement
-    // raises each user's purge watermark, so an older pull cursor gets `cursor_expired`.
+    // Old operations. The same statement raises each user's purge watermark, so an older pull
+    // cursor gets `cursor_expired`.
     let ops: i64 = sqlx::query_scalar(
         "WITH gone AS (
              DELETE FROM operations
               WHERE server_seq IN (
                   SELECT server_seq FROM operations
                    WHERE created_at < now() - make_interval(days => $1)
-                     AND entity <> 'project'
                    ORDER BY server_seq
                    LIMIT $2
               )
@@ -145,6 +144,11 @@ pub async fn purge_once(pool: &PgPool, days: i64) -> AppResult<PurgeStats> {
                 AND (f.hlc_wall_ms, f.hlc_counter, f.hlc_node)
                  <= (s.hlc_wall_ms, s.hlc_counter, s.hlc_node)
                 AND (s.purgeable OR f.field NOT IN ('project_id', 'task_id'))
+         ),
+         gone_scopes AS (
+             DELETE FROM entity_scopes e USING stale s
+              WHERE s.purgeable
+                AND e.user_id = s.user_id AND e.entity = s.entity AND e.entity_id = s.entity_id
          )
          DELETE FROM entity_tombstones t USING stale s
           WHERE s.purgeable

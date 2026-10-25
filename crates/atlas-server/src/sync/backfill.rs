@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use atlas_core::{Change, Hlc, Operation};
+use atlas_core::{Change, Hlc, WireOperation};
 use sqlx::{PgConnection, Postgres, Transaction};
 use uuid::Uuid;
 
@@ -17,8 +17,8 @@ async fn keys_ops_by_key(
     conn: &mut PgConnection,
     user: Uuid,
     keys: &[EntityKey],
-) -> AppResult<HashMap<EntityKey, Vec<Operation>>> {
-    let mut by_key: HashMap<EntityKey, Vec<Operation>> = HashMap::new();
+) -> AppResult<HashMap<EntityKey, Vec<WireOperation>>> {
+    let mut by_key: HashMap<EntityKey, Vec<WireOperation>> = HashMap::new();
     for op in keys_ops(conn, user, keys).await? {
         by_key
             .entry((entity_str(op.entity).to_string(), op.entity_id))
@@ -28,8 +28,9 @@ async fn keys_ops_by_key(
     Ok(by_key)
 }
 
-/// The newest tombstone `member` holds for each of `keys`. The project's Delete ops are read
-/// from the op log too, since retention may have purged the tombstone row a device still holds.
+/// The newest tombstone `member` holds for each of `keys`. The project's Delete ops (under its
+/// current or legacy wire kind) are read from the op log too, since retention may have purged the
+/// tombstone row a device still holds.
 async fn member_floors(
     conn: &mut PgConnection,
     member: Uuid,
@@ -38,7 +39,9 @@ async fn member_floors(
 ) -> AppResult<HashMap<EntityKey, Hlc>> {
     let entities: Vec<&str> = keys.iter().map(|(e, _)| e.as_str()).collect();
     let ids: Vec<Uuid> = keys.iter().map(|(_, id)| *id).collect();
-    let project_key = ("project".to_string(), project_id);
+    let has_project = keys
+        .iter()
+        .any(|(e, id)| *id == project_id && (e == "project" || e == "todo.project"));
     let rows: Vec<(String, Uuid, i64, i32, Uuid)> = sqlx::query_as(
         "SELECT t.entity, t.entity_id, t.hlc_wall_ms, t.hlc_counter, t.hlc_node
            FROM UNNEST($2::text[], $3::uuid[]) AS k(entity, entity_id)
@@ -46,13 +49,14 @@ async fn member_floors(
              ON t.user_id = $1 AND t.entity = k.entity AND t.entity_id = k.entity_id
          UNION ALL
          SELECT entity, entity_id, hlc_wall_ms, hlc_counter, hlc_node FROM operations
-          WHERE $5 AND user_id = $1 AND entity = 'project' AND entity_id = $4 AND is_delete",
+          WHERE $5 AND user_id = $1 AND entity IN ('project', 'todo.project')
+            AND entity_id = $4 AND is_delete",
     )
     .bind(member)
     .bind(&entities)
     .bind(&ids)
     .bind(project_id)
-    .bind(keys.contains(&project_key))
+    .bind(has_project)
     .fetch_all(&mut *conn)
     .await?;
     let mut floors: HashMap<EntityKey, Hlc> = HashMap::new();
@@ -92,7 +96,7 @@ pub(crate) struct BackfillRead {
     owner_head: i64,
     member_head: i64,
     keys: Vec<EntityKey>,
-    ops: HashMap<EntityKey, Vec<Operation>>,
+    ops: HashMap<EntityKey, Vec<WireOperation>>,
     floors: HashMap<EntityKey, Hlc>,
 }
 
@@ -154,7 +158,7 @@ impl BackfillRead {
 pub(crate) async fn accept_backfill_ops(
     tx: &mut Transaction<'_, Postgres>,
     read: BackfillRead,
-) -> AppResult<Vec<Operation>> {
+) -> AppResult<Vec<WireOperation>> {
     let BackfillRead {
         owner,
         member,
@@ -202,7 +206,7 @@ pub(crate) async fn accept_backfill_ops(
         keys
     };
 
-    let mut out: Vec<Operation> = Vec::new();
+    let mut out: Vec<WireOperation> = Vec::new();
     for key in &keys {
         if let Some(key_ops) = ops.remove(key) {
             out.extend(key_ops);
@@ -224,13 +228,18 @@ pub(crate) async fn accept_backfill_ops(
         };
         let shown = owner_tombs.get(&key).is_none_or(|tomb| op.ts > *tomb);
         if shown && op.ts <= floor {
-            rewrites.push(Operation::set(
-                op.entity,
-                op.entity_id,
-                field,
-                value.clone(),
-                successor_hlc(floor),
-            ));
+            // The value stays bound to its scope and keeps its pusher (an activity's actor).
+            rewrites.push(WireOperation {
+                pushed_by: op.pushed_by,
+                ..WireOperation::set(
+                    op.entity,
+                    op.entity_id,
+                    op.scope,
+                    field,
+                    value.clone(),
+                    successor_hlc(floor),
+                )
+            });
         }
     }
     out.extend(rewrites);

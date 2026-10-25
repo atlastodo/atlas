@@ -2,10 +2,11 @@
 //! `app_keys`, no todo key), the journal entries over it, and tokens without the app asked for.
 
 use atlas_client::client::AtlasClient;
-use atlas_client::crypto::{decrypt_field, FieldEnvelope, FieldLocation, KeyScope};
+use atlas_client::crypto::{FieldEnvelope, Keyring};
 use atlas_client::journal::{JournalFields, JournalQuery};
 use atlas_client::session::ConnectOptions;
 use atlas_client::testing::{current_discovery, FakeServer};
+use atlas_client::wire::open_sealed;
 use atlas_client::Error;
 
 const NOW: i64 = 1_792_279_800_000; // 2026-10-17T23:30:00Z, the 18th in Copenhagen
@@ -61,19 +62,25 @@ fn a_journal_only_token_writes_entries_only_its_key_opens() {
     assert!(st.sync_apps.iter().all(|a| a.as_deref() == Some("journal")));
     let raw = serde_json::to_string(&st.ops).unwrap();
     assert!(!raw.contains("Harbour") && !raw.contains("Fog") && !raw.contains("walks"));
-    // Each value is a personal-scope envelope under the journal key, bound to journal.entry.
+    // Each value is a personal-scope v3 envelope under the journal key, the kind inside it.
     let (journal_key, _) = server.app_keys["journal"];
     for (_, op) in &st.ops {
-        assert_eq!(op["entity"], "journal.entry");
-        let envelope = FieldEnvelope::from_value(&op["value"]).expect("an envelope");
+        assert_eq!(op["entity"], "journal.sealed");
+        assert!(op["scope"].is_null());
+        let envelope = FieldEnvelope::from_value_v3(&op["value"]).expect("an envelope");
         assert_eq!(envelope.kid, "dek");
-        let at = FieldLocation {
-            entity: "journal.entry",
-            entity_id: op["entity_id"].as_str().unwrap(),
-            field: op["field"].as_str().unwrap(),
+        let open = |key: [u8; 32]| {
+            open_sealed(
+                &Keyring::new(key, [0; 32], None),
+                "journal.sealed",
+                op["entity_id"].as_str().unwrap(),
+                op["field"].as_str().unwrap(),
+                None,
+                &envelope,
+            )
         };
-        assert!(decrypt_field(&journal_key, &KeyScope::Personal, at, &envelope).is_ok());
-        assert!(decrypt_field(&server.dek, &KeyScope::Personal, at, &envelope).is_err());
+        assert_eq!(open(journal_key).unwrap().kind.as_str(), "journal.entry");
+        assert!(open(server.dek).is_none());
     }
     drop(st);
 

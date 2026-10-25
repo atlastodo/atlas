@@ -4,14 +4,19 @@
 //!
 //! Entities keep the order they first appeared in, and fields the order they were first set, as
 //! the TypeScript `Map`s do: lists built from the store come out in the same order on both.
+//!
+//! What the sync decoder could not attribute to a real kind waits aside (sync protocol 7): a value
+//! no key here opened ([`SealedPending`], opened by [`Store::revive_sealed`]) and a tombstone of an
+//! entity not seen yet, which the entity takes over when it arrives.
 
 use std::collections::{HashMap, HashSet};
 
 use atlas_core::{Change, EntityKind, Hlc, HlcClock, Operation};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use crate::crypto::is_encrypted_envelope;
+use crate::crypto::{is_encrypted_envelope, FieldEnvelope};
 
 /// The server's `MAX_FUTURE_SKEW_MS`: a later stamp would pin the clock.
 pub const MAX_CLOCK_DRIFT_MS: u64 = 5 * 60_000;
@@ -95,6 +100,27 @@ pub struct RevivedField {
     pub opened: Opened,
 }
 
+/// A v3 value no key here opened yet, kept where it arrived: its wire kind, entity, tag and scope.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SealedPending {
+    pub wire: String,
+    pub entity_id: String,
+    pub field: String,
+    pub scope: Option<String>,
+    pub envelope: FieldEnvelope,
+    pub ts: Hlc,
+}
+
+/// A sealed value opened by [`Store::revive_sealed`]'s callback.
+#[derive(Debug, Clone)]
+pub struct OpenedSealed {
+    pub kind: EntityKind,
+    pub field: String,
+    pub value: Value,
+    pub key_id: String,
+    pub scope: crate::crypto::KeyScope,
+}
+
 pub type Clock = Box<dyn Fn() -> u64 + Send>;
 pub type IdGen = Box<dyn FnMut() -> Uuid + Send>;
 
@@ -107,6 +133,8 @@ pub struct Store {
     outbox: Vec<Operation>,
     applied: HashSet<Uuid>,
     acknowledged: Option<Hlc>,
+    sealed: Vec<SealedPending>,
+    pending_tombstones: HashMap<String, (Hlc, Uuid)>,
 }
 
 /// The entity id an op names, as a lowercase UUID string.
@@ -130,6 +158,8 @@ impl Store {
             outbox: Vec::new(),
             applied: HashSet::new(),
             acknowledged: None,
+            sealed: Vec::new(),
+            pending_tombstones: HashMap::new(),
         }
     }
 
@@ -265,10 +295,17 @@ impl Store {
             return false;
         }
         let id = op_entity_id(op);
+        let pending = self.pending_tombstones.get(&id).copied();
         let kind = self.kind_mut(op.entity);
         if !kind.by_id.contains_key(&id) {
             kind.order.push(id.clone());
-            kind.by_id.insert(id.clone(), EntityState::default());
+            // A tombstone that arrived before the entity's kind was known is the entity's.
+            let state = EntityState {
+                deleted: pending.map(|(ts, _)| ts),
+                deleted_op: pending.map(|(_, op)| op),
+                ..EntityState::default()
+            };
+            kind.by_id.insert(id.clone(), state);
         }
         let state = kind.by_id.get_mut(&id).expect("just inserted");
         match &op.change {
@@ -403,10 +440,86 @@ impl Store {
         found
     }
 
+    /// The entity's tombstone stamp, if it has one.
+    pub fn tombstone_ts(&self, entity: EntityKind, id: &str) -> Option<Hlc> {
+        self.state(entity, id)?.deleted
+    }
+
+    /// The real kind of the entity held by this id.
+    pub fn kind_of(&self, id: &str) -> Option<EntityKind> {
+        self.entities
+            .iter()
+            .find(|(_, k)| k.by_id.contains_key(id))
+            .map(|(e, _)| *e)
+    }
+
+    /// Keep a delete of an entity whose kind is not known yet, for the entity to take over.
+    pub fn add_pending_tombstone(&mut self, id: &str, ts: Hlc, op: Uuid) {
+        if !self.applied.insert(op) {
+            return;
+        }
+        let entry = self
+            .pending_tombstones
+            .entry(id.to_owned())
+            .or_insert((ts, op));
+        if ts > entry.0 {
+            *entry = (ts, op);
+        }
+    }
+
+    /// Keep a value no key here opened; the newest per wire kind, entity and tag.
+    pub fn add_sealed(&mut self, pending: SealedPending) {
+        match self.sealed.iter_mut().find(|s| {
+            s.wire == pending.wire && s.entity_id == pending.entity_id && s.field == pending.field
+        }) {
+            Some(s) if s.ts >= pending.ts => {}
+            Some(s) => *s = pending,
+            None => self.sealed.push(pending),
+        }
+    }
+
+    /// The values no key here opened yet.
+    pub fn sealed(&self) -> &[SealedPending] {
+        &self.sealed
+    }
+
+    /// Open the values kept sealed with `open`: each becomes its real kind's field at the same
+    /// stamp. Nothing is pushed. Returns what opened, with its stamp.
+    pub fn revive_sealed(
+        &mut self,
+        mut open: impl FnMut(&SealedPending) -> Option<OpenedSealed>,
+    ) -> Vec<(OpenedSealed, String, Hlc)> {
+        let mut revived = Vec::new();
+        let mut kept = Vec::new();
+        for pending in std::mem::take(&mut self.sealed) {
+            match open(&pending) {
+                Some(opened) => revived.push((opened, pending.entity_id, pending.ts)),
+                None => kept.push(pending),
+            }
+        }
+        self.sealed = kept;
+        for (opened, id, ts) in &revived {
+            let op = Operation {
+                id: (self.new_id)(),
+                entity: opened.kind,
+                entity_id: Uuid::parse_str(id).expect("entity ids are UUIDs"),
+                change: Change::Set {
+                    field: opened.field.clone(),
+                    value: opened.value.clone(),
+                },
+                ts: *ts,
+            };
+            self.merge(&op);
+        }
+        revived
+    }
+
     /// Drop the synced state, keeping the outbox, before a rebuild from the snapshot.
     pub fn reset_synced(&mut self) {
         self.entities.clear();
         self.applied.clear();
+        self.sealed.clear();
+        self.pending_tombstones.clear();
         for op in self.outbox.clone() {
             self.merge(&op);
         }

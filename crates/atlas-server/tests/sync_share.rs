@@ -19,6 +19,9 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::wire::{self, opened, sealed, sets, tag, value_of, PROJECT, SEALED};
+
 /// The credential a client sends for the account password: the auth hash it derives from it
 /// (64 lowercase hex characters), which is what the server stores and compares.
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -69,7 +72,7 @@ async fn http(
         .method(method)
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-atlas-sync-protocol", "6");
+        .header("x-atlas-sync-protocol", "7");
     if let Some(t) = token {
         b = b.header("authorization", format!("Bearer {t}"));
     }
@@ -129,12 +132,39 @@ async fn new_user(router: &Router) -> User {
     }
 }
 
-fn op(entity: &str, entity_id: &str, field: &str, value: Value, wall: u64) -> Value {
-    json!({
-        "id": Uuid::now_v7(), "entity": entity, "entity_id": entity_id,
-        "op": "set", "field": field, "value": value,
-        "ts": { "wall_ms": wall, "counter": 0, "node": Uuid::now_v7() },
-    })
+/// A set op of `field` on `entity` (a wire kind) in `scope`, stamped at `wall` by a fresh node.
+fn op(
+    entity: &str,
+    entity_id: &str,
+    scope: Option<&str>,
+    field: &str,
+    value: Value,
+    wall: u64,
+) -> Value {
+    wire::set(
+        entity,
+        entity_id,
+        scope,
+        field,
+        value,
+        (wall, 0, Uuid::now_v7()),
+    )
+}
+
+/// A project's op. Its scope does not route it (a project op goes to the project's members), so the
+/// fixtures leave it out, as for a project no key was made for yet.
+fn project_op(pid: &str, field: &str, value: Value, wall: u64) -> Value {
+    op(PROJECT, pid, None, field, value, wall)
+}
+
+/// An op of sealed entity `eid` (task, section, comment, …) encrypted under project `pid`'s key.
+fn item(eid: &str, pid: &str, field: &str, value: Value, wall: u64) -> Value {
+    op(SEALED, eid, Some(pid), field, value, wall)
+}
+
+/// An op of sealed entity `eid` under the account's own key (no project, or a private one).
+fn personal(eid: &str, field: &str, value: Value, wall: u64) -> Value {
+    op(SEALED, eid, None, field, value, wall)
 }
 
 async fn push(router: &Router, token: &str, ops: Vec<Value>) -> StatusCode {
@@ -170,7 +200,7 @@ async fn invite_and_accept(router: &Router, owner: &User, invitee: &User, pid: &
     assert_eq!(status, StatusCode::NO_CONTENT, "accept");
 }
 
-/// Read WS messages until one carries a matching field/value, or time out.
+/// Read WS messages until one sets `field` to `value`, or time out.
 async fn wait_for_field(
     ws: &mut (impl StreamExt<Item = Result<WsMessage, tokio_tungstenite::tungstenite::Error>> + Unpin),
     field: &str,
@@ -182,7 +212,7 @@ async fn wait_for_field(
             if let WsMessage::Text(text) = msg {
                 let payload: Value = serde_json::from_str(&text).unwrap();
                 for op in payload["operations"].as_array().unwrap_or(&vec![]) {
-                    if op["field"] == field && op["value"] == value {
+                    if op["field"] == tag(field) && value_of(op) == value {
                         return true;
                     }
                 }
@@ -204,6 +234,11 @@ async fn spawn_server(state: &AppState) -> String {
     addr.to_string()
 }
 
+/// Whether `ops` carry a set whose real value is `value`.
+fn has_value(ops: &[Value], value: &str) -> bool {
+    ops.iter().any(|o| o["op"] == "set" && value_of(o) == value)
+}
+
 #[tokio::test]
 async fn accept_backfills_and_edits_fan_out_to_member() {
     let state = make_state().await;
@@ -220,7 +255,7 @@ async fn accept_backfills_and_edits_fan_out_to_member() {
         push(
             &control,
             &alice.token,
-            vec![op("project", &pid, "name", json!("Team"), 100)]
+            vec![project_op(&pid, "name", json!("Team"), 100)]
         )
         .await,
         StatusCode::OK
@@ -230,8 +265,8 @@ async fn accept_backfills_and_edits_fan_out_to_member() {
             &control,
             &alice.token,
             vec![
-                op("task", &tid, "project_id", json!(pid), 200),
-                op("task", &tid, "title", json!("orig"), 200),
+                item(&tid, &pid, "project_id", json!(pid), 200),
+                item(&tid, &pid, "title", json!("orig"), 200),
             ],
         )
         .await,
@@ -252,7 +287,7 @@ async fn accept_backfills_and_edits_fan_out_to_member() {
     .await;
     assert_eq!(status, StatusCode::OK, "{ticket:?}");
     let url = format!(
-        "ws://{addr}/sync/ws?ticket={}&since=0&protocol=6",
+        "ws://{addr}/sync/ws?ticket={}&since=0&protocol=7",
         ticket["ticket"].as_str().unwrap()
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.expect("ws");
@@ -266,7 +301,7 @@ async fn accept_backfills_and_edits_fan_out_to_member() {
         push(
             &control,
             &alice.token,
-            vec![op("task", &tid, "title", json!("updated"), 300)]
+            vec![item(&tid, &pid, "title", json!("updated"), 300)]
         )
         .await,
         StatusCode::OK
@@ -278,10 +313,8 @@ async fn accept_backfills_and_edits_fan_out_to_member() {
 }
 
 #[tokio::test]
-async fn task_title_fans_out_when_emitted_before_project_id() {
-    // The real client emits a task's `title` op BEFORE its `project_id` op. Fan-out
-    // must resolve the owning project from the whole batch, not only fields folded earlier, or the
-    // co-member receives a nameless task.
+async fn a_new_item_fans_out_by_its_scope() {
+    // The server learns an entity's project from the scope its ops carry, never from a field.
     let state = make_state().await;
     let control = app(state.clone());
 
@@ -289,54 +322,48 @@ async fn task_title_fans_out_when_emitted_before_project_id() {
     let bob = new_user(&control).await;
     let pid = Uuid::now_v7().to_string();
     let tid = Uuid::now_v7().to_string();
+    let mine = Uuid::now_v7().to_string();
 
-    // Alice creates and shares a project with Bob.
     push(
         &control,
         &alice.token,
-        vec![op("project", &pid, "name", json!("Team"), 100)],
+        vec![project_op(&pid, "name", json!("Team"), 100)],
     )
     .await;
     invite_and_accept(&control, &alice, &bob, &pid, "editor").await;
 
-    // Alice adds a task AFTER sharing, in one batch with `title` before `project_id`.
+    // A task Alice adds to the shared project after sharing, and one of her own.
     assert_eq!(
         push(
             &control,
             &alice.token,
             vec![
-                op("task", &tid, "title", json!("Buy milk"), 500),
-                op("task", &tid, "priority", json!(4), 500),
-                op("task", &tid, "project_id", json!(pid), 500),
+                item(&tid, &pid, "title", json!("Buy milk"), 500),
+                item(&tid, &pid, "priority", json!(4), 500),
+                personal(&mine, "title", json!("private"), 500),
             ],
         )
         .await,
         StatusCode::OK
     );
 
-    // Bob's partition must receive the task's title.
-    let (_, pull) = http(
-        &control,
-        "GET",
-        "/sync/pull?since=0&limit=1000",
-        Some(&bob.token),
-        json!({}),
-    )
-    .await;
-    let has_title = pull["operations"]
-        .as_array()
-        .unwrap()
+    let bob_ops = partition_ops(&control, &bob).await;
+    let title = bob_ops
         .iter()
-        .any(|o| o["entity"] == "task" && o["field"] == "title" && o["value"] == "Buy milk");
+        .find(|o| sets(o, &tid, "title"))
+        .expect("the title fans out");
+    assert_eq!(value_of(title), "Buy milk");
+    assert_eq!(title["entity"], SEALED);
+    assert_eq!(title["scope"], pid.as_str());
     assert!(
-        has_title,
-        "task title must fan out to co-members even when emitted before project_id"
+        !bob_ops.iter().any(|o| o["entity_id"] == mine.as_str()),
+        "an entity under the account's own key stays in its partition"
     );
 }
 
 #[tokio::test]
 async fn any_active_member_can_edit_tasks_but_not_the_project_entity() {
-    // Every active member (even a commenter-role) has full admin over tasks and sections, but
+    // Every active member (even a commenter-role) has full admin over the project's items, but
     // editing the project entity's own fields still needs Editor+.
     let state = make_state().await;
     let control = app(state.clone());
@@ -349,15 +376,15 @@ async fn any_active_member_can_edit_tasks_but_not_the_project_entity() {
     push(
         &control,
         &alice.token,
-        vec![op("project", &pid, "name", json!("P"), 100)],
+        vec![project_op(&pid, "name", json!("P"), 100)],
     )
     .await;
     push(
         &control,
         &alice.token,
         vec![
-            op("task", &tid, "project_id", json!(pid), 200),
-            op("task", &tid, "title", json!("orig"), 200),
+            item(&tid, &pid, "project_id", json!(pid), 200),
+            item(&tid, &pid, "title", json!("orig"), 200),
         ],
     )
     .await;
@@ -368,7 +395,7 @@ async fn any_active_member_can_edit_tasks_but_not_the_project_entity() {
         push(
             &control,
             &carol.token,
-            vec![op("task", &tid, "title", json!("edited"), 400)]
+            vec![item(&tid, &pid, "title", json!("edited"), 400)]
         )
         .await,
         StatusCode::OK
@@ -380,7 +407,7 @@ async fn any_active_member_can_edit_tasks_but_not_the_project_entity() {
         push(
             &control,
             &carol.token,
-            vec![op("section", &sid, "project_id", json!(pid), 450)]
+            vec![item(&sid, &pid, "project_id", json!(pid), 450)]
         )
         .await,
         StatusCode::OK
@@ -391,7 +418,7 @@ async fn any_active_member_can_edit_tasks_but_not_the_project_entity() {
         push(
             &control,
             &carol.token,
-            vec![op("project", &pid, "name", json!("renamed"), 460)]
+            vec![project_op(&pid, "name", json!("renamed"), 460)]
         )
         .await,
         StatusCode::FORBIDDEN
@@ -404,8 +431,8 @@ async fn any_active_member_can_edit_tasks_but_not_the_project_entity() {
             &control,
             &carol.token,
             vec![
-                op("comment", &cid, "task_id", json!(tid), 500),
-                op("comment", &cid, "body", json!("looks good"), 500),
+                item(&cid, &pid, "task_id", json!(tid), 500),
+                item(&cid, &pid, "body", json!("looks good"), 500),
             ],
         )
         .await,
@@ -413,26 +440,20 @@ async fn any_active_member_can_edit_tasks_but_not_the_project_entity() {
     );
 
     // The comment reached the owner's partition (fanned out).
-    let (status, pull) = http(
-        &control,
-        "GET",
-        "/sync/pull?since=0&limit=1000",
-        Some(&alice.token),
-        json!({}),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let has_comment =
-        pull["operations"].as_array().unwrap().iter().any(|o| {
-            o["entity"] == "comment" && o["field"] == "body" && o["value"] == "looks good"
-        });
-    assert!(has_comment, "comment should fan out to the project owner");
+    assert!(
+        partition_ops(&control, &alice)
+            .await
+            .iter()
+            .any(|o| sets(o, &cid, "body") && value_of(o) == "looks good"),
+        "comment should fan out to the project owner"
+    );
 }
 
 #[tokio::test]
 async fn only_owner_can_delete_or_archive_a_shared_project() {
     // Deleting/archiving the project entity itself is owner-only, so an editor can't remove a shared
-    // project out from under its owner (they leave instead). Editors keep rename/restyle.
+    // project out from under its owner (they leave instead). Editors keep rename/restyle. The two
+    // fields keep their names on the wire for this; their values stay encrypted.
     let state = make_state().await;
     let control = app(state.clone());
 
@@ -443,7 +464,7 @@ async fn only_owner_can_delete_or_archive_a_shared_project() {
     push(
         &control,
         &alice.token,
-        vec![op("project", &pid, "name", json!("P"), 100)],
+        vec![project_op(&pid, "name", json!("P"), 100)],
     )
     .await;
     invite_and_accept(&control, &alice, &bob, &pid, "editor").await;
@@ -453,7 +474,7 @@ async fn only_owner_can_delete_or_archive_a_shared_project() {
         push(
             &control,
             &bob.token,
-            vec![op("project", &pid, "name", json!("renamed by editor"), 300)]
+            vec![project_op(&pid, "name", json!("renamed by editor"), 300)]
         )
         .await,
         StatusCode::OK,
@@ -465,7 +486,7 @@ async fn only_owner_can_delete_or_archive_a_shared_project() {
         push(
             &control,
             &bob.token,
-            vec![op("project", &pid, "deleted_at", json!(400), 400)]
+            vec![project_op(&pid, "deleted_at", json!(400), 400)]
         )
         .await,
         StatusCode::FORBIDDEN,
@@ -477,7 +498,7 @@ async fn only_owner_can_delete_or_archive_a_shared_project() {
         push(
             &control,
             &bob.token,
-            vec![op("project", &pid, "archived_at", json!(500), 500)]
+            vec![project_op(&pid, "archived_at", json!(500), 500)]
         )
         .await,
         StatusCode::FORBIDDEN,
@@ -489,25 +510,15 @@ async fn only_owner_can_delete_or_archive_a_shared_project() {
         push(
             &control,
             &alice.token,
-            vec![op("project", &pid, "deleted_at", json!(600), 600)]
+            vec![project_op(&pid, "deleted_at", json!(600), 600)]
         )
         .await,
         StatusCode::OK,
         "owner may soft-delete a shared project"
     );
-    let (_, pull) = http(
-        &control,
-        "GET",
-        "/sync/pull?since=0&limit=1000",
-        Some(&bob.token),
-        json!({}),
-    )
-    .await;
-    let deleted_fanned_out = pull["operations"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|o| o["entity"] == "project" && o["field"] == "deleted_at" && o["value"] == 600);
+    let deleted_fanned_out = partition_ops(&control, &bob).await.iter().any(|o| {
+        o["entity"] == PROJECT && o["field"] == "deleted_at" && opened(&o["value"]) == 600
+    });
     assert!(
         deleted_fanned_out,
         "the owner's delete should reach every member"
@@ -527,14 +538,14 @@ async fn owner_can_delete_a_private_project() {
     push(
         &control,
         &alice.token,
-        vec![op("project", &pid, "name", json!("private"), 100)],
+        vec![project_op(&pid, "name", json!("private"), 100)],
     )
     .await;
     assert_eq!(
         push(
             &control,
             &alice.token,
-            vec![op("project", &pid, "deleted_at", json!(200), 200)]
+            vec![project_op(&pid, "deleted_at", json!(200), 200)]
         )
         .await,
         StatusCode::OK,
@@ -555,13 +566,13 @@ async fn removed_member_stops_receiving_ops() {
     push(
         &control,
         &alice.token,
-        vec![op("project", &pid, "name", json!("P"), 100)],
+        vec![project_op(&pid, "name", json!("P"), 100)],
     )
     .await;
     push(
         &control,
         &alice.token,
-        vec![op("task", &tid, "project_id", json!(pid), 200)],
+        vec![item(&tid, &pid, "project_id", json!(pid), 200)],
     )
     .await;
     invite_and_accept(&control, &alice, &bob, &pid, "editor").await;
@@ -582,27 +593,17 @@ async fn removed_member_stops_receiving_ops() {
         push(
             &control,
             &alice.token,
-            vec![op("task", &tid, "title", json!("after-removal"), 900)]
+            vec![item(&tid, &pid, "title", json!("after-removal"), 900)]
         )
         .await,
         StatusCode::OK
     );
 
     // Bob's partition never receives the post-removal edit.
-    let (_, pull) = http(
-        &control,
-        "GET",
-        "/sync/pull?since=0&limit=1000",
-        Some(&bob.token),
-        json!({}),
-    )
-    .await;
-    let leaked = pull["operations"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|o| o["value"] == "after-removal");
-    assert!(!leaked, "a removed member must not receive further ops");
+    assert!(
+        !has_value(&partition_ops(&control, &bob).await, "after-removal"),
+        "a removed member must not receive further ops"
+    );
 }
 
 /// A project with a section, a task and a comment on it, shared by Alice with Bob. Returns the
@@ -617,10 +618,10 @@ async fn shared_project_with_items(
     let tid = Uuid::now_v7().to_string();
     let cid = Uuid::now_v7().to_string();
     let ops = vec![
-        op("project", &pid, "name", json!("P"), 100),
-        op("section", &sid, "project_id", json!(pid), 110),
-        op("task", &tid, "project_id", json!(pid), 120),
-        op("comment", &cid, "task_id", json!(tid), 130),
+        project_op(&pid, "name", json!("P"), 100),
+        item(&sid, &pid, "project_id", json!(pid), 110),
+        item(&tid, &pid, "project_id", json!(pid), 120),
+        item(&cid, &pid, "task_id", json!(tid), 130),
     ];
     assert_eq!(push(control, &alice.token, ops).await, StatusCode::OK);
     invite_and_accept(control, alice, bob, &pid, "editor").await;
@@ -690,7 +691,7 @@ async fn the_sweep_revokes_what_earlier_leavers_kept() {
         .unwrap();
     sqlx::query(
         "INSERT INTO entity_tombstones (user_id, entity, entity_id, hlc_wall_ms, hlc_counter, hlc_node)
-         VALUES ($1, 'project', $2, 1, 0, $3)",
+         VALUES ($1, 'todo.project', $2, 1, 0, $3)",
     )
     .bind(bob_id)
     .bind(project_id)
@@ -724,57 +725,9 @@ async fn the_sweep_revokes_what_earlier_leavers_kept() {
 }
 
 #[tokio::test]
-async fn assignee_must_be_a_project_member() {
-    let state = make_state().await;
-    let control = app(state.clone());
-
-    let alice = new_user(&control).await;
-    let bob = new_user(&control).await;
-    let stranger = new_user(&control).await;
-    let pid = Uuid::now_v7().to_string();
-    let tid = Uuid::now_v7().to_string();
-
-    push(
-        &control,
-        &alice.token,
-        vec![op("project", &pid, "name", json!("P"), 100)],
-    )
-    .await;
-    push(
-        &control,
-        &alice.token,
-        vec![op("task", &tid, "project_id", json!(pid), 200)],
-    )
-    .await;
-    invite_and_accept(&control, &alice, &bob, &pid, "editor").await;
-
-    // Assigning a member succeeds.
-    assert_eq!(
-        push(
-            &control,
-            &alice.token,
-            vec![op("task", &tid, "assignee_id", json!(bob.id), 300)]
-        )
-        .await,
-        StatusCode::OK
-    );
-
-    // Assigning a non-member is rejected.
-    assert_eq!(
-        push(
-            &control,
-            &alice.token,
-            vec![op("task", &tid, "assignee_id", json!(stranger.id), 400)]
-        )
-        .await,
-        StatusCode::FORBIDDEN
-    );
-}
-
-#[tokio::test]
-async fn activity_actor_is_server_stamped_to_the_caller() {
-    // An activity's actor_id must be stamped to the authenticated caller, so a member
-    // cannot forge activity-feed history attributed to another member.
+async fn every_delivered_op_names_its_pusher() {
+    // Clients check an activity's actor against `pushed_by`, so only the server may say who pushed:
+    // a member cannot forge activity-feed history attributed to another member.
     let state = make_state().await;
     let control = app(state.clone());
     let alice = new_user(&control).await;
@@ -785,57 +738,47 @@ async fn activity_actor_is_server_stamped_to_the_caller() {
     push(
         &control,
         &alice.token,
-        vec![op("project", &pid, "name", json!("P"), 100)],
+        vec![project_op(&pid, "name", json!("P"), 100)],
     )
     .await;
     push(
         &control,
         &alice.token,
-        vec![
-            op("task", &tid, "project_id", json!(pid), 200),
-            op("task", &tid, "title", json!("t"), 200),
-        ],
+        vec![item(&tid, &pid, "title", json!("t"), 200)],
     )
     .await;
     invite_and_accept(&control, &alice, &carol, &pid, "commenter").await;
 
-    // Carol pushes an activity forging Alice as the actor.
+    // Carol pushes an activity claiming to come from Alice, in the op and in its value.
     let aid = Uuid::now_v7().to_string();
+    let mut forged = item(&aid, &pid, "actor_id", json!(alice.id), 500);
+    forged["pushed_by"] = json!(alice.id);
     assert_eq!(
         push(
             &control,
             &carol.token,
-            vec![
-                op("activity", &aid, "task_id", json!(tid), 500),
-                op("activity", &aid, "actor_id", json!(alice.id), 500),
-                op("activity", &aid, "kind", json!("status"), 500),
-            ],
+            vec![item(&aid, &pid, "task_id", json!(tid), 500), forged],
         )
         .await,
         StatusCode::OK
     );
 
-    // When Alice pulls, the activity's actor_id is Carol (server-stamped), not the forged Alice.
-    let (_, pull) = http(
-        &control,
-        "GET",
-        "/sync/pull?since=0&limit=1000",
-        Some(&alice.token),
-        json!({}),
-    )
-    .await;
-    let actor = pull["operations"]
-        .as_array()
-        .unwrap()
+    // Alice receives it as pushed by Carol; the server leaves the encrypted value alone.
+    let alice_ops = partition_ops(&control, &alice).await;
+    let actor = alice_ops
         .iter()
-        .find(|o| o["entity"] == "activity" && o["field"] == "actor_id")
-        .and_then(|o| o["value"].as_str())
-        .map(str::to_string);
-    assert_eq!(
-        actor.as_deref(),
-        Some(carol.id.as_str()),
-        "actor_id must be server-stamped to the pushing member, not the forged value"
-    );
+        .find(|o| sets(o, &aid, "actor_id"))
+        .expect("the activity fans out");
+    assert_eq!(actor["pushed_by"], carol.id.as_str());
+    assert_eq!(value_of(actor), alice.id.as_str());
+    // Alice's own ops name her, the server's own name nobody.
+    let own = alice_ops.iter().find(|o| sets(o, &tid, "title")).unwrap();
+    assert_eq!(own["pushed_by"], alice.id.as_str());
+    let member = alice_ops
+        .iter()
+        .find(|o| o["entity"] == "project_member")
+        .unwrap();
+    assert!(member["pushed_by"].is_null(), "{member:?}");
 }
 
 #[tokio::test]
@@ -855,7 +798,7 @@ async fn rejects_implausibly_future_hlc_wall_clock() {
         "POST",
         "/sync/push",
         Some(&alice.token),
-        json!({ "operations": [op("task", &tid, "title", json!("pinned"), far_future)] }),
+        json!({ "operations": [personal(&tid, "title", json!("pinned"), far_future)] }),
     )
     .await;
     assert_eq!(
@@ -885,7 +828,7 @@ async fn rejects_implausibly_future_hlc_wall_clock() {
         push(
             &control,
             &alice.token,
-            vec![op("task", &tid, "title", json!("ok"), now_ms)]
+            vec![personal(&tid, "title", json!("ok"), now_ms)]
         )
         .await,
         StatusCode::OK,
@@ -895,8 +838,8 @@ async fn rejects_implausibly_future_hlc_wall_clock() {
 
 #[tokio::test]
 async fn cannot_hijack_ownership_of_another_users_private_project() {
-    // A client may push a `project` Set op with ANY entity_id into its own partition. Ownership
-    // of a not-yet-shared project must NOT be inferred from that caller-writable partition, or an
+    // A client may push a project Set op with ANY entity_id into its own partition. Ownership of a
+    // not-yet-shared project must NOT be inferred from that caller-writable partition, or an
     // attacker who learns a victim's project UUID could plant a matching op and then bootstrap
     // themselves as owner via the invite endpoint — locking the real owner out of their own project.
     let state = make_state().await;
@@ -907,12 +850,12 @@ async fn cannot_hijack_ownership_of_another_users_private_project() {
     let carol = new_user(&control).await; // invite target
     let pid = Uuid::now_v7().to_string();
 
-    // Alice creates a private project (committed first → lowest server_seq for this project entity).
+    // Alice creates a private project (committed first: the recorded creator).
     assert_eq!(
         push(
             &control,
             &alice.token,
-            vec![op("project", &pid, "name", json!("Secret"), 100)]
+            vec![project_op(&pid, "name", json!("Secret"), 100)]
         )
         .await,
         StatusCode::OK
@@ -923,7 +866,7 @@ async fn cannot_hijack_ownership_of_another_users_private_project() {
         push(
             &control,
             &mallory.token,
-            vec![op("project", &pid, "name", json!("Pwned"), 200)]
+            vec![project_op(&pid, "name", json!("Pwned"), 200)]
         )
         .await,
         StatusCode::OK
@@ -945,14 +888,32 @@ async fn cannot_hijack_ownership_of_another_users_private_project() {
         "an attacker must not manage a project they didn't create"
     );
 
+    // Alice's own ops of the project no longer in the log (say retention, or her client dropping
+    // the legacy ones) leave the creator as recorded.
+    sqlx::query("DELETE FROM operations WHERE user_id = $1 AND entity_id = $2")
+        .bind(Uuid::parse_str(&alice.id).unwrap())
+        .bind(Uuid::parse_str(&pid).unwrap())
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    let (status, _) = http(
+        &control,
+        "POST",
+        &format!("/projects/{pid}/members"),
+        Some(&mallory.token),
+        json!({ "email": carol.email, "role": "editor" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
     // And Alice retains sync access to her own project (project is not silently marked shared).
     assert_eq!(
         push(
             &control,
             &alice.token,
-            vec![op(
-                "task",
+            vec![item(
                 &Uuid::now_v7().to_string(),
+                &pid,
                 "project_id",
                 json!(pid),
                 300
@@ -978,16 +939,11 @@ async fn cannot_hijack_ownership_of_another_users_private_project() {
     );
 }
 
-/// The shape of a client field-encryption envelope (`{"__enc":1,"iv","ct"}`).
-fn envelope() -> Value {
-    json!({ "__enc": 1, "iv": "AAAAAAAAAAAAAAAA", "ct": "Y2lwaGVydGV4dA==" })
-}
-
 #[tokio::test]
-async fn envelopes_in_server_read_fields_are_rejected() {
-    // Fan-out, the assignee membership check and blob authz read these values. An envelope there
-    // is invisible to the server (an encrypted assignee_id skipped the membership check, an
-    // encrypted project_id kept a task from fanning out), so push refuses it outright.
+async fn pushes_of_names_or_plaintext_are_rejected_whole() {
+    // The server sees wire kinds, tags and envelopes only: a field name it does not act on, a
+    // plaintext value or an older envelope means a client would leak what protocol 7 hides, so the
+    // push is refused outright, and nothing of the batch is applied.
     let state = make_state().await;
     let control = app(state.clone());
     let alice = new_user(&control).await;
@@ -997,108 +953,66 @@ async fn envelopes_in_server_read_fields_are_rejected() {
     push(
         &control,
         &alice.token,
-        vec![op("project", &pid, "name", envelope(), 100)],
-    )
-    .await;
-    push(
-        &control,
-        &alice.token,
-        vec![op("task", &tid, "project_id", json!(pid), 200)],
+        vec![project_op(&pid, "name", json!("P"), 100)],
     )
     .await;
     invite_and_accept(&control, &alice, &bob, &pid, "editor").await;
 
     let sha = "ab".repeat(32);
-    let cases: [(&str, &str, Value); 12] = [
-        ("task", "assignee_id", envelope()),
-        ("task", "project_id", envelope()),
-        ("task", "project_id", json!("inbox")),
-        ("task", "assignee_id", json!(42)),
-        ("section", "project_id", envelope()),
-        ("comment", "task_id", envelope()),
-        ("activity", "task_id", envelope()),
-        ("activity", "actor_id", envelope()),
-        ("attachment", "task_id", envelope()),
-        ("attachment", "blob_sha", envelope()),
-        ("attachment", "thumb_sha", json!(pid)),
-        ("attachment", "blob_sha", json!(format!("{sha}0"))),
+    let ts = json!({ "wall_ms": 300, "counter": 0, "node": Uuid::now_v7() });
+    let raw = |entity: &str, scope: Option<&str>, field: &str, value: Value| {
+        json!({
+            "id": Uuid::now_v7(), "entity": entity, "entity_id": tid, "scope": scope,
+            "op": "set", "field": field, "value": value, "ts": ts,
+        })
+    };
+    let cases = [
+        raw(SEALED, Some(&pid), "title", sealed(json!("x"))),
+        raw(SEALED, Some(&pid), "project_id", json!(pid)),
+        raw(SEALED, Some(&pid), &tag("title"), json!("Buy milk")),
+        raw(SEALED, Some(&pid), &tag("title"), Value::Null),
+        raw(
+            SEALED,
+            Some(&pid),
+            &tag("title"),
+            json!({ "__enc": 2, "kid": "k", "iv": "i", "ct": "c" }),
+        ),
+        raw(SEALED, Some(&pid), "blob_sha", sealed(json!(sha))),
+        raw(SEALED, Some(&pid), "thumb_sha", json!(pid)),
+        raw(SEALED, Some(&pid), "blob_sha", json!(format!("{sha}0"))),
+        raw(PROJECT, Some(&pid), "archived_at", json!(1)),
+        raw("task", None, "title", json!("legacy")),
+        raw("project_member", None, "role", json!("owner")),
     ];
-    for (entity, field, value) in cases {
-        let eid = if entity == "task" {
-            tid.clone()
-        } else {
-            Uuid::now_v7().to_string()
-        };
+    for case in cases {
         let (status, body) = http(
             &control,
             "POST",
             "/sync/push",
             Some(&alice.token),
-            json!({ "operations": [
-                op(entity, &eid, "title", json!("fine"), 300),
-                op(entity, &eid, field, value.clone(), 300),
-            ] }),
+            json!({ "operations": [item(&tid, &pid, "notes", json!("fine"), 300), case.clone()] }),
         )
         .await;
-        assert_eq!(
-            status,
-            StatusCode::BAD_REQUEST,
-            "{entity}.{field} = {value}: {body}"
-        );
-        let msg = body["error"].as_str().unwrap_or_default();
         assert!(
-            msg.contains(&format!("{entity}.{field}")),
-            "the error names the field: {msg}"
+            status == StatusCode::BAD_REQUEST || status == StatusCode::FORBIDDEN,
+            "{case}: {status} {body}"
         );
     }
-
-    // The whole batch was refused: nothing from it reached Bob (or Alice's own partition).
-    let (_, pull) = http(
-        &control,
-        "GET",
-        "/sync/pull?since=0&limit=1000",
-        Some(&alice.token),
-        json!({}),
-    )
-    .await;
     assert!(
-        !pull["operations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|o| o["value"] == "fine"),
+        !has_value(&partition_ops(&control, &alice).await, "fine"),
         "a rejected batch must not be partially applied"
     );
 
-    // Plaintext uuids, a lowercase sha and null all pass.
+    // Tags with envelopes, a lowercase sha and null pass.
     assert_eq!(
         push(
             &control,
             &alice.token,
             vec![
-                op("task", &tid, "assignee_id", json!(bob.id), 400),
-                op("task", &tid, "assignee_id", Value::Null, 401),
-                op(
-                    "attachment",
-                    &Uuid::now_v7().to_string(),
-                    "task_id",
-                    json!(tid),
-                    402
-                ),
-                op(
-                    "attachment",
-                    &Uuid::now_v7().to_string(),
-                    "blob_sha",
-                    json!(sha),
-                    402
-                ),
-                op(
-                    "attachment",
-                    &Uuid::now_v7().to_string(),
-                    "thumb_sha",
-                    Value::Null,
-                    402
-                ),
+                item(&tid, &pid, "title", json!("fine"), 400),
+                item(&tid, &pid, "assignee_id", Value::Null, 401),
+                item(&tid, &pid, "blob_sha", json!(sha), 402),
+                item(&tid, &pid, "thumb_sha", Value::Null, 402),
             ],
         )
         .await,
@@ -1107,7 +1021,7 @@ async fn envelopes_in_server_read_fields_are_rejected() {
 }
 
 #[tokio::test]
-async fn encrypted_title_with_plaintext_project_id_still_fans_out() {
+async fn a_sealed_value_reaches_the_member_unchanged_with_its_scope() {
     let state = make_state().await;
     let control = app(state.clone());
     let alice = new_user(&control).await;
@@ -1117,44 +1031,25 @@ async fn encrypted_title_with_plaintext_project_id_still_fans_out() {
     push(
         &control,
         &alice.token,
-        vec![op("project", &pid, "name", envelope(), 100)],
+        vec![project_op(&pid, "name", json!("P"), 100)],
     )
     .await;
     invite_and_accept(&control, &alice, &bob, &pid, "editor").await;
 
-    // The real client's order: the encrypted title first, the plaintext link after it.
+    let title = item(&tid, &pid, "title", json!("secret"), 500);
     assert_eq!(
-        push(
-            &control,
-            &alice.token,
-            vec![
-                op("task", &tid, "title", envelope(), 500),
-                op("task", &tid, "project_id", json!(pid), 500),
-            ],
-        )
-        .await,
+        push(&control, &alice.token, vec![title.clone()]).await,
         StatusCode::OK
     );
 
-    let (_, pull) = http(
-        &control,
-        "GET",
-        "/sync/pull?since=0&limit=1000",
-        Some(&bob.token),
-        json!({}),
-    )
-    .await;
-    let title = pull["operations"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|o| o["entity"] == "task" && o["entity_id"] == tid && o["field"] == "title")
-        .map(|o| o["value"].clone());
-    assert_eq!(
-        title,
-        Some(envelope()),
-        "the envelope reaches the co-member unchanged"
-    );
+    let got = partition_ops(&control, &bob)
+        .await
+        .into_iter()
+        .find(|o| o["entity_id"] == tid.as_str())
+        .expect("the title fans out");
+    for key in ["entity", "entity_id", "scope", "field", "value", "ts"] {
+        assert_eq!(got[key], title[key], "{key}");
+    }
 }
 
 /// Server-authored ops (membership rows, revocation tombstones) must order after the client writes
@@ -1177,25 +1072,15 @@ async fn server_authored_ops_order_after_accepted_client_writes() {
         push(
             &control,
             &alice.token,
-            vec![op("project", &pid, "name", json!("P"), ahead)]
+            vec![project_op(&pid, "name", json!("P"), ahead)]
         )
         .await,
         StatusCode::OK
     );
     invite_and_accept(&control, &alice, &bob, &pid, "editor").await;
 
-    let (status, page) = http(
-        &control,
-        "GET",
-        "/sync/pull?since=0&limit=1000",
-        Some(&alice.token),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let member_walls: Vec<u64> = page["operations"]
-        .as_array()
-        .unwrap()
+    let member_walls: Vec<u64> = partition_ops(&control, &alice)
+        .await
         .iter()
         .filter(|op| op["entity"] == "project_member")
         .map(|op| op["ts"]["wall_ms"].as_u64().unwrap())
@@ -1229,13 +1114,17 @@ fn hlc_of(op: &Value) -> (u64, u64, String) {
     )
 }
 
-/// Whether `ops` leave `task` hidden: a Delete newer than every Set of it.
-fn task_hidden(ops: &[Value], task: &str) -> bool {
-    let of_task = || ops.iter().filter(move |o| o["entity_id"] == task);
-    let Some(delete) = of_task().filter(|o| o["op"] == "delete").map(hlc_of).max() else {
+/// Whether `ops` leave entity `id` hidden: a Delete newer than every Set of it.
+fn task_hidden(ops: &[Value], id: &str) -> bool {
+    let of_entity = || ops.iter().filter(move |o| o["entity_id"] == id);
+    let Some(delete) = of_entity()
+        .filter(|o| o["op"] == "delete")
+        .map(hlc_of)
+        .max()
+    else {
         return false;
     };
-    of_task()
+    of_entity()
         .filter(|o| o["op"] == "set")
         .all(|o| hlc_of(o) < delete)
 }
@@ -1261,8 +1150,8 @@ async fn moving_a_task_out_of_a_shared_project_revokes_it_for_members_left_behin
         &control,
         &alice.token,
         vec![
-            op("project", &a, "name", json!("A"), now),
-            op("project", &b, "name", json!("B"), now),
+            project_op(&a, "name", json!("A"), now),
+            project_op(&b, "name", json!("B"), now),
         ],
     )
     .await;
@@ -1275,8 +1164,8 @@ async fn moving_a_task_out_of_a_shared_project_revokes_it_for_members_left_behin
             &control,
             &alice.token,
             vec![
-                op("task", &tid, "project_id", json!(a), now + 1),
-                op("task", &tid, "title", json!("in A"), now + 1),
+                item(&tid, &a, "project_id", json!(a), now + 1),
+                item(&tid, &a, "title", json!("in A"), now + 1),
             ],
         )
         .await,
@@ -1290,8 +1179,8 @@ async fn moving_a_task_out_of_a_shared_project_revokes_it_for_members_left_behin
             &control,
             &alice.token,
             vec![
-                op("task", &tid, "title", json!("in B"), now + 2),
-                op("task", &tid, "project_id", json!(b), now + 2),
+                item(&tid, &b, "title", json!("in B"), now + 2),
+                item(&tid, &b, "project_id", json!(b), now + 2),
             ],
         )
         .await,
@@ -1300,9 +1189,9 @@ async fn moving_a_task_out_of_a_shared_project_revokes_it_for_members_left_behin
 
     let bob_ops = partition_ops(&control, &bob).await;
     assert!(
-        bob_ops.iter().any(|o| o["entity_id"] == tid.as_str()
-            && o["field"] == "project_id"
-            && o["value"] == b.as_str()),
+        bob_ops
+            .iter()
+            .any(|o| o["entity_id"] == tid.as_str() && o["scope"] == b.as_str()),
         "a member of the old project learns of the move"
     );
     assert!(
@@ -1310,7 +1199,7 @@ async fn moving_a_task_out_of_a_shared_project_revokes_it_for_members_left_behin
         "a member who cannot see the new project loses the task"
     );
     assert!(
-        !bob_ops.iter().any(|o| o["value"] == "in B"),
+        !has_value(&bob_ops, "in B"),
         "the re-scoped fields stay with the new project's members"
     );
 
@@ -1321,7 +1210,7 @@ async fn moving_a_task_out_of_a_shared_project_revokes_it_for_members_left_behin
     );
     let carol_ops = partition_ops(&control, &carol).await;
     assert!(!task_hidden(&carol_ops, &tid));
-    assert!(carol_ops.iter().any(|o| o["value"] == "in B"));
+    assert!(has_value(&carol_ops, "in B"));
 }
 
 /// A revocation tombstone must beat whatever a member holds, but a far-future stamp stored in a
@@ -1343,8 +1232,8 @@ async fn a_far_future_stored_stamp_does_not_advance_the_server_clock() {
         &control,
         &alice.token,
         vec![
-            op("project", &a, "name", json!("A"), now),
-            op("project", &b, "name", json!("B"), now),
+            project_op(&a, "name", json!("A"), now),
+            project_op(&b, "name", json!("B"), now),
         ],
     )
     .await;
@@ -1353,8 +1242,8 @@ async fn a_far_future_stored_stamp_does_not_advance_the_server_clock() {
         &control,
         &alice.token,
         vec![
-            op("task", &tid, "project_id", json!(a), now + 1),
-            op("task", &tid, "title", json!("in A"), now + 1),
+            item(&tid, &a, "project_id", json!(a), now + 1),
+            item(&tid, &a, "title", json!("in A"), now + 1),
         ],
     )
     .await;
@@ -1364,13 +1253,15 @@ async fn a_far_future_stored_stamp_does_not_advance_the_server_clock() {
     let planted_node = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO entity_fields
-             (user_id, entity, entity_id, field, value, hlc_wall_ms, hlc_counter, hlc_node)
-         VALUES ($1, 'task', $2, 'notes', '\"late\"', $3, 0, $4)",
+             (user_id, entity, entity_id, field, value, hlc_wall_ms, hlc_counter, hlc_node, scope)
+         VALUES ($1, 'todo.sealed', $2, $5, '\"late\"', $3, 0, $4, $6)",
     )
     .bind(Uuid::parse_str(&bob.id).unwrap())
     .bind(Uuid::parse_str(&tid).unwrap())
     .bind(far as i64)
     .bind(planted_node)
+    .bind(tag("notes"))
+    .bind(Uuid::parse_str(&a).unwrap())
     .execute(&state.pool)
     .await
     .unwrap();
@@ -1380,7 +1271,7 @@ async fn a_far_future_stored_stamp_does_not_advance_the_server_clock() {
         push(
             &control,
             &alice.token,
-            vec![op("task", &tid, "project_id", json!(b), now + 2)],
+            vec![item(&tid, &b, "project_id", json!(b), now + 2)],
         )
         .await,
         StatusCode::OK
@@ -1388,7 +1279,7 @@ async fn a_far_future_stored_stamp_does_not_advance_the_server_clock() {
 
     let (wall, counter, node): (i64, i32, Uuid) = sqlx::query_as(
         "SELECT hlc_wall_ms, hlc_counter, hlc_node FROM entity_tombstones
-          WHERE user_id = $1 AND entity = 'task' AND entity_id = $2",
+          WHERE user_id = $1 AND entity = 'todo.sealed' AND entity_id = $2",
     )
     .bind(Uuid::parse_str(&bob.id).unwrap())
     .bind(Uuid::parse_str(&tid).unwrap())
@@ -1421,20 +1312,20 @@ async fn only_an_editor_may_move_a_task_out_of_a_shared_project() {
     push(
         &control,
         &alice.token,
-        vec![op("project", &a, "name", json!("A"), 100)],
+        vec![project_op(&a, "name", json!("A"), 100)],
     )
     .await;
     invite_and_accept(&control, &alice, &bob, &a, "commenter").await;
     push(
         &control,
         &alice.token,
-        vec![op("task", &tid, "project_id", json!(a), 200)],
+        vec![item(&tid, &a, "project_id", json!(a), 200)],
     )
     .await;
     push(
         &control,
         &bob.token,
-        vec![op("project", &private, "name", json!("mine"), 300)],
+        vec![project_op(&private, "name", json!("mine"), 300)],
     )
     .await;
 
@@ -1442,7 +1333,7 @@ async fn only_an_editor_may_move_a_task_out_of_a_shared_project() {
         push(
             &control,
             &bob.token,
-            vec![op("task", &tid, "title", json!("still commenting"), 400)],
+            vec![item(&tid, &a, "title", json!("still commenting"), 400)],
         )
         .await,
         StatusCode::OK,
@@ -1452,7 +1343,7 @@ async fn only_an_editor_may_move_a_task_out_of_a_shared_project() {
         push(
             &control,
             &bob.token,
-            vec![op("task", &tid, "project_id", json!(private), 500)],
+            vec![personal(&tid, "project_id", json!(private), 500)],
         )
         .await,
         StatusCode::FORBIDDEN,
@@ -1474,11 +1365,17 @@ fn visible_value(ops: &[Value], id: &str, field: &str) -> Option<Value> {
         .max();
     let set = ops
         .iter()
-        .filter(|o| o["entity_id"] == id && o["op"] == "set" && o["field"] == field)
+        .filter(|o| {
+            if o["entity"] == "project_member" {
+                o["entity_id"] == id && o["op"] == "set" && o["field"] == field
+            } else {
+                sets(o, id, field)
+            }
+        })
         .max_by_key(|o| hlc_of(o))?;
     match delete {
         Some(d) if hlc_of(set) <= d => None,
-        _ => Some(set["value"].clone()),
+        _ => Some(value_of(set)),
     }
 }
 
@@ -1525,15 +1422,15 @@ async fn a_removed_member_who_accepts_again_sees_the_project() {
     push(
         &control,
         &alice.token,
-        vec![op("project", &pid, "name", json!("P"), 100)],
+        vec![project_op(&pid, "name", json!("P"), 100)],
     )
     .await;
     push(
         &control,
         &alice.token,
         vec![
-            op("task", &tid, "project_id", json!(pid), 200),
-            op("task", &tid, "title", json!("before"), 200),
+            item(&tid, &pid, "project_id", json!(pid), 200),
+            item(&tid, &pid, "title", json!("before"), 200),
         ],
     )
     .await;
@@ -1551,7 +1448,7 @@ async fn a_removed_member_who_accepts_again_sees_the_project() {
     push(
         &control,
         &alice.token,
-        vec![op("task", &tid, "title", json!("while away"), 300)],
+        vec![item(&tid, &pid, "title", json!("while away"), 300)],
     )
     .await;
     remove_member(&control, &alice, &pid, &carol).await;
@@ -1574,7 +1471,7 @@ async fn a_removed_member_who_accepts_again_sees_the_project() {
     // The rewrite outranks the tombstone and nothing later: an edit after the accept still wins.
     let rewrite = ops
         .iter()
-        .filter(|o| o["entity_id"] == pid.as_str() && o["field"] == "name")
+        .filter(|o| sets(o, &pid, "name"))
         .map(hlc_of)
         .max()
         .unwrap();
@@ -1596,7 +1493,7 @@ async fn a_removed_member_who_accepts_again_sees_the_project() {
     push(
         &control,
         &alice.token,
-        vec![op("project", &pid, "name", json!("renamed"), now)],
+        vec![project_op(&pid, "name", json!("renamed"), now)],
     )
     .await;
     assert_eq!(
@@ -1618,7 +1515,7 @@ async fn a_returning_member_sees_the_project_after_its_tombstone_row_was_purged(
     push(
         &control,
         &alice.token,
-        vec![op("project", &pid, "name", json!("P"), 100)],
+        vec![project_op(&pid, "name", json!("P"), 100)],
     )
     .await;
     invite_and_accept(&control, &alice, &bob, &pid, "editor").await;
@@ -1631,7 +1528,7 @@ async fn a_returning_member_sees_the_project_after_its_tombstone_row_was_purged(
     );
     for table in ["entity_fields", "entity_tombstones"] {
         sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DELETE FROM {table} WHERE user_id = $1 AND entity = 'project' AND entity_id = $2"
+            "DELETE FROM {table} WHERE user_id = $1 AND entity = 'todo.project' AND entity_id = $2"
         )))
         .bind(bob_id)
         .bind(project)
@@ -1677,8 +1574,8 @@ async fn away_world() -> AwayWorld {
         &control,
         &alice.token,
         vec![
-            op("project", &pid, "name", json!("P"), 100),
-            op("project", &private, "name", json!("mine"), 100),
+            project_op(&pid, "name", json!("P"), 100),
+            project_op(&private, "name", json!("mine"), 100),
         ],
     )
     .await;
@@ -1686,8 +1583,8 @@ async fn away_world() -> AwayWorld {
         &control,
         &alice.token,
         vec![
-            op("task", &tid, "project_id", json!(pid), 200),
-            op("task", &tid, "title", json!("t"), 200),
+            item(&tid, &pid, "project_id", json!(pid), 200),
+            item(&tid, &pid, "title", json!("t"), 200),
         ],
     )
     .await;
@@ -1706,16 +1603,17 @@ async fn away_world() -> AwayWorld {
     }
 }
 
-/// Alice moves the task to `target` (null: her Inbox) as her client writes it: the move at `wall`,
-/// and the task's fields rewritten under the new scope just above their old stamps.
-async fn alice_moves(w: &AwayWorld, target: Value, wall: u64) {
+/// Alice moves the task to `target` (`None`: her Inbox, under her own key) as her client writes it:
+/// the move at `wall`, and the task's fields rewritten under the new scope just above their old
+/// stamps.
+async fn alice_moves(w: &AwayWorld, target: Option<&str>, wall: u64) {
     assert_eq!(
         push(
             &w.control,
             &w.alice.token,
             vec![
-                op("task", &w.tid, "project_id", target, wall),
-                op("task", &w.tid, "title", json!("rescoped"), 201),
+                op(SEALED, &w.tid, target, "project_id", json!(target), wall),
+                op(SEALED, &w.tid, target, "title", json!("rescoped"), 201),
             ],
         )
         .await,
@@ -1733,9 +1631,9 @@ async fn an_edit_made_while_away_does_not_bring_back_a_task_moved_out() {
     for to_inbox in [false, true] {
         let w = away_world().await;
         let target = if to_inbox {
-            Value::Null
+            None
         } else {
-            json!(w.private)
+            Some(w.private.as_str())
         };
         let (_, head) = http(
             &w.control,
@@ -1761,14 +1659,15 @@ async fn an_edit_made_while_away_does_not_bring_back_a_task_moved_out() {
         device.extend(page["operations"].as_array().unwrap().iter().cloned());
         assert!(task_hidden(&device, &w.tid), "to inbox: {to_inbox}");
 
-        // The device pushes first, though: its edit from after the move is refused.
+        // The device pushes first, though: its edit from after the move, in the scope it knew, is
+        // refused.
         assert_eq!(
             push(
                 &w.control,
                 &w.bob.token,
-                vec![op(
-                    "task",
+                vec![item(
                     &w.tid,
+                    &w.pid,
                     "title",
                     json!("edited while away"),
                     w.now + 1000
@@ -1780,7 +1679,7 @@ async fn an_edit_made_while_away_does_not_bring_back_a_task_moved_out() {
         );
         let partition = partition_ops(&w.control, &w.bob).await;
         assert!(task_hidden(&partition, &w.tid), "to inbox: {to_inbox}");
-        assert!(!partition.iter().any(|o| o["value"] == "edited while away"));
+        assert!(!has_value(&partition, "edited while away"));
 
         let comment = Uuid::now_v7().to_string();
         assert_eq!(
@@ -1788,8 +1687,8 @@ async fn an_edit_made_while_away_does_not_bring_back_a_task_moved_out() {
                 &w.control,
                 &w.bob.token,
                 vec![
-                    op("comment", &comment, "task_id", json!(w.tid), w.now + 1000),
-                    op("comment", &comment, "body", json!("hi"), w.now + 1000),
+                    item(&comment, &w.pid, "task_id", json!(w.tid), w.now + 1000),
+                    item(&comment, &w.pid, "body", json!("hi"), w.now + 1000),
                 ],
             )
             .await,
@@ -1804,7 +1703,7 @@ async fn an_edit_made_while_away_does_not_bring_back_a_task_moved_out() {
 #[tokio::test]
 async fn a_task_moved_out_stays_gone_once_retention_purged_its_tombstone() {
     let w = away_world().await;
-    alice_moves(&w, json!(w.private), w.now).await;
+    alice_moves(&w, Some(&w.private), w.now).await;
 
     let bob: Uuid = w.bob.id.parse().unwrap();
     sqlx::query("UPDATE operations SET created_at = now() - interval '60 days' WHERE user_id = $1")
@@ -1843,9 +1742,9 @@ async fn a_task_moved_out_stays_gone_once_retention_purged_its_tombstone() {
         push(
             &w.control,
             &w.bob.token,
-            vec![op(
-                "task",
+            vec![item(
                 &w.tid,
+                &w.pid,
                 "title",
                 json!("edited before the move"),
                 300
@@ -1875,37 +1774,52 @@ async fn a_task_moved_out_stays_gone_once_retention_purged_its_tombstone() {
 #[tokio::test]
 async fn a_task_back_within_reach_can_be_edited_again() {
     let w = away_world().await;
-    alice_moves(&w, json!(w.private), w.now).await;
-    alice_moves(&w, json!(w.pid), w.now + 1).await;
-    let edit = |title: &str, wall: u64| op("task", &w.tid, "title", json!(title), wall);
+    alice_moves(&w, Some(&w.private), w.now).await;
+    alice_moves(&w, Some(&w.pid), w.now + 1).await;
     assert_eq!(
-        push(&w.control, &w.bob.token, vec![edit("back", w.now + 2)]).await,
+        push(
+            &w.control,
+            &w.bob.token,
+            vec![item(&w.tid, &w.pid, "title", json!("back"), w.now + 2)]
+        )
+        .await,
         StatusCode::OK
     );
     assert_eq!(
         push(
             &w.control,
             &w.bob.token,
-            vec![op("task", &w.tid, "project_id", Value::Null, w.now + 3)],
+            vec![personal(&w.tid, "project_id", Value::Null, w.now + 3)],
         )
         .await,
         StatusCode::OK,
         "an editor may move it out"
     );
     assert_eq!(
-        push(&w.control, &w.bob.token, vec![edit("mine now", w.now + 4)]).await,
+        push(
+            &w.control,
+            &w.bob.token,
+            vec![personal(&w.tid, "title", json!("mine now"), w.now + 4)]
+        )
+        .await,
         StatusCode::OK
     );
 
     // Moved to a project Bob then joins.
     let w = away_world().await;
-    alice_moves(&w, json!(w.private), w.now).await;
+    alice_moves(&w, Some(&w.private), w.now).await;
     invite_and_accept(&w.control, &w.alice, &w.bob, &w.private, "editor").await;
     assert_eq!(
         push(
             &w.control,
             &w.bob.token,
-            vec![op("task", &w.tid, "title", json!("joined"), w.now + 1)],
+            vec![item(
+                &w.tid,
+                &w.private,
+                "title",
+                json!("joined"),
+                w.now + 1
+            )],
         )
         .await,
         StatusCode::OK
@@ -1920,7 +1834,7 @@ async fn a_task_back_within_reach_can_be_edited_again() {
 /// land while the accept is under way must go through (the lock is not held for the copy) and
 /// reach the joiner exactly once, with the result a copy made under the lock would give: an edit's
 /// new value, a new task, a task moved out gone, and a task moved in with its comment, which the
-/// move did not send again.
+/// client moves with it.
 #[tokio::test]
 async fn pushes_during_an_accept_reach_the_joiner_exactly_once() {
     let state = make_state().await;
@@ -1937,22 +1851,16 @@ async fn pushes_during_an_accept_reach_the_joiner_exactly_once() {
         &control,
         &alice.token,
         vec![
-            op("project", &pid, "name", json!("P"), 100),
-            op("project", &private, "name", json!("mine"), 100),
-            op("task", &edited, "project_id", json!(pid), 200),
-            op("task", &edited, "title", json!("before"), 200),
-            op("task", &moved_out, "project_id", json!(pid), 200),
-            op("task", &moved_out, "title", json!("leaving"), 200),
-            op("task", &moved_in, "project_id", json!(private), 200),
-            op("task", &moved_in, "title", json!("arriving"), 200),
-            op("comment", &comment, "task_id", json!(moved_in), 200),
-            op(
-                "comment",
-                &comment,
-                "body",
-                json!("along for the ride"),
-                200,
-            ),
+            project_op(&pid, "name", json!("P"), 100),
+            project_op(&private, "name", json!("mine"), 100),
+            item(&edited, &pid, "project_id", json!(pid), 200),
+            item(&edited, &pid, "title", json!("before"), 200),
+            item(&moved_out, &pid, "project_id", json!(pid), 200),
+            item(&moved_out, &pid, "title", json!("leaving"), 200),
+            personal(&moved_in, "project_id", json!(private), 200),
+            personal(&moved_in, "title", json!("arriving"), 200),
+            personal(&comment, "task_id", json!(moved_in), 200),
+            personal(&comment, "body", json!("along for the ride"), 200),
         ],
     )
     .await;
@@ -2024,18 +1932,19 @@ async fn pushes_during_an_accept_reach_the_joiner_exactly_once() {
     for (i, task) in new_tasks.iter().enumerate() {
         let title = format!("new {i}");
         let ops = vec![
-            op("task", task, "project_id", json!(pid), now),
-            op("task", task, "title", json!(title), now),
+            item(task, &pid, "project_id", json!(pid), now),
+            item(task, &pid, "title", json!(title), now),
         ];
         assert_eq!(during(ops).await, StatusCode::OK);
     }
-    let ops = vec![op("task", &edited, "title", json!("during"), now)];
+    let ops = vec![item(&edited, &pid, "title", json!("during"), now)];
     assert_eq!(during(ops).await, StatusCode::OK);
-    let ops = vec![op("task", &moved_out, "project_id", json!(private), now)];
+    let ops = vec![personal(&moved_out, "project_id", json!(private), now)];
     assert_eq!(during(ops).await, StatusCode::OK);
     let ops = vec![
-        op("task", &moved_in, "project_id", json!(pid), now),
-        op("task", &moved_in, "title", json!("arrived"), now),
+        item(&moved_in, &pid, "project_id", json!(pid), now),
+        item(&moved_in, &pid, "title", json!("arrived"), now),
+        item(&comment, &pid, "body", json!("along for the ride"), now),
     ];
     assert_eq!(during(ops).await, StatusCode::OK);
 
@@ -2046,15 +1955,18 @@ async fn pushes_during_an_accept_reach_the_joiner_exactly_once() {
         &control,
         &alice.token,
         vec![
-            op("task", &after, "project_id", json!(pid), now + 1),
-            op("task", &after, "title", json!("after"), now + 1),
+            item(&after, &pid, "project_id", json!(pid), now + 1),
+            item(&after, &pid, "title", json!("after"), now + 1),
         ],
     )
     .await;
 
     let ops = partition_ops(&control, &bob).await;
     for title in ["new 0", "new 1", "new 2", "during", "arrived", "after"] {
-        let copies = ops.iter().filter(|o| o["value"] == title).count();
+        let copies = ops
+            .iter()
+            .filter(|o| o["op"] == "set" && value_of(o) == title)
+            .count();
         assert_eq!(copies, 1, "{title:?} reaches the joiner exactly once");
     }
     for (i, task) in new_tasks.iter().enumerate() {

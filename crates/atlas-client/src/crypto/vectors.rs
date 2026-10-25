@@ -525,3 +525,57 @@ fn envelopes_are_recognised_by_shape() {
     assert!(!is_encrypted_envelope(&json!({"iv": "a", "ct": "b"})));
     assert!(!is_encrypted_envelope(&json!("text")));
 }
+
+/// Sync protocol 7: the v3 envelopes and field tags of `envelope_vectors.json`, which the
+/// TypeScript client asserts too.
+#[test]
+fn field_v3_and_tag_vectors() {
+    let f = fixture("envelope_vectors.json");
+    for p in f["padding_v3"].as_array().unwrap() {
+        assert_eq!(
+            padded_length_from(p["n"].as_u64().unwrap() as usize, FIELD_V3_MIN_PADDING) as u64,
+            p["padded"].as_u64().unwrap()
+        );
+    }
+    for v in f["field_v3"].as_array().unwrap() {
+        let scope = match s(v, "scope").strip_prefix("project:") {
+            Some(id) => KeyScope::Project(id.into()),
+            None => KeyScope::Personal,
+        };
+        let at = FieldLocation {
+            entity: s(v, "entity"),
+            entity_id: s(v, "entity_id"),
+            field: s(v, "field"),
+        };
+        let env = FieldEnvelope::from_value_v3(&v["envelope"]).unwrap();
+        let key = h32(v, "key");
+        let sealed = SealedField {
+            kind: s(v, "kind").into(),
+            field: s(v, "real_field").into(),
+            value: v["value"].clone(),
+        };
+        assert_eq!(open_sealed_field(&key, &scope, at, &env).unwrap(), sealed);
+        let again =
+            seal_field_with_iv(&key, &env.kid, &scope, at, &sealed, iv_of(&v["envelope"])).unwrap();
+        assert_eq!(again, env, "re-sealing {}", v["value"]);
+        let elsewhere = FieldLocation {
+            field: "00000000000000000000000000000000",
+            ..at
+        };
+        assert!(open_sealed_field(&key, &scope, elsewhere, &env).is_err());
+        let other_kind = FieldLocation {
+            entity: "todo.other",
+            ..at
+        };
+        assert!(open_sealed_field(&key, &scope, other_kind, &env).is_err());
+        assert!(is_encrypted_envelope(&v["envelope"]));
+    }
+    for v in f["field_tags"].as_array().unwrap() {
+        let tag_key = field_tag_key(&h32(v, "key"));
+        assert_eq!(hex::encode(tag_key), s(v, "tag_key"));
+        assert_eq!(
+            field_tag(&tag_key, s(v, "entity_id"), s(v, "kind"), s(v, "field")),
+            s(v, "tag")
+        );
+    }
+}

@@ -34,6 +34,7 @@ import { compareHlc, successorHlc, type Hlc } from "./hlc";
 import type { LocalStore } from "./store";
 import { KEY_TRUST_ID } from "./trust";
 import type { EntityKind, Operation } from "./types";
+import { openSealed } from "./wire";
 
 export type ScopeStore = Pick<LocalStore, "list" | "get" | "rawField" | "exists">;
 
@@ -397,7 +398,7 @@ export interface Repair {
   reason: "key" | "plaintext";
   keyId?: string;
   scope?: KeyScope;
-  version?: 1 | 2;
+  version?: 1 | 2 | 3;
 }
 
 function mayRepairProject(store: Pick<ScopeStore, "list">, userId: string | undefined, r: Repair) {
@@ -422,9 +423,9 @@ export function confirmRepairs(
     if (r.reason === "key") {
       const desired = preferredKey(keyring, resolveScope(store, r.entity, r.entityId), shared);
       if (!desired || !r.scope || !sameKeyScope(desired.scope, r.scope)) return false;
-      if (desired.keyId === r.keyId && r.version === 2) return false;
+      if (desired.keyId === r.keyId && (r.version === 2 || r.version === 3)) return false;
       if (
-        r.version === 2 &&
+        (r.version === 2 || r.version === 3) &&
         r.keyId !== undefined &&
         r.scope.kind === "project" &&
         keyring.isRetired(r.scope.projectId, r.keyId)
@@ -475,13 +476,25 @@ export function reviveLockedValues(
       adoptPersonalV1: expected?.kind === "project" && sole.has(expected.projectId),
     });
   });
-  const repairs = confirmRepairs(
-    store,
-    keyring,
-    userId,
-    revived.map((r) => ({ ...r, reason: "key" as const })),
+  // Values that arrived sealed (protocol 7) open with the keys of the scope they arrived in.
+  const sealed = store.reviveSealed((wire, entityId, wireField, placeholder) =>
+    openSealed(keyring, wire, entityId, wireField, placeholder.scope, placeholder),
   );
-  return { revived: revived.length, repaired: applyRepairs(store, repairs) };
+  const repairs = confirmRepairs(store, keyring, userId, [
+    ...revived.map((r) => ({ ...r, reason: "key" as const })),
+    ...sealed.map((r) => ({
+      entity: r.entity,
+      entityId: r.entityId,
+      field: r.field,
+      ts: r.ts,
+      value: r.value,
+      reason: "key" as const,
+      keyId: r.keyId,
+      scope: r.scope,
+      version: 3 as const,
+    })),
+  ]);
+  return { revived: revived.length + sealed.length, repaired: applyRepairs(store, repairs) };
 }
 
 type RescopeStore = Pick<

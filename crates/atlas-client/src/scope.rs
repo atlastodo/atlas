@@ -403,11 +403,12 @@ pub fn confirm_repairs(
                 if desired.scope != *scope {
                     return false;
                 }
-                if Some(desired.key_id.as_str()) == r.key_id.as_deref() && r.version == Some(2) {
+                let current_format = matches!(r.version, Some(2 | 3));
+                if Some(desired.key_id.as_str()) == r.key_id.as_deref() && current_format {
                     return false;
                 }
-                if let (Some(2), Some(key_id), KeyScope::Project(p)) =
-                    (r.version, r.key_id.as_deref(), scope)
+                if let (true, Some(key_id), KeyScope::Project(p)) =
+                    (current_format, r.key_id.as_deref(), scope)
                 {
                     if keyring.is_retired(p, key_id) {
                         return false;
@@ -475,7 +476,29 @@ pub fn revive_locked_values(
             opts,
         )
     });
-    let count = revived.len();
+    // Values that arrived sealed (protocol 7) open with the keys of the scope they arrived in.
+    let sealed = store.revive_sealed(|pending| {
+        crate::wire::open_sealed(
+            keyring,
+            &pending.wire,
+            &pending.entity_id,
+            &pending.field,
+            pending.scope.as_deref(),
+            &pending.envelope,
+        )
+    });
+    let count = revived.len() + sealed.len();
+    let sealed_repairs = sealed.into_iter().map(|(opened, entity_id, ts)| Repair {
+        entity: opened.kind,
+        entity_id,
+        field: opened.field,
+        ts,
+        value: opened.value,
+        reason: RepairReason::Key,
+        key_id: Some(opened.key_id),
+        scope: Some(opened.scope),
+        version: Some(3),
+    });
     let repairs: Vec<Repair> = revived
         .into_iter()
         .map(|r| Repair {
@@ -489,6 +512,7 @@ pub fn revive_locked_values(
             scope: Some(r.opened.scope),
             version: Some(r.opened.version),
         })
+        .chain(sealed_repairs)
         .collect();
     let confirmed = confirm_repairs(store, keyring, user_id, repairs);
     (count, apply_repairs(store, &confirmed))

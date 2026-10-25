@@ -4,10 +4,11 @@
 //! refused with its typed error.
 
 use atlas_client::client::AtlasClient;
-use atlas_client::crypto::{decrypt_field, FieldEnvelope, FieldLocation, KeyScope};
+use atlas_client::crypto::{FieldEnvelope, Keyring};
 use atlas_client::session::ConnectOptions;
 use atlas_client::testing::{current_discovery, FakeServer};
 use atlas_client::vault::VaultQuery;
+use atlas_client::wire::open_sealed;
 use atlas_client::Error;
 use serde_json::json;
 
@@ -75,19 +76,25 @@ fn a_vault_token_writes_items_only_its_key_opens() {
     }
     let (vault_key, _) = server.app_keys["vault"];
     for (_, op) in &st.ops {
-        let entity = op["entity"].as_str().unwrap();
-        assert!(
-            entity == "vault.item" || entity == "vault.folder",
-            "{entity}"
-        );
-        let envelope = FieldEnvelope::from_value(&op["value"]).expect("an envelope");
-        let at = FieldLocation {
-            entity,
-            entity_id: op["entity_id"].as_str().unwrap(),
-            field: op["field"].as_str().unwrap(),
+        assert_eq!(op["entity"], "vault.sealed");
+        assert!(op["scope"].is_null());
+        let envelope = FieldEnvelope::from_value_v3(&op["value"]).expect("an envelope");
+        let open = |key: [u8; 32]| {
+            open_sealed(
+                &Keyring::new(key, [0; 32], None),
+                "vault.sealed",
+                op["entity_id"].as_str().unwrap(),
+                op["field"].as_str().unwrap(),
+                None,
+                &envelope,
+            )
         };
-        assert!(decrypt_field(&vault_key, &KeyScope::Personal, at, &envelope).is_ok());
-        assert!(decrypt_field(&server.dek, &KeyScope::Personal, at, &envelope).is_err());
+        let kind = open(vault_key).expect("the vault key opens it").kind;
+        assert!(
+            matches!(kind.as_str(), "vault.item" | "vault.folder"),
+            "{kind:?}"
+        );
+        assert!(open(server.dek).is_none());
     }
     drop(st);
 

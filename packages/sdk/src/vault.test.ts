@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   ApiError,
   ServerIncompatibleError,
-  decryptField,
+  Keyring,
+  openSealed,
+  type FieldEnvelopeV3,
   isEncryptedEnvelope,
 } from "@atlastodo/client-core";
 import { AtlasError } from "./client";
@@ -65,14 +67,21 @@ describe("VaultClient", () => {
     }
     const { appKey } = server.appKeys.vault!;
     for (const op of server.ops) {
-      expect(op.entity.startsWith("vault.")).toBe(true);
+      expect(op.entity).toBe("vault.sealed");
+      expect(op.scope ?? null).toBeNull();
       if (op.op !== "set") continue;
       expect(isEncryptedEnvelope(op.value)).toBe(true);
-      const at = { entity: op.entity, entityId: op.entity_id, field: op.field };
-      expect(() => decryptField(appKey, { kind: "personal" }, at, op.value as never)).not.toThrow();
-      expect(() =>
-        decryptField(server.keys.dek, { kind: "personal" }, at, op.value as never),
-      ).toThrow();
+      const opened = (key: Uint8Array) =>
+        openSealed(
+          new Keyring({ dek: key }),
+          op.entity,
+          op.entity_id,
+          op.field,
+          null,
+          op.value as FieldEnvelopeV3,
+        );
+      expect(opened(appKey)?.kind.startsWith("vault.")).toBe(true);
+      expect(opened(server.keys.dek)).toBeNull();
     }
 
     const other = await connect(server);

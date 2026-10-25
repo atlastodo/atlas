@@ -1,52 +1,349 @@
 {
-  "_doc": "What the bundled app manifests (manifests/*.json) decide, asserted by packages/client-core/src/fieldPolicy.test.ts and crates/atlas-client (field_policy.rs). `fields`: whether a value of `entity`.`field` leaves the device end-to-end encrypted (`encrypted`); a kind no manifest names, and any field a manifest does not list, is encrypted. Todo keeps only the ids the server routes and checks access by in plaintext; journal and vault keep nothing, so the server sees no vault item's type, name, folder, URL, timestamp or secret. `token_policies`: the API token policy of a token for `apps`, the strictest of their manifests' `api_tokens` (`max_lifetime_days` null is no limit; `exclusive`: the server refuses a token naming such an app with any other).",
+  "_doc": "What the bundled app manifests (manifests/*.json) decide, asserted by packages/client-core/src/fieldPolicy.test.ts and crates/atlas-client (field_policy.rs). `fields`, per real kind and field: the wire kind it travels as since sync protocol 7 (`wire`, null for a kind no manifest names), whether its name goes on the wire instead of an opaque tag (`public`), whether its value is encrypted (`encrypted`), and whether protocol 6 encrypted it (`legacy_encrypted`, which reading rows written before protocol 7 needs). Only a project's deleted_at/archived_at (owner-only, still encrypted) and an attachment's blob_sha/thumb_sha (plaintext blob addresses) are public; journal and vault keep nothing public or plaintext, so the server sees no vault item's type, name, folder, URL, timestamp or secret. `token_policies`: the API token policy of a token for `apps`, the strictest of their manifests' `api_tokens` (`max_lifetime_days` null is no limit; `exclusive`: the server refuses a token naming such an app with any other).",
   "fields": [
-    { "entity": "task", "field": "title", "encrypted": true },
-    { "entity": "task", "field": "project_id", "encrypted": false },
-    { "entity": "task", "field": "assignee_id", "encrypted": false },
-    { "entity": "task", "field": "a_field_nobody_declared", "encrypted": true },
-    { "entity": "comment", "field": "task_id", "encrypted": false },
-    { "entity": "attachment", "field": "blob_sha", "encrypted": false },
-    { "entity": "project_member", "field": "anything", "encrypted": false },
-    { "entity": "journal.entry", "field": "body", "encrypted": true },
-    { "entity": "journal.entry", "field": "date", "encrypted": true },
-    { "entity": "journal.entry", "field": "project_id", "encrypted": true },
-    { "entity": "vault.item", "field": "type", "encrypted": true },
-    { "entity": "vault.item", "field": "name", "encrypted": true },
-    { "entity": "vault.item", "field": "fields", "encrypted": true },
-    { "entity": "vault.item", "field": "urls", "encrypted": true },
-    { "entity": "vault.item", "field": "notes", "encrypted": true },
-    { "entity": "vault.item", "field": "tags", "encrypted": true },
-    { "entity": "vault.item", "field": "folder", "encrypted": true },
-    { "entity": "vault.item", "field": "favorite", "encrypted": true },
-    { "entity": "vault.item", "field": "history", "encrypted": true },
-    { "entity": "vault.item", "field": "created_at", "encrypted": true },
-    { "entity": "vault.item", "field": "updated_at", "encrypted": true },
-    { "entity": "vault.item", "field": "deleted_at", "encrypted": true },
-    { "entity": "vault.item", "field": "project_id", "encrypted": true },
-    { "entity": "vault.item", "field": "task_id", "encrypted": true },
-    { "entity": "vault.folder", "field": "name", "encrypted": true },
-    { "entity": "vault.folder", "field": "deleted_at", "encrypted": true },
-    { "entity": "vault.preference", "field": "value", "encrypted": true },
-    { "entity": "notes.note", "field": "body", "encrypted": true },
-    { "entity": "notes.note", "field": "project_id", "encrypted": true }
+    {
+      "entity": "task",
+      "field": "title",
+      "wire": "todo.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "task",
+      "field": "project_id",
+      "wire": "todo.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": false
+    },
+    {
+      "entity": "task",
+      "field": "assignee_id",
+      "wire": "todo.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": false
+    },
+    {
+      "entity": "task",
+      "field": "a_field_nobody_declared",
+      "wire": "todo.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "comment",
+      "field": "task_id",
+      "wire": "todo.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": false
+    },
+    {
+      "entity": "attachment",
+      "field": "blob_sha",
+      "wire": "todo.sealed",
+      "public": true,
+      "encrypted": false,
+      "legacy_encrypted": false
+    },
+    {
+      "entity": "project_member",
+      "field": "anything",
+      "wire": "project_member",
+      "public": true,
+      "encrypted": false,
+      "legacy_encrypted": false
+    },
+    {
+      "entity": "journal.entry",
+      "field": "body",
+      "wire": "journal.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "journal.entry",
+      "field": "date",
+      "wire": "journal.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "journal.entry",
+      "field": "project_id",
+      "wire": "journal.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "type",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "name",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "fields",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "urls",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "notes",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "tags",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "folder",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "favorite",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "history",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "created_at",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "updated_at",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "deleted_at",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "project_id",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.item",
+      "field": "task_id",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.folder",
+      "field": "name",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.folder",
+      "field": "deleted_at",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "vault.preference",
+      "field": "value",
+      "wire": "vault.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "notes.note",
+      "field": "body",
+      "wire": null,
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "notes.note",
+      "field": "project_id",
+      "wire": null,
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "project",
+      "field": "name",
+      "wire": "todo.project",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "project",
+      "field": "archived_at",
+      "wire": "todo.project",
+      "public": true,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "project",
+      "field": "deleted_at",
+      "wire": "todo.project",
+      "public": true,
+      "encrypted": true,
+      "legacy_encrypted": true
+    },
+    {
+      "entity": "attachment",
+      "field": "thumb_sha",
+      "wire": "todo.sealed",
+      "public": true,
+      "encrypted": false,
+      "legacy_encrypted": false
+    },
+    {
+      "entity": "attachment",
+      "field": "meta",
+      "wire": "todo.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": false
+    },
+    {
+      "entity": "attachment",
+      "field": "wrapped_key",
+      "wire": "todo.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": false
+    },
+    {
+      "entity": "activity",
+      "field": "actor_id",
+      "wire": "todo.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": false
+    },
+    {
+      "entity": "section",
+      "field": "project_id",
+      "wire": "todo.sealed",
+      "public": false,
+      "encrypted": true,
+      "legacy_encrypted": false
+    }
   ],
   "token_policies": [
     {
-      "apps": ["todo"],
-      "policy": { "expiry_required": false, "max_lifetime_days": null, "write_by_default": true, "exclusive": false }
+      "apps": [
+        "todo"
+      ],
+      "policy": {
+        "expiry_required": false,
+        "max_lifetime_days": null,
+        "write_by_default": true,
+        "exclusive": false
+      }
     },
     {
-      "apps": ["journal"],
-      "policy": { "expiry_required": false, "max_lifetime_days": null, "write_by_default": true, "exclusive": false }
+      "apps": [
+        "journal"
+      ],
+      "policy": {
+        "expiry_required": false,
+        "max_lifetime_days": null,
+        "write_by_default": true,
+        "exclusive": false
+      }
     },
     {
-      "apps": ["vault"],
-      "policy": { "expiry_required": true, "max_lifetime_days": 365, "write_by_default": false, "exclusive": true }
+      "apps": [
+        "vault"
+      ],
+      "policy": {
+        "expiry_required": true,
+        "max_lifetime_days": 365,
+        "write_by_default": false,
+        "exclusive": true
+      }
     },
     {
-      "apps": ["todo", "journal", "vault"],
-      "policy": { "expiry_required": true, "max_lifetime_days": 365, "write_by_default": false, "exclusive": true }
+      "apps": [
+        "todo",
+        "journal",
+        "vault"
+      ],
+      "policy": {
+        "expiry_required": true,
+        "max_lifetime_days": 365,
+        "write_by_default": false,
+        "exclusive": true
+      }
     }
   ]
 }

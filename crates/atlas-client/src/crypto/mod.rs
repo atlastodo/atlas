@@ -210,7 +210,8 @@ pub fn unwrap_project_key(
     }
 }
 
-/// Whether a field value is still an encrypted envelope (`__enc: 2` with a `kid`, or `__enc: 1`).
+/// Whether a field value is still an encrypted envelope (`__enc: 3` or `2` with a `kid`, or
+/// `__enc: 1`).
 pub fn is_encrypted_envelope(v: &Value) -> bool {
     let Some(o) = v.as_object() else {
         return false;
@@ -220,7 +221,9 @@ pub fn is_encrypted_envelope(v: &Value) -> bool {
     }
     match o.get("__enc") {
         Some(e) if json_is_number(e, 1.0) => true,
-        Some(e) if json_is_number(e, 2.0) => o.get("kid").is_some_and(Value::is_string),
+        Some(e) if json_is_number(e, 2.0) || json_is_number(e, 3.0) => {
+            o.get("kid").is_some_and(Value::is_string)
+        }
         _ => false,
     }
 }
@@ -309,9 +312,14 @@ fn field_aad(at: FieldLocation<'_>, scope: &KeyScope, kid: &str) -> Vec<u8> {
 /// The padded size for `n` bytes plus the pad marker: at least 32, powers of two to 1 KiB, then
 /// whole KiB.
 pub fn padded_length(n: usize) -> usize {
+    padded_length_from(n, 32)
+}
+
+/// [`padded_length`] with another smallest bucket (`min`, a power of two).
+pub fn padded_length_from(n: usize, min: usize) -> usize {
     let needed = n + 1;
-    if needed <= 32 {
-        32
+    if needed <= min {
+        min
     } else if needed <= 1024 {
         needed.next_power_of_two()
     } else {
@@ -320,7 +328,11 @@ pub fn padded_length(n: usize) -> usize {
 }
 
 pub fn pad_plaintext(data: &[u8]) -> Vec<u8> {
-    let mut out = vec![0u8; padded_length(data.len())];
+    pad_plaintext_from(data, 32)
+}
+
+pub fn pad_plaintext_from(data: &[u8], min: usize) -> Vec<u8> {
+    let mut out = vec![0u8; padded_length_from(data.len(), min)];
     out[..data.len()].copy_from_slice(data);
     out[data.len()] = 0x80;
     out
@@ -379,6 +391,134 @@ pub fn decrypt_field(
     )?;
     serde_json::from_slice(unpad_plaintext(&plain)?)
         .map_err(|e| CryptoError::new(format!("bad JSON: {e}")))
+}
+
+// ---------------------------------------------------------------------------------------------
+// Field envelopes version 3 and field tags (field.ts, sync protocol 7: docs/decisions/0006)
+
+/// A v3 plaintext names the kind and field too, so its smallest bucket is 64 bytes.
+pub const FIELD_V3_MIN_PADDING: usize = 64;
+
+/// What a v3 envelope holds: the real kind and field next to the value.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SealedField {
+    pub kind: String,
+    pub field: String,
+    pub value: Value,
+}
+
+fn field_aad_v3(at: FieldLocation<'_>, scope: &KeyScope, kid: &str) -> Vec<u8> {
+    json_aad(&[
+        "atlas-field".into(),
+        3.into(),
+        at.entity.into(),
+        at.entity_id.into(),
+        at.field.into(),
+        scope.label().into(),
+        kid.into(),
+    ])
+}
+
+/// `at` is the wire location: the wire kind and the wire field (a tag or a public name).
+pub fn seal_field_with_iv(
+    key: &[u8],
+    kid: &str,
+    scope: &KeyScope,
+    at: FieldLocation<'_>,
+    sealed: &SealedField,
+    iv: [u8; 12],
+) -> CryptoResult<FieldEnvelope> {
+    let triple = Value::Array(vec![
+        sealed.kind.clone().into(),
+        sealed.field.clone().into(),
+        sealed.value.clone(),
+    ]);
+    let plain = pad_plaintext_from(
+        &serde_json::to_vec(&triple).expect("JSON"),
+        FIELD_V3_MIN_PADDING,
+    );
+    let p = encrypt_aes_gcm_with_iv(key, &plain, &field_aad_v3(at, scope, kid), iv)?;
+    Ok(FieldEnvelope {
+        __enc: 3,
+        kid: kid.to_owned(),
+        iv: p.iv,
+        ct: p.ct,
+    })
+}
+
+pub fn seal_field(
+    key: &[u8],
+    kid: &str,
+    scope: &KeyScope,
+    at: FieldLocation<'_>,
+    sealed: &SealedField,
+) -> CryptoResult<FieldEnvelope> {
+    seal_field_with_iv(key, kid, scope, at, sealed, random_bytes())
+}
+
+/// Open a v3 envelope that claims to sit at `at` under `key` of `scope`.
+pub fn open_sealed_field(
+    key: &[u8],
+    scope: &KeyScope,
+    at: FieldLocation<'_>,
+    envelope: &FieldEnvelope,
+) -> CryptoResult<SealedField> {
+    let plain = decrypt_aes_gcm(
+        key,
+        &envelope.payload(),
+        &field_aad_v3(at, scope, &envelope.kid),
+    )?;
+    let parsed: Value = serde_json::from_slice(unpad_plaintext(&plain)?)
+        .map_err(|e| CryptoError::new(format!("bad JSON: {e}")))?;
+    match parsed {
+        Value::Array(mut parts) if parts.len() == 3 => {
+            let value = parts.pop().expect("three");
+            let field = parts.pop().expect("three");
+            let kind = parts.pop().expect("three");
+            match (kind, field) {
+                (Value::String(kind), Value::String(field)) => {
+                    Ok(SealedField { kind, field, value })
+                }
+                _ => Err(CryptoError::new("malformed sealed field")),
+            }
+        }
+        _ => Err(CryptoError::new("malformed sealed field")),
+    }
+}
+
+impl FieldEnvelope {
+    /// A v3 envelope's parts, when `v` is one (extra keys, like a placeholder's scope, allowed).
+    pub fn from_value_v3(v: &Value) -> Option<Self> {
+        let o = v.as_object()?;
+        if !json_is_number(o.get("__enc")?, 3.0) {
+            return None;
+        }
+        Some(Self {
+            __enc: 3,
+            kid: o.get("kid")?.as_str()?.to_owned(),
+            iv: o.get("iv")?.as_str()?.to_owned(),
+            ct: o.get("ct")?.as_str()?.to_owned(),
+        })
+    }
+}
+
+/// The key a scope's field tags are made with: HKDF-SHA256 of the encrypting key.
+pub fn field_tag_key(key: &[u8]) -> [u8; 32] {
+    hkdf32(key, None, "atlas-field-tag-v1")
+}
+
+/// The opaque wire name of `field` of `kind` entity `entity_id`: 32 lowercase hex digits.
+pub fn field_tag(tag_key: &[u8; 32], entity_id: &str, kind: &str, field: &str) -> String {
+    use hmac::{KeyInit, Mac};
+    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(tag_key).expect("any key length");
+    mac.update(&json_aad(&[
+        "atlas-field-tag".into(),
+        1.into(),
+        entity_id.into(),
+        kind.into(),
+        field.into(),
+    ]));
+    hex::encode(&mac.finalize().into_bytes()[..16])
 }
 
 // ---------------------------------------------------------------------------------------------

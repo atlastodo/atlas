@@ -410,6 +410,10 @@ export function restoreTask(store: LocalStore, task: Task): boolean {
 // decrypt, whose tombstone would reach every member.
 export function discardTask(store: LocalStore, id: string): boolean {
   if (isTaskLocked(store, id)) return false;
+  // The server cannot link an attachment to its task (sync protocol 7): its blob stays alive until
+  // the attachment itself is tombstoned.
+  for (const e of store.list("attachment"))
+    if (e.fields.task_id === id) store.remove("attachment", e.id);
   store.remove("task", id);
   return true;
 }

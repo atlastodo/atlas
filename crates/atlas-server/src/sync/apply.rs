@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use atlas_core::{Change, EntityKind, Operation};
+use atlas_core::{Change, WireKind, WireOperation};
 use serde_json::{json, Value};
 use sqlx::{PgConnection, Postgres, Transaction};
 use uuid::Uuid;
@@ -14,8 +14,9 @@ use crate::error::AppResult;
 use crate::state::AppState;
 
 /// Insert `(partition, op)` rows idempotently (on `(user_id, op_id)`) and fold the new ones into
-/// each partition's LWW state. Returns each row's `server_seq`, or `None` for a duplicate.
-/// Shared by push and the server-authored fan-out.
+/// each partition's LWW state, and each sealed entity's scope into `entity_scopes` (the scope of
+/// its newest op). Returns each row's `server_seq`, or `None` for a duplicate. Shared by push and
+/// the server-authored fan-out.
 ///
 /// Callers hold [`SYNC_WRITE_LOCK`](super::SYNC_WRITE_LOCK), so this is a few multi-row
 /// statements whatever the batch size. Folding is order-independent, so new rows are
@@ -23,7 +24,7 @@ use crate::state::AppState;
 /// order.
 async fn apply_rows(
     tx: &mut Transaction<'_, Postgres>,
-    rows: &[(Uuid, &Operation)],
+    rows: &[(Uuid, &WireOperation)],
 ) -> AppResult<Vec<Option<i64>>> {
     if rows.is_empty() {
         return Ok(Vec::new());
@@ -45,6 +46,7 @@ async fn apply_rows(
         Vec::with_capacity(n),
         Vec::with_capacity(n),
     );
+    let (mut scopes, mut pushers) = (Vec::with_capacity(n), Vec::with_capacity(n));
     for (user, op) in rows {
         let (wall, counter, node) = hlc_key(&op.ts)?;
         users.push(*user);
@@ -66,18 +68,21 @@ async fn apply_rows(
         walls.push(wall);
         counters.push(counter);
         nodes.push(node);
+        scopes.push(op.scope);
+        pushers.push(op.pushed_by);
     }
 
     let inserted: Vec<(Uuid, Uuid, i64)> = sqlx::query_as(
         "INSERT INTO operations
             (op_id, user_id, entity, entity_id, field, value, is_delete,
-             hlc_wall_ms, hlc_counter, hlc_node)
-         SELECT op_id, user_id, entity, entity_id, field, value, is_delete, wall, counter, node
+             hlc_wall_ms, hlc_counter, hlc_node, scope, pushed_by)
+         SELECT op_id, user_id, entity, entity_id, field, value, is_delete, wall, counter, node,
+                scope, pushed_by
            FROM UNNEST($1::uuid[], $2::uuid[], $3::text[], $4::uuid[], $5::text[], $6::jsonb[],
-                       $7::bool[], $8::int8[], $9::int4[], $10::uuid[])
+                       $7::bool[], $8::int8[], $9::int4[], $10::uuid[], $11::uuid[], $12::uuid[])
                 WITH ORDINALITY
                 AS r(op_id, user_id, entity, entity_id, field, value, is_delete,
-                     wall, counter, node, ord)
+                     wall, counter, node, scope, pushed_by, ord)
           ORDER BY ord
          ON CONFLICT (user_id, op_id) DO NOTHING
          RETURNING user_id, op_id, server_seq",
@@ -92,6 +97,8 @@ async fn apply_rows(
     .bind(&walls)
     .bind(&counters)
     .bind(&nodes)
+    .bind(&scopes)
+    .bind(&pushers)
     .fetch_all(&mut **tx)
     .await?;
 
@@ -104,9 +111,37 @@ async fn apply_rows(
         .map(|(user, op)| new_seqs.remove(&(*user, op.id)))
         .collect();
 
+    // The first account to write a project is its creator (`members::is_project_creator`). Rows
+    // follow seq order, so the first new row of a project is the earliest; a project already
+    // recorded keeps its creator.
+    let mut created: Vec<(Uuid, Uuid)> = Vec::new();
+    for ((user, op), seq) in rows.iter().zip(&seqs) {
+        if seq.is_some()
+            && op.entity == WireKind::TodoProject
+            && !created.iter().any(|(pid, _)| *pid == op.entity_id)
+        {
+            created.push((op.entity_id, *user));
+        }
+    }
+    if !created.is_empty() {
+        let (pids, creators): (Vec<Uuid>, Vec<Uuid>) = created.into_iter().unzip();
+        sqlx::query(
+            "INSERT INTO project_creators (project_id, user_id)
+             SELECT * FROM UNNEST($1::uuid[], $2::uuid[])
+             ON CONFLICT (project_id) DO NOTHING",
+        )
+        .bind(&pids)
+        .bind(&creators)
+        .execute(&mut **tx)
+        .await?;
+    }
+
     type FieldKey<'a> = (Uuid, &'static str, Uuid, &'a str);
-    let mut field_wins: HashMap<FieldKey, (HlcKey, &Value)> = HashMap::new();
+    type FieldWin<'a> = (HlcKey, &'a Value, Option<Uuid>, Option<Uuid>);
+    let mut field_wins: HashMap<FieldKey, FieldWin> = HashMap::new();
     let mut tomb_wins: HashMap<(Uuid, &'static str, Uuid), HlcKey> = HashMap::new();
+    let mut scope_wins: HashMap<(Uuid, &'static str, Uuid), (HlcKey, Option<Uuid>)> =
+        HashMap::new();
     for (i, (user, op)) in rows.iter().enumerate() {
         if seqs[i].is_none() {
             continue;
@@ -117,9 +152,18 @@ async fn apply_rows(
             Change::Set { field, value } => {
                 let key = (*user, entity, op.entity_id, field.as_str());
                 match field_wins.get(&key) {
-                    Some((best, _)) if *best >= ts => {}
+                    Some((best, ..)) if *best >= ts => {}
                     _ => {
-                        field_wins.insert(key, (ts, value));
+                        field_wins.insert(key, (ts, value, op.scope, op.pushed_by));
+                    }
+                }
+                if op.entity == WireKind::TodoSealed {
+                    let key = (*user, entity, op.entity_id);
+                    match scope_wins.get(&key) {
+                        Some((best, _)) if *best >= ts => {}
+                        _ => {
+                            scope_wins.insert(key, (ts, op.scope));
+                        }
                     }
                 }
             }
@@ -149,7 +193,10 @@ async fn apply_rows(
             Vec::with_capacity(n),
             Vec::with_capacity(n),
         );
-        for ((user, entity, entity_id, field), ((wall, counter, node), value)) in field_wins {
+        let (mut sc, mut by) = (Vec::with_capacity(n), Vec::with_capacity(n));
+        for ((user, entity, entity_id, field), ((wall, counter, node), value, scope, pushed_by)) in
+            field_wins
+        {
             u.push(user);
             e.push(entity);
             id.push(entity_id);
@@ -158,17 +205,22 @@ async fn apply_rows(
             w.push(wall);
             c.push(counter);
             nd.push(node);
+            sc.push(scope);
+            by.push(pushed_by);
         }
         sqlx::query(
             "INSERT INTO entity_fields
-                (user_id, entity, entity_id, field, value, hlc_wall_ms, hlc_counter, hlc_node)
+                (user_id, entity, entity_id, field, value, hlc_wall_ms, hlc_counter, hlc_node,
+                 scope, pushed_by)
              SELECT * FROM UNNEST($1::uuid[], $2::text[], $3::uuid[], $4::text[], $5::jsonb[],
-                                  $6::int8[], $7::int4[], $8::uuid[])
+                                  $6::int8[], $7::int4[], $8::uuid[], $9::uuid[], $10::uuid[])
              ON CONFLICT (user_id, entity, entity_id, field) DO UPDATE
                 SET value = EXCLUDED.value,
                     hlc_wall_ms = EXCLUDED.hlc_wall_ms,
                     hlc_counter = EXCLUDED.hlc_counter,
-                    hlc_node = EXCLUDED.hlc_node
+                    hlc_node = EXCLUDED.hlc_node,
+                    scope = EXCLUDED.scope,
+                    pushed_by = EXCLUDED.pushed_by
               WHERE (EXCLUDED.hlc_wall_ms, EXCLUDED.hlc_counter, EXCLUDED.hlc_node)
                   > (entity_fields.hlc_wall_ms, entity_fields.hlc_counter, entity_fields.hlc_node)",
         )
@@ -177,6 +229,54 @@ async fn apply_rows(
         .bind(&id)
         .bind(&f)
         .bind(&v)
+        .bind(&w)
+        .bind(&c)
+        .bind(&nd)
+        .bind(&sc)
+        .bind(&by)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    if !scope_wins.is_empty() {
+        let n = scope_wins.len();
+        let (mut u, mut e, mut id, mut sc) = (
+            Vec::with_capacity(n),
+            Vec::with_capacity(n),
+            Vec::with_capacity(n),
+            Vec::with_capacity(n),
+        );
+        let (mut w, mut c, mut nd) = (
+            Vec::with_capacity(n),
+            Vec::with_capacity(n),
+            Vec::with_capacity(n),
+        );
+        for ((user, entity, entity_id), ((wall, counter, node), scope)) in scope_wins {
+            u.push(user);
+            e.push(entity);
+            id.push(entity_id);
+            sc.push(scope);
+            w.push(wall);
+            c.push(counter);
+            nd.push(node);
+        }
+        sqlx::query(
+            "INSERT INTO entity_scopes
+                (user_id, entity, entity_id, scope, hlc_wall_ms, hlc_counter, hlc_node)
+             SELECT * FROM UNNEST($1::uuid[], $2::text[], $3::uuid[], $4::uuid[],
+                                  $5::int8[], $6::int4[], $7::uuid[])
+             ON CONFLICT (user_id, entity, entity_id) DO UPDATE
+                SET scope = EXCLUDED.scope,
+                    hlc_wall_ms = EXCLUDED.hlc_wall_ms,
+                    hlc_counter = EXCLUDED.hlc_counter,
+                    hlc_node = EXCLUDED.hlc_node
+              WHERE (EXCLUDED.hlc_wall_ms, EXCLUDED.hlc_counter, EXCLUDED.hlc_node)
+                  > (entity_scopes.hlc_wall_ms, entity_scopes.hlc_counter, entity_scopes.hlc_node)",
+        )
+        .bind(&u)
+        .bind(&e)
+        .bind(&id)
+        .bind(&sc)
         .bind(&w)
         .bind(&c)
         .bind(&nd)
@@ -250,12 +350,13 @@ pub(crate) fn member_set_ops(
     role: &str,
     member_state: &str,
     deletion_scheduled: bool,
-) -> Vec<Operation> {
+) -> Vec<WireOperation> {
     let eid = member_entity_id(project_id, user_id);
     let field = |name: &str, value: Value| {
-        Operation::set(
-            EntityKind::ProjectMember,
+        WireOperation::set(
+            WireKind::ProjectMember,
             eid,
+            None,
             name,
             value,
             server_ts(state),
@@ -272,10 +373,11 @@ pub(crate) fn member_set_ops(
     ]
 }
 
-pub(crate) fn member_delete_op(state: &AppState, project_id: Uuid, user_id: Uuid) -> Operation {
-    Operation::delete(
-        EntityKind::ProjectMember,
+pub(crate) fn member_delete_op(state: &AppState, project_id: Uuid, user_id: Uuid) -> WireOperation {
+    WireOperation::delete(
+        WireKind::ProjectMember,
         member_entity_id(project_id, user_id),
+        None,
         server_ts(state),
     )
 }
@@ -284,7 +386,7 @@ pub(crate) fn member_delete_op(state: &AppState, project_id: Uuid, user_id: Uuid
 /// partition's seqs in `(from, cursor]` thanks to [`SYNC_WRITE_LOCK`](super::SYNC_WRITE_LOCK).
 #[derive(Debug)]
 pub(crate) struct LiveBatch {
-    pub ops: Vec<Operation>,
+    pub ops: Vec<WireOperation>,
     pub from: i64,
     pub cursor: i64,
 }
@@ -322,7 +424,7 @@ pub(super) async fn partition_heads(
 /// Apply `(partition, op)` rows and gather the new ones into per-partition live batches.
 pub(super) async fn apply_live(
     tx: &mut Transaction<'_, Postgres>,
-    rows: &[(Uuid, &Operation)],
+    rows: &[(Uuid, &WireOperation)],
 ) -> AppResult<(Vec<Option<i64>>, MemberBatches)> {
     let mut users: Vec<Uuid> = rows.iter().map(|(user, _)| *user).collect();
     users.sort_unstable();
@@ -348,9 +450,9 @@ pub(super) async fn apply_live(
 pub(crate) async fn apply_to_members(
     tx: &mut Transaction<'_, Postgres>,
     members: &[Uuid],
-    ops: &[Operation],
+    ops: &[WireOperation],
 ) -> AppResult<MemberBatches> {
-    let rows: Vec<(Uuid, &Operation)> = members
+    let rows: Vec<(Uuid, &WireOperation)> = members
         .iter()
         .flat_map(|member| ops.iter().map(move |op| (*member, op)))
         .collect();
@@ -360,7 +462,7 @@ pub(crate) async fn apply_to_members(
 /// Like [`apply_to_members`], for callers whose partitions receive different ops.
 pub(crate) async fn apply_to_partitions(
     tx: &mut Transaction<'_, Postgres>,
-    rows: &[(Uuid, &Operation)],
+    rows: &[(Uuid, &WireOperation)],
 ) -> AppResult<MemberBatches> {
     Ok(apply_live(tx, rows).await?.1)
 }
@@ -368,7 +470,7 @@ pub(crate) async fn apply_to_partitions(
 pub(crate) async fn deliver_to_members(
     state: &AppState,
     members: &[Uuid],
-    ops: &[Operation],
+    ops: &[WireOperation],
 ) -> AppResult<()> {
     if members.is_empty() || ops.is_empty() {
         return Ok(());

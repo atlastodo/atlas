@@ -494,6 +494,15 @@ they list any manual steps. A client that is too old for the server is refused w
 From 0.1.10, compose publishes the port on localhost only. If clients reach port 8080 directly
 rather than through a proxy on the same host, set `PORT_BIND=8080` in `.env` before upgrading.
 
+### Upgrading to sync protocol 7
+
+Sync protocol 7 ([decision 0006](./decisions/0006-opaque-sync-metadata.md)) stops sending item kinds,
+field names and links in plaintext. A server that speaks it refuses older clients, so update the
+apps (Android, desktop, journal, vault, the `atlas` CLI) together with the server; the web app it
+serves is the one its image pins. Nothing has to be migrated by hand: the data stays where it is,
+and each client re-encodes what its account holds on its first sync, then drops the old rows. Until
+every member of a shared project has synced once, that member's copy keeps its old metadata.
+
 ### Upgrading from a pre-public build
 
 Builds from before the public 0.1.0 release (versioned up to 0.28) used a different compose

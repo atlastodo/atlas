@@ -9,6 +9,10 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
+use common::legacy::seed_legacy;
+use common::wire::{sealed, tag};
+
 /// The credential a client sends for the account password: the auth hash it derives from it
 /// (64 lowercase hex characters), which is what the server stores and compares.
 const PASSWORD: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -63,7 +67,7 @@ async fn send(
         .method(method)
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-atlas-sync-protocol", "6");
+        .header("x-atlas-sync-protocol", "7");
     if let Some(t) = token {
         b = b.header("authorization", format!("Bearer {t}"));
     }
@@ -135,11 +139,11 @@ async fn push_project(router: &Router, owner: &User) -> String {
         json!({
             "operations": [{
                 "id": Uuid::now_v7().to_string(),
-                "entity": "project",
+                "entity": "todo.project",
                 "entity_id": pid,
                 "op": "set",
-                "field": "name",
-                "value": "Shared",
+                "field": tag("name"),
+                "value": sealed(json!("Shared")),
                 "ts": { "wall_ms": 1000, "counter": 0, "node": Uuid::now_v7().to_string() }
             }]
         }),
@@ -530,36 +534,45 @@ fn deleted(ops: &[Value], entity: &str, id: &str) -> bool {
 }
 
 #[tokio::test]
-async fn invites_carry_raw_project_fields_and_the_sealed_key() {
-    let router = setup().await;
+async fn invites_carry_the_preview_legacy_project_fields_and_the_sealed_key() {
+    let (router, pool) = setup_with_pool().await;
     let alice = new_user(&router).await;
     let bob = new_user(&router).await;
     let pid = push_project(&router, &alice).await;
-    let envelope = json!({ "__enc": 1, "iv": "AAAAAAAAAAAAAAAA", "ct": "bmFtZQ==" });
-    let (status, _) = send(
-        &router,
-        "POST",
-        "/sync/push",
-        Some(&alice.token),
-        json!({ "operations": [
-            { "id": Uuid::now_v7(), "entity": "project", "entity_id": pid, "op": "set",
-              "field": "name", "value": envelope,
-              "ts": { "wall_ms": 2000, "counter": 0, "node": Uuid::now_v7() } },
-            { "id": Uuid::now_v7(), "entity": "project", "entity_id": pid, "op": "set",
-              "field": "icon", "value": "star",
-              "ts": { "wall_ms": 2000, "counter": 0, "node": Uuid::now_v7() } },
-        ] }),
+    // The project's name and icon as a protocol 6 client wrote them, not yet migrated.
+    let envelope = json!({ "__enc": 2, "kid": "dek", "iv": "AAAAAAAAAAAAAAAA", "ct": "bmFtZQ==" });
+    let (alice_id, project) = (alice.id.parse().unwrap(), pid.parse().unwrap());
+    seed_legacy(
+        &pool,
+        alice_id,
+        "project",
+        project,
+        "name",
+        envelope.clone(),
+        2000,
     )
     .await;
-    assert_eq!(status, StatusCode::OK);
-    send(
+    seed_legacy(
+        &pool,
+        alice_id,
+        "project",
+        project,
+        "icon",
+        json!("star"),
+        2000,
+    )
+    .await;
+    // What the invitee is shown, encrypted by Alice: opaque to the server, handed back as sent.
+    let preview = json!({ "v": 1, "iv": "cHJldmlldw==", "ct": "c2VhbGVk" });
+    let (status, _) = send(
         &router,
         "POST",
         &format!("/projects/{pid}/members"),
         Some(&alice.token),
-        json!({ "email": bob.email, "role": "editor" }),
+        json!({ "email": bob.email, "role": "editor", "preview": preview }),
     )
     .await;
+    assert_eq!(status, StatusCode::CREATED);
 
     let (status, invites) = send(&router, "GET", "/invites", Some(&bob.token), json!({})).await;
     assert_eq!(status, StatusCode::OK);
@@ -576,6 +589,7 @@ async fn invites_carry_raw_project_fields_and_the_sealed_key() {
         [
             "invited_at",
             "inviter",
+            "preview",
             "project",
             "project_id",
             "role",
@@ -588,12 +602,26 @@ async fn invites_carry_raw_project_fields_and_the_sealed_key() {
     assert_eq!(invite["inviter"]["user_id"], alice.id);
     assert_eq!(invite["inviter"]["email"], alice.email);
     assert!(invite["inviter"]["display_name"].is_string());
-    // Values are handed over as stored: an envelope stays an object, never its JSON text.
+    assert_eq!(invite["preview"], preview);
+    // Legacy values are handed over as stored: an envelope stays an object, never its JSON text.
     assert_eq!(
         invite["project"],
         json!({ "name": envelope, "icon": "star", "color": null, "kind": null })
     );
     assert_eq!(invite["sealed_key"], Value::Null);
+
+    // A preview that is no object, or too big, is refused.
+    for bad in [json!("name"), json!({ "ct": "x".repeat(5000) })] {
+        let (status, _) = send(
+            &router,
+            "POST",
+            &format!("/projects/{pid}/members"),
+            Some(&alice.token),
+            json!({ "email": bob.email, "role": "editor", "preview": bad }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
 
     // After deliveries, the newest sealed key rides along.
     for (n, ct) in [(1u8, "first"), (2, "second")] {
@@ -648,7 +676,7 @@ async fn invitee_receives_its_pending_member_row_until_it_declines() {
     assert_eq!(field("state"), Some(json!("pending")));
     assert_eq!(field("role"), Some(json!("editor")));
     assert!(member_row_id(&ops, &pid, &alice).is_none());
-    assert!(!ops.iter().any(|o| o["entity"] == "project"));
+    assert!(!ops.iter().any(|o| o["entity"] == "todo.project"));
 
     // Declining tombstones the row for Bob and for the members who were shown the invite.
     let (status, _) = send(
@@ -732,7 +760,7 @@ async fn a_failed_accept_leaves_the_invite_pending() {
         async move {
             sqlx::query(
                 "UPDATE entity_fields SET hlc_counter = $3
-                  WHERE user_id = $1 AND entity = 'project' AND entity_id = $2",
+                  WHERE user_id = $1 AND entity = 'todo.project' AND entity_id = $2",
             )
             .bind(alice)
             .bind(pid)
@@ -757,7 +785,7 @@ async fn a_failed_accept_leaves_the_invite_pending() {
     assert!(!pull_ops(&router, &bob)
         .await
         .iter()
-        .any(|o| o["entity"] == "project"));
+        .any(|o| o["entity"] == "todo.project"));
 
     set_counter(0).await;
     let (status, _) = send(
@@ -772,7 +800,7 @@ async fn a_failed_accept_leaves_the_invite_pending() {
     let ops = pull_ops(&router, &bob).await;
     assert!(ops
         .iter()
-        .any(|o| o["entity_id"] == pid.as_str() && o["value"] == "Shared"));
+        .any(|o| o["entity_id"] == pid.as_str() && o["value"] == sealed(json!("Shared"))));
     let row = member_row_id(&ops, &pid, &bob).unwrap();
     assert!(ops.iter().any(|o| o["entity_id"] == row.as_str()
         && o["field"] == "state"

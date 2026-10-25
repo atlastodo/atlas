@@ -1,6 +1,7 @@
 //! Attachments: the out-of-band binary transport for task attachments.
 //!
-//! Metadata syncs through the op log (`EntityKind::Attachment`); this module serves
+//! Metadata syncs through the op log (a `todo.sealed` entity whose public `blob_sha`/`thumb_sha`
+//! fields name its blobs; `attachment` rows written before protocol 7); this module serves
 //! `PUT/GET /attachments/blobs/:sha256` over a content-addressed store (files under `BLOB_DIR`
 //! or an S3 bucket). The server only ever sees AES-GCM ciphertext and verifies its sha256.
 //! Downloads are authorized by a live attachment reference in the caller's partition; uploads
@@ -461,7 +462,7 @@ impl BlobStore {
                     .bind(sha)
                     .execute(&mut *tx)
                     .await?;
-                    bind_blobs(&mut tx, uploader, &[], &[], &[sha.to_owned()]).await?;
+                    bind_blobs(&mut tx, uploader, &[], &[sha.to_owned()]).await?;
                 }
                 tx.commit().await?;
                 return Ok(PutOutcome::Existing);
@@ -490,7 +491,7 @@ impl BlobStore {
         .execute(&mut *tx)
         .await?;
         // Metadata may have been pushed before this upload finished; bind to it now.
-        bind_blobs(&mut tx, uploader, &[], &[], &[sha.to_owned()]).await?;
+        bind_blobs(&mut tx, uploader, &[], &[sha.to_owned()]).await?;
         tx.commit().await?;
         Ok(PutOutcome::Stored)
     }
@@ -639,10 +640,10 @@ async fn get_blob(
         + COUNTING_REFERENCE
         + ")
            FROM entity_fields f LEFT JOIN blobs b ON b.sha256 = (f.value #>> '{}')
-          WHERE f.user_id = $1 AND f.entity = 'attachment' AND f.field IN ('blob_sha', 'thumb_sha')
+          WHERE f.user_id = $1 AND f.field IN ('blob_sha', 'thumb_sha')
             AND (f.value #>> '{}') = $2
             AND "
-        + LIVE_ATTACHMENT_PREDICATE;
+        + &live_reference_sql();
     let refs: Vec<(bool, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(user.user_id)
         .bind(&sha)
@@ -692,8 +693,41 @@ macro_rules! uuid_or_null {
     };
 }
 
-/// SQL fragment checking that the attachment entity aliased `f` is live in its partition (per
-/// `(user_id, entity_id)`, like the LWW fold in `sync/apply.rs`).
+/// SQL fragment checking that the current (`todo.sealed`) attachment aliased `f` is live in its
+/// partition (per `(user_id, entity_id)`, like the LWW fold in `sync/apply.rs`): no tombstone, or a
+/// field newer than it, and no tombstone hiding the project it is scoped to (`entity_scopes`).
+/// The client tombstones a deleted task's attachments, since the server cannot link the two.
+pub(crate) const SEALED_ATTACHMENT_PREDICATE: &str = concat!(
+    "( (NOT EXISTS (",
+    "  SELECT 1 FROM entity_tombstones t",
+    "   WHERE t.user_id = f.user_id AND t.entity = 'todo.sealed' AND t.entity_id = f.entity_id",
+    ") OR EXISTS (",
+    "  SELECT 1 FROM entity_fields g",
+    "   WHERE g.user_id = f.user_id AND g.entity = 'todo.sealed' AND g.entity_id = f.entity_id",
+    "   AND EXISTS (",
+    "     SELECT 1 FROM entity_tombstones t2",
+    "      WHERE t2.user_id = g.user_id AND t2.entity = 'todo.sealed' AND t2.entity_id = g.entity_id",
+    "        AND (g.hlc_wall_ms, g.hlc_counter, g.hlc_node) > (t2.hlc_wall_ms, t2.hlc_counter, t2.hlc_node)",
+    ")))",
+    " )",
+    // Member removal tombstones the member's whole copy of the project (`members.rs`), under the
+    // project's current and legacy kinds; a later project field (re-accepted invite) revives it.
+    " AND NOT EXISTS (",
+    "  SELECT 1 FROM entity_scopes es",
+    "   JOIN entity_tombstones pt",
+    "     ON pt.user_id = es.user_id AND pt.entity IN ('todo.project', 'project')",
+    "    AND pt.entity_id = es.scope",
+    "   WHERE es.user_id = f.user_id AND es.entity = 'todo.sealed' AND es.entity_id = f.entity_id",
+    "     AND NOT EXISTS (",
+    "       SELECT 1 FROM entity_fields pf",
+    "        WHERE pf.user_id = pt.user_id AND pf.entity = pt.entity AND pf.entity_id = pt.entity_id",
+    "          AND (pf.hlc_wall_ms, pf.hlc_counter, pf.hlc_node) > (pt.hlc_wall_ms, pt.hlc_counter, pt.hlc_node)",
+    "     )",
+    ")"
+);
+
+/// SQL fragment checking that the legacy (protocol 6) attachment entity aliased `f` is live in its
+/// partition (per `(user_id, entity_id)`, like the LWW fold in `sync/apply.rs`).
 ///
 /// Live means no tombstone, or a field with an HLC newer than the tombstone's. Data-plane SQL
 /// only: it never touches `__enc`/`__aenc` markers.
@@ -763,63 +797,98 @@ pub(crate) const COUNTING_REFERENCE: &str = concat!(
     ")))"
 );
 
+/// SQL fragment checking that the blob reference aliased `f` (a `blob_sha`/`thumb_sha` field row)
+/// belongs to a live attachment: a current one ([`SEALED_ATTACHMENT_PREDICATE`]) or a legacy one
+/// ([`LIVE_ATTACHMENT_PREDICATE`]).
+fn live_reference_sql() -> String {
+    "((f.entity = 'todo.sealed' AND ".to_owned()
+        + SEALED_ATTACHMENT_PREDICATE
+        + ") OR (f.entity = 'attachment' AND "
+        + LIVE_ATTACHMENT_PREDICATE
+        + "))"
+}
+
 /// `EXISTS` over the counting, live references to blob `b`, in any partition.
 fn referenced_sql() -> String {
     "EXISTS (SELECT 1 FROM entity_fields f
-              WHERE f.entity = 'attachment' AND f.field IN ('blob_sha', 'thumb_sha')
+              WHERE f.field IN ('blob_sha', 'thumb_sha')
                 AND (f.value #>> '{}') = b.sha256
                 AND "
         .to_owned()
         + COUNTING_REFERENCE
         + " AND "
-        + LIVE_ATTACHMENT_PREDICATE
+        + &live_reference_sql()
         + ")"
 }
 
 /// Bind blobs to the project their attachments now live in, as `caller` sees it after a write.
 ///
-/// Considers the caller's attachments in `attachment_ids`, those on `task_ids` (just moved),
-/// and those naming one of `shas`. A blob is rebound only when the caller may already read it,
-/// so a stranger's blob can never be handed to a project of the caller's choosing.
+/// Considers the caller's current attachments among `entity_ids` (written or moved), and the
+/// attachments, current or legacy, naming one of `shas`. A current attachment's project is its
+/// scope (`entity_scopes`), a legacy one's its task's `project_id`. A blob is rebound only when the
+/// caller may already read it, so a stranger's blob can never be handed to a project of the
+/// caller's choosing. Legacy references go first, so a current one wins.
 pub(crate) async fn bind_blobs(
     conn: &mut PgConnection,
     caller: Uuid,
-    attachment_ids: &[Uuid],
-    task_ids: &[Uuid],
+    entity_ids: &[Uuid],
     shas: &[String],
 ) -> AppResult<()> {
-    let sql = concat!(
-        "UPDATE blobs b SET project_id = src.project_id",
-        "  FROM (",
-        "    SELECT DISTINCT ON (r.value #>> '{}') r.value #>> '{}' AS sha, ",
-        uuid_or_null!("(tp.value #>> '{}')"),
-        " AS project_id",
-        "      FROM entity_fields r",
-        "      JOIN entity_fields tl",
-        "        ON tl.user_id = r.user_id AND tl.entity = 'attachment'",
-        "       AND tl.entity_id = r.entity_id AND tl.field = 'task_id'",
-        "      LEFT JOIN entity_fields tp",
-        "        ON tp.user_id = tl.user_id AND tp.entity = 'task' AND tp.field = 'project_id'",
-        "       AND tp.entity_id = ",
-        uuid_or_null!("(tl.value #>> '{}')"),
-        "     WHERE r.user_id = $1 AND r.entity = 'attachment'",
-        "       AND r.field IN ('blob_sha', 'thumb_sha')",
-        "       AND (r.entity_id = ANY($2) OR (r.value #>> '{}') = ANY($4) OR ",
-        uuid_or_null!("(tl.value #>> '{}')"),
-        " = ANY($3))",
-        "     ORDER BY r.value #>> '{}', r.hlc_wall_ms DESC, r.hlc_counter DESC, r.hlc_node DESC",
-        "  ) src",
+    const MAY_REBIND: &str = concat!(
         " WHERE b.sha256 = src.sha",
         "   AND b.project_id IS DISTINCT FROM src.project_id",
         "   AND (b.uploader_id = $1 OR EXISTS (",
         "     SELECT 1 FROM project_members m",
         "      WHERE m.project_id = b.project_id AND m.user_id = $1 AND m.state = 'active'))"
     );
-    sqlx::query(sql)
+    if !shas.is_empty() {
+        let legacy = concat!(
+            "UPDATE blobs b SET project_id = src.project_id",
+            "  FROM (",
+            "    SELECT DISTINCT ON (r.value #>> '{}') r.value #>> '{}' AS sha, ",
+            uuid_or_null!("(tp.value #>> '{}')"),
+            " AS project_id",
+            "      FROM entity_fields r",
+            "      JOIN entity_fields tl",
+            "        ON tl.user_id = r.user_id AND tl.entity = 'attachment'",
+            "       AND tl.entity_id = r.entity_id AND tl.field = 'task_id'",
+            "      LEFT JOIN entity_fields tp",
+            "        ON tp.user_id = tl.user_id AND tp.entity = 'task' AND tp.field = 'project_id'",
+            "       AND tp.entity_id = ",
+            uuid_or_null!("(tl.value #>> '{}')"),
+            "     WHERE r.user_id = $1 AND r.entity = 'attachment'",
+            "       AND r.field IN ('blob_sha', 'thumb_sha')",
+            "       AND (r.value #>> '{}') = ANY($2)",
+            "     ORDER BY r.value #>> '{}', r.hlc_wall_ms DESC, r.hlc_counter DESC, r.hlc_node DESC",
+            "  ) src"
+        )
+        .to_owned()
+            + MAY_REBIND;
+        sqlx::query(sqlx::AssertSqlSafe(legacy))
+            .bind(caller)
+            .bind(shas)
+            .execute(&mut *conn)
+            .await?;
+    }
+    let current = concat!(
+        "UPDATE blobs b SET project_id = src.project_id",
+        "  FROM (",
+        "    SELECT DISTINCT ON (r.value #>> '{}') r.value #>> '{}' AS sha, es.scope AS project_id",
+        "      FROM entity_fields r",
+        "      LEFT JOIN entity_scopes es",
+        "        ON es.user_id = r.user_id AND es.entity = r.entity AND es.entity_id = r.entity_id",
+        "     WHERE r.user_id = $1 AND r.entity = 'todo.sealed'",
+        "       AND r.field IN ('blob_sha', 'thumb_sha')",
+        "       AND (r.entity_id = ANY($3) OR (r.value #>> '{}') = ANY($2))",
+        "     ORDER BY r.value #>> '{}', r.hlc_wall_ms DESC, r.hlc_counter DESC, r.hlc_node DESC",
+        "  ) src"
+    )
+    .to_owned()
+        + MAY_REBIND;
+    sqlx::query(sqlx::AssertSqlSafe(current))
         .bind(caller)
-        .bind(attachment_ids)
-        .bind(task_ids)
         .bind(shas)
+        .bind(entity_ids)
         .execute(conn)
         .await?;
     Ok(())

@@ -380,8 +380,14 @@ export interface InviteView {
   role: MemberRole;
   invited_at: number;
   inviter: { user_id: string; email: string; display_name: string } | null;
-  /** Fields may be envelopes readable only with `sealed_key`. */
+  /**
+   * The project's fields as the inviter's rows written before sync protocol 7 hold them, each an
+   * envelope readable only with `sealed_key`, or null. Null once those rows are migrated: see
+   * `preview`.
+   */
   project: { name: unknown; icon: unknown; color: unknown; kind: unknown };
+  /** What the inviter sealed under the project key for the invitee (`openInvitePreview`). */
+  preview?: import("./crypto").SealedInvitePreview | null;
   sealed_key: { key_id: string; encrypted_pek: unknown } | null;
 }
 

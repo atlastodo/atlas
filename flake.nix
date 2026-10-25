@@ -49,7 +49,12 @@
           inherit version;
           rustPlatform =
             let
-              toolchain = (rust-overlay.lib.mkRustBin { } final).fromRustupToolchainFile ./rust-toolchain.toml;
+              # The toolchain runs on the build platform and carries the host platform's standard
+              # library, so a cross build (x86_64 building for aarch64) needs no aarch64-hosted GCC.
+              rustBin = rust-overlay.lib.mkRustBin { } final.buildPackages;
+              toolchain = (rustBin.fromRustupToolchainFile ./rust-toolchain.toml).override {
+                targets = [ final.stdenv.hostPlatform.rust.rustcTarget ];
+              };
             in
             final.makeRustPlatform {
               cargo = toolchain;

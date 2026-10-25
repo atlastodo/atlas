@@ -1,14 +1,18 @@
 //! One sync cycle (`sync-client.ts`, without realtime or persistence): push the outbox, bootstrap
-//! from the snapshot when there is no cursor, pull after the cursor, then write the repairs.
+//! from the snapshot when there is no cursor, pull after the cursor, then write the repairs, and
+//! once per client the protocol 6 migration (`legacy.ts`).
 
-use atlas_core::Operation;
+use atlas_core::{Change, EntityKind, Operation};
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, Page};
+use crate::crypto::is_encrypted_envelope;
 use crate::crypto::Keyring;
 use crate::error::{Error, Result};
-use crate::scope::{apply_repairs, confirm_repairs, Repair};
+use crate::scope::{apply_repairs, confirm_repairs, resolve_scope, Repair, Scope};
 use crate::store::Store;
+use crate::wire::Aside;
 
 /// Ops per push request.
 pub const MAX_PUSH_OPS: usize = 500;
@@ -49,6 +53,107 @@ pub struct SyncClient {
     walk_finished: bool,
     clock_skew: Option<i64>,
     pub quarantined: Vec<Quarantined>,
+    legacy_done: bool,
+    /// What the protocol 6 migration did, once it ran.
+    pub legacy: Option<LegacyMigration>,
+}
+
+/// A page of `GET /sync/legacy/keys`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LegacyKeysPage {
+    pub entities: Vec<LegacyKey>,
+    #[serde(default)]
+    pub next: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LegacyKey {
+    pub entity: String,
+    pub entity_id: String,
+    pub covered: bool,
+}
+
+/// One pass of the protocol 6 migration (`LegacyMigration`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LegacyMigration {
+    pub reencoded: usize,
+    pub covered: usize,
+    pub left: usize,
+}
+
+fn apply_aside(store: &mut Store, aside: Aside) {
+    for pending in aside.sealed {
+        store.add_sealed(pending);
+    }
+    for (id, ts, op) in aside.tombstones {
+        store.add_pending_tombstone(&id, ts, op);
+    }
+}
+
+/// Whether `user` may re-write every field of the entity (`mayReencode`): their own activity only,
+/// a shared project only as its owner, a shared project's item only as an active member.
+fn may_reencode(store: &Store, user: Option<&str>, kind: EntityKind, id: &str) -> bool {
+    let Some(user) = user else {
+        return false;
+    };
+    if kind == EntityKind::Activity
+        && store
+            .raw_field(kind, id, "actor_id")
+            .and_then(|v| v.as_str())
+            != Some(user)
+    {
+        return false;
+    }
+    let project = match resolve_scope(store, kind, id, None) {
+        Scope::Unknown => return false,
+        Scope::Personal => return true,
+        Scope::Project(p) => p,
+    };
+    let rows: Vec<_> = store
+        .list(EntityKind::ProjectMember)
+        .into_iter()
+        .filter(|e| {
+            e.fields.get("project_id").and_then(|v| v.as_str()) == Some(project.as_str())
+                && e.fields.get("state").and_then(|v| v.as_str()) == Some("active")
+        })
+        .collect();
+    if rows.is_empty() {
+        return true;
+    }
+    let Some(mine) = rows
+        .iter()
+        .find(|e| e.fields.get("user_id").and_then(|v| v.as_str()) == Some(user))
+    else {
+        return false;
+    };
+    kind != EntityKind::Project || mine.fields.get("role").and_then(|v| v.as_str()) == Some("owner")
+}
+
+/// The ops that re-encode `kind` entity `id` from `store`'s copy, each field and the tombstone
+/// with its stamp; `None` while it cannot (not here, or a value no key opens).
+fn reencode(store: &mut Store, kind: EntityKind, id: &str) -> Option<Vec<Operation>> {
+    if !store.exists(kind, id) {
+        return None;
+    }
+    let fields = store.visible_field_states(kind, id);
+    if fields.iter().any(|(_, v, _)| is_encrypted_envelope(v)) {
+        return None;
+    }
+    let entity_id = Uuid::parse_str(id).ok()?;
+    let mut ops: Vec<Operation> = fields
+        .into_iter()
+        .map(|(field, value, ts)| Operation {
+            id: Uuid::new_v4(),
+            entity: kind,
+            entity_id,
+            change: Change::Set { field, value },
+            ts,
+        })
+        .collect();
+    if let Some(ts) = store.tombstone_ts(kind, id) {
+        ops.push(Operation::delete(kind, entity_id, ts));
+    }
+    Some(ops)
 }
 
 fn estimate_wire_bytes(op: &Operation) -> usize {
@@ -79,6 +184,8 @@ impl SyncClient {
             walk_finished: false,
             clock_skew: None,
             quarantined: Vec::new(),
+            legacy_done: false,
+            legacy: None,
         }
     }
 
@@ -124,6 +231,16 @@ impl SyncClient {
         if repaired > 0 {
             let ops = cx.store.unsynced_ops();
             self.push_outbox(cx, ops)?;
+        }
+        if !self.legacy_done {
+            self.legacy_done = true;
+            match migrate_legacy(cx) {
+                Ok(result) => self.legacy = Some(result),
+                // A server without the routes has nothing to migrate; any other failure leaves the
+                // rows for the next run, never the cycle.
+                Err(e) if e.status() == Some(404) => {}
+                Err(e) => eprintln!("atlas: the protocol 6 migration pass failed: {e}"),
+            }
         }
         self.first_cycle_done = true;
         Ok(SyncResult {
@@ -207,8 +324,10 @@ impl SyncClient {
                 operations,
                 cursor: next,
                 repairs,
+                aside,
                 ..
             } = page;
+            apply_aside(cx.store, aside);
             let count = operations.len();
             ops.extend(operations);
             self.cycle_repairs.extend(repairs);
@@ -250,6 +369,7 @@ impl SyncClient {
                 Err(e) => return Err(e),
             };
             self.walk_repairs.extend(page.repairs);
+            apply_aside(cx.store, page.aside);
             if !page.operations.is_empty() {
                 cx.store.apply_remote_batch(&page.operations);
             }
@@ -357,4 +477,61 @@ impl SyncClient {
             }
         }
     }
+}
+
+/// One pass over the partition's protocol 6 keys (`migrateLegacy`): a covered key is dropped as it
+/// is, another re-encoded from this store's copy (every stamp kept, the store not written), pushed
+/// and dropped; what cannot be re-encoded yet stays.
+pub fn migrate_legacy(cx: &mut SyncContext<'_>) -> Result<LegacyMigration> {
+    let mut result = LegacyMigration::default();
+    let mut next: Option<String> = None;
+    loop {
+        let page = cx.api.legacy_keys(next.as_deref())?;
+        let mut drop: Vec<(String, String)> = Vec::new();
+        let mut ops: Vec<Operation> = Vec::new();
+        let mut pushed: Vec<(String, String, Vec<Uuid>)> = Vec::new();
+        for key in page.entities {
+            if key.covered {
+                result.covered += 1;
+                drop.push((key.entity, key.entity_id));
+                continue;
+            }
+            let reencoded = EntityKind::from_wire(&key.entity)
+                .filter(|k| may_reencode(cx.store, cx.user_id, *k, &key.entity_id))
+                .and_then(|k| reencode(cx.store, k, &key.entity_id))
+                .filter(|o| !o.is_empty());
+            match reencoded {
+                Some(o) => {
+                    pushed.push((
+                        key.entity,
+                        key.entity_id,
+                        o.iter().map(|op| op.id).collect(),
+                    ));
+                    ops.extend(o);
+                }
+                None => result.left += 1,
+            }
+        }
+        let mut waiting: Vec<Uuid> = Vec::new();
+        for chunk in ops.chunks(MAX_PUSH_OPS) {
+            waiting.extend(cx.api.sync_push(cx.store, cx.keyring, chunk)?.deferred);
+        }
+        for (entity, id, op_ids) in pushed {
+            // An op waiting for its project's key went nowhere: keep the original.
+            if op_ids.iter().any(|o| waiting.contains(o)) {
+                result.left += 1;
+            } else {
+                result.reencoded += 1;
+                drop.push((entity, id));
+            }
+        }
+        if !drop.is_empty() {
+            cx.api.drop_legacy(&drop)?;
+        }
+        match page.next {
+            Some(n) => next = Some(n),
+            None => break,
+        }
+    }
+    Ok(result)
 }

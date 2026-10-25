@@ -24,8 +24,10 @@ describe("AtlasClient", () => {
     const task = await atlas.createTask({ title: "Water the plants", priority: 2 });
     expect(task).toMatchObject({ title: "Water the plants", priority: 2, is_completed: false });
 
-    const title = server.ops.find((o) => o.op === "set" && o.field === "title");
-    expect(JSON.stringify(title)).not.toContain("Water the plants");
+    // Wire kinds, tags and sealed values only: neither the kind, a field name nor the title.
+    expect(server.ops.length).toBeGreaterThan(0);
+    expect(server.ops.every((o) => o.entity === "todo.sealed")).toBe(true);
+    expect(JSON.stringify(server.ops)).not.toMatch(/Water the plants|"title"|"task"/);
 
     const app = await server.appDevice();
     expect(app.store.get("task", task.id)?.title).toBe("Water the plants");
@@ -162,7 +164,7 @@ describe("AtlasClient", () => {
     await atlas.createTask({ title: "after expiry" });
 
     expect(server.sessions).toBe(2);
-    expect(server.ops.some((o) => o.op === "set" && o.field === "title")).toBe(true);
+    expect(server.ops.some((o) => o.op === "set" && o.entity === "todo.sealed")).toBe(true);
   });
 
   it("refuses a malformed or revoked token", async () => {
