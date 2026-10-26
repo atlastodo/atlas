@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Refreshes every dependency Dependabot can't reach, so nothing sits on an old version:
-#   flake.lock(s) and devenv.lock (nixpkgs, shared by the two: Node, Bun, …); the Bun pins in the
-#   workflows, the Dockerfile and the docs, which follow the Bun that nixpkgs ships; the core pin (in the
-#   apps) and the app web pins (apps.lock.json, in core); the whole
-#   bun.lock, transitive dependencies and overrides included; each Expo app's SDK-managed packages
-#   (`expo install --fix`); Cargo.lock; and nix/bun.nix. Steps for files a repo doesn't have are
-#   skipped. Run by `.github/workflows/deps-refresh.yml` weekly, or locally as `deps:update`.
+#   flake.lock(s) and devenv.lock (nixpkgs, shared by the two: Node, Bun, …); the Bun pin
+#   (.bun-version) and the docs, which follow the Bun that nixpkgs ships; the core pin (in the apps)
+#   and the app web pins (apps.lock.json, in core); the whole bun.lock, transitive dependencies and
+#   overrides included; each Expo app's SDK-managed packages (`expo install --fix`); Cargo.lock;
+#   and nix/bun.nix. Steps for files a repo doesn't have are skipped. Run by
+#   `.github/workflows/deps-refresh.yml` weekly, or locally as `deps:update`.
 #
 # npm releases must be at least DEPS_MIN_AGE seconds old (default 3 days), a buffer against
 # hijacked releases. Exempt: the packages in bunfig.toml's `minimumReleaseAgeExcludes` (our own)
@@ -74,22 +74,23 @@ if [[ -f nix/flake.desktop.lock ]]; then
   rm -rf "$tmp"
 fi
 
-# Bun is pinned in lockstep: devenv gets it from its nixpkgs, CI and the image from BUN_VERSION.
-# Move every pin to the version that nixpkgs now ships.
-if [[ -f devenv.lock ]]; then
+# Bun is pinned in lockstep: devenv gets it from its nixpkgs, CI from .bun-version (setup-bun's
+# bun-version-file). Move every pin to the version that nixpkgs now ships. Keep every pin out of
+# .github/: the refresh workflow's token may not push changes to workflow files.
+if [[ -f devenv.lock && -f .bun-version ]]; then
   step "Bun version"
   ref="$(bun -e 'const l = (await Bun.file("devenv.lock").json()).nodes.nixpkgs.locked;
     console.log(`github:${l.owner}/${l.repo}/${l.rev}`)')"
   new="$(nix eval --raw "$ref#bun.version")"
-  old="$(sed -nE 's/^ *BUN_VERSION: "([0-9.]+)".*/\1/p' .github/workflows/ci.yml | head -1)"
-  if [[ -n "$old" && "$old" != "$new" ]]; then
+  old="$(tr -d '[:space:]' <.bun-version)"
+  if [[ "$old" != "$new" ]]; then
     echo "Bun $old -> $new"
-    mapfile -t files < <(git ls-files '.github/workflows/*.yml' '.github/actions/*/action.yml' \
-      'docker/Dockerfile' devenv.yaml devenv.nix AGENTS.md CONTRIBUTING.md README.md 'docs/*.md')
+    echo "$new" >.bun-version
+    mapfile -t files < <(git ls-files devenv.yaml devenv.nix AGENTS.md CONTRIBUTING.md README.md 'docs/*.md')
     # Only lines that talk about Bun, so an unrelated "1.4.2" elsewhere stays put.
     sed -i -E "/[Bb][Uu][Nn]/s/(^|[^0-9.])${old//./\\.}([^0-9]|$)/\1${new}\2/g" "${files[@]}"
   else
-    echo "Bun stays at ${old:-?}"
+    echo "Bun stays at $old"
   fi
 fi
 
