@@ -50,6 +50,8 @@ jobs:
           git push
           # The push starts no CI run that can complete unattended (a bot commit on a PR asks for
           # approval), so CI is dispatched on the branch; deps-automerge.yml merges on its result.
-          gh workflow run ci.yml --ref "${{ github.event.pull_request.head.ref }}"
+          gh workflow run ci.yml --ref "$HEAD_REF"
         env:
           GH_TOKEN: ${{ github.token }}
+          # Through the environment, not pasted into the script: a branch name is not trusted input.
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
