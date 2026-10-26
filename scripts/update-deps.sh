@@ -15,7 +15,7 @@ cd "$(git rev-parse --show-toplevel)"
 
 age="${DEPS_MIN_AGE:-259200}"
 step() { printf '\n==> %s\n' "$*"; }
-have() { command -v "$1" >/dev/null 2>&1; }
+have() { type -P "$1" >/dev/null; }
 devenv() { if have devenv; then command devenv "$@"; else nix run nixpkgs#devenv -- "$@"; fi; }
 
 # Runs a command with the release age in force: bunfig.toml gets `minimumReleaseAge` and, added to
