@@ -134,7 +134,7 @@ jobs:
           rustup toolchain install --no-self-update
           rustup target add "$TARGET"
       - if: ${{ matrix.zig }}
-        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:
           tool: cargo-zigbuild@0.23.4
           fallback: none
