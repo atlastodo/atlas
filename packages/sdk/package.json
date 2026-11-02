@@ -1,6 +1,6 @@
 {
   "name": "@atlastodo/sdk",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "Headless Atlas client for integrations: API-token sessions that sync an account into memory, and the Atlas Vault client",
   "license": "AGPL-3.0-only",
   "homepage": "https://github.com/atlastodo/atlas/tree/main/packages/sdk",

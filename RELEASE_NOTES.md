@@ -1,24 +1,27 @@
-## v0.1.14
+## v0.1.15
 
-**Breaking:** sync protocol 7 hides item kinds, field names and links from the server, and a server
-on it refuses older clients. Update the apps (Atlas Todo v0.1.16 or later) and the `atlas` CLI
-together with the server. Existing data migrates itself on each client's first sync; see
-[Upgrading to sync protocol 7](https://github.com/atlastodo/atlas/blob/main/docs/self-hosting.md#upgrading-to-sync-protocol-7).
-The image and the flake's `web-dist` serve Atlas Todo v0.1.16.
+### Breaking changes
+- Core is now an app-agnostic sync engine: an app registers its app definition (`registerApp`) and keeps its rules in its own repository. Todo's rules, models, UI catalogs and SDK client moved to atlastodo/atlas-todo (`@atlastodo/todo-core`).
+- The `atlas` CLI no longer has Atlas Todo's commands (`tasks`, `projects`, `labels`, `changes`): use the `atlas-todo` CLI from https://github.com/atlastodo/atlas-todo/releases (same environment, commands and output).
+- `@atlastodo/shared` keeps only Atlas Vault's rules; `@atlastodo/client-core` no longer exports the todo models (`Task`, `Project`, …) and `EntityKind` is an open string; the SDK's `AtlasClient` is gone (`TokenSession` is its generic base).
 
 ### Features
-- Speak sync protocol 7
-- Protocol 7 in the shared task rules and the SDK harness
-- Migrate protocol 6 rows and seal invite previews
-- List the legacy keys a partition still holds
-- Route and authorize sync by scope, never by field names
-- Protocol 7 wire kinds, sealed field envelope and field tags
+- App definitions, so core needs no change for an app's kinds and rules
+- Instance activity retention, enforced by the clients
+- Record every task change as activity, plus project, section and member events, with undo
+- Pin the newest app web build automatically
 
 ### Fixes
-- Cross-build atlas-server with a build-platform Rust
+- Stricter app definitions, and no sync without a sharing app's definition
+- Review fixes for the activity feed
+- Native-speaker review of the Italian catalog
+- Fall back to nix run when devenv is not on PATH
 
 ### Documentation
-- Sync protocol 7 in the protocol, architecture and security docs
+- Never mention AI in commits, PRs or releases
 
 ### Maintenance
-- 2 maintenance commits (CI, build, tests) ([full list](https://github.com/atlastodo/atlas/compare/v0.1.13...v0.1.14))
+- 3 dependency updates, 4 maintenance commits (CI, build, tests) ([full list](https://github.com/atlastodo/atlas/compare/v0.1.14...v0.1.15))
+
+### Thanks
+- @mrCabez

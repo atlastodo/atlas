@@ -1,6 +1,6 @@
 {
   "name": "@atlastodo/shared",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "Atlas Vault item rules, shared by the SDK and the vault app (todo rules moved to atlastodo/atlas-todo)",
   "license": "AGPL-3.0-only",
   "homepage": "https://github.com/atlastodo/atlas/tree/main/packages/shared",
