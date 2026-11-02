@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
-description = "Headless Atlas client: end-to-end encryption, sync and the task rules, at parity with the TypeScript client core."
+description = "Headless Atlas client: end-to-end encryption, sync and app definitions, at parity with the TypeScript client core."
 
 [dependencies]
 atlas-core = { path = "../atlas-core" }

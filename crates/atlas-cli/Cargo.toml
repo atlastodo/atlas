@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
-description = "The `atlas` command line: Atlas Todo for scripts and n8n, end-to-end encrypted, one static binary."
+description = "The `atlas` command line: Atlas Journal and Atlas Vault for scripts and n8n, end-to-end encrypted, one static binary."
 
 [[bin]]
 name = "atlas"
