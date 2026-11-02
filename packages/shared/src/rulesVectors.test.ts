@@ -131,6 +131,8 @@ interface RuleScenario {
   actor: string | null;
   task?: Fields;
   reminders?: Fields[];
+  /** Activity entries already in the store (ids from `...0000000000c0`). */
+  activities?: Fields[];
   action: "create" | "update" | "complete" | "reopen" | "delete";
   input?: Fields;
   patch?: [string, unknown][];
@@ -153,6 +155,10 @@ function runRuleScenario(s: RuleScenario): { result: unknown; expected: unknown 
     store.set("reminder", id, "task_id", RULE_TASK_ID);
     for (const [k, v] of Object.entries(r)) store.set("reminder", id, k, v);
   });
+  (s.activities ?? []).forEach((a, i) => {
+    const id = `00000000-0000-4000-8000-0000000000${(0xc0 + i).toString(16)}`;
+    for (const [k, v] of Object.entries(a)) store.set("activity", id, k, v);
+  });
   const before = new Set(store.unsyncedOps().map((o) => o.id));
   vi.useFakeTimers({ now: s.now, toFake: ["Date"] });
   let result: unknown = null;
@@ -162,7 +168,7 @@ function runRuleScenario(s: RuleScenario): { result: unknown; expected: unknown 
     const actor = s.actor ?? undefined;
     switch (s.action) {
       case "create":
-        subject = createTask(store, s.input as never, s.tz);
+        subject = createTask(store, s.input as never, s.tz, actor, s.now);
         break;
       case "complete":
       case "reopen":
@@ -172,7 +178,7 @@ function runRuleScenario(s: RuleScenario): { result: unknown; expected: unknown 
         result = updateTask(store, task!, Object.fromEntries(s.patch!), actor, s.now, s.tz);
         break;
       case "delete":
-        result = softDeleteTask(store, task!, s.now);
+        result = softDeleteTask(store, task!, s.now, actor);
         break;
     }
   } finally {

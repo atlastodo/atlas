@@ -32,6 +32,7 @@ export * from "./taskMapper";
 export * from "./projectMapper";
 export * from "./sectionMapper";
 export * from "./activity";
+export * from "./activityFeed";
 export * from "./comments";
 export * from "./members";
 export * from "./taskOps";

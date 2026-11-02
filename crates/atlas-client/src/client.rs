@@ -433,7 +433,14 @@ impl AtlasClient {
             ..CreateTaskInput::default()
         };
         let now = (self.now)();
-        let id = create_task(&mut self.session.store, &create, &self.time_zone, now);
+        let user = self.session.user_id.clone();
+        let id = create_task(
+            &mut self.session.store,
+            &create,
+            Some(&user),
+            &self.time_zone,
+            now,
+        );
         self.push()?;
         Ok(self.view(self.raw_task(&id)?))
     }
@@ -558,7 +565,8 @@ impl AtlasClient {
             return Ok(());
         }
         let now = (self.now)();
-        if !soft_delete_task(&mut self.session.store, &task, now) {
+        let user = self.session.user_id.clone();
+        if !soft_delete_task(&mut self.session.store, &task, Some(&user), now) {
             return Err(locked_error(id));
         }
         self.push()

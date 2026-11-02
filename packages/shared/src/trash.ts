@@ -4,6 +4,7 @@
  * by a read-time cascade and hard-purged with it.
  */
 import { isEncryptedEnvelope, type EntityKind, type LocalStore } from "@atlastodo/client-core";
+import { writeActivity, writeProjectActivity } from "./activity";
 
 export const TRASH_KINDS: EntityKind[] = [
   "task",
@@ -41,16 +42,68 @@ export function restoreEntity(store: LocalStore, kind: EntityKind, id: string): 
   store.set(kind, id, "deleted_at", null);
 }
 
+/**
+ * Record a task, project or section moving into (`deleted`) or out of the trash. Other kinds and
+ * calls without an actor record nothing. Returns the entry's id.
+ */
+export function writeTrashActivity(
+  store: LocalStore,
+  actorId: string | undefined,
+  kind: EntityKind,
+  id: string,
+  deleted: boolean,
+  now: number = Date.now(),
+): string | null {
+  if (kind === "task") {
+    return writeActivity(store, actorId, id, deleted ? "deleted" : "restored", null, null, now);
+  }
+  if (kind === "project") {
+    const name = store.get("project", id)?.name;
+    return writeProjectActivity(
+      store,
+      actorId,
+      { projectId: id },
+      deleted ? "project_deleted" : "project_restored",
+      null,
+      typeof name === "string" ? name : null,
+      now,
+    );
+  }
+  if (kind === "section") {
+    const fields = store.get("section", id);
+    const projectId = fields?.project_id;
+    if (typeof projectId !== "string" || projectId === "") return null;
+    return writeProjectActivity(
+      store,
+      actorId,
+      { projectId, sectionId: id },
+      deleted ? "section_deleted" : "section_restored",
+      null,
+      typeof fields?.name === "string" ? fields.name : null,
+      now,
+    );
+  }
+  return null;
+}
+
+/**
+ * Move to the trash; returns the undo for its toast. With `actorId` a `deleted` entry is
+ * recorded, which the undo takes back instead of recording a restore.
+ */
 export function softDelete(
   store: LocalStore,
   kick: () => void,
   kind: EntityKind,
   id: string,
+  actorId?: string,
 ): () => void {
-  store.set(kind, id, "deleted_at", Date.now());
+  const now = Date.now();
+  store.set(kind, id, "deleted_at", now);
+  const entry = writeTrashActivity(store, actorId, kind, id, true, now);
   kick();
   return () => {
     restoreEntity(store, kind, id);
+    if (entry) store.remove("activity", entry);
     kick();
   };
 }
@@ -60,8 +113,10 @@ export function restoreFromTrash(
   kick: () => void,
   kind: EntityKind,
   id: string,
+  actorId?: string,
 ): void {
   restoreEntity(store, kind, id);
+  writeTrashActivity(store, actorId, kind, id, false);
   kick();
 }
 
@@ -98,6 +153,10 @@ function purgeCascade(store: LocalStore, kind: EntityKind, id: string): void {
         tasks.add(e.id);
       }
     for (const nested of doomed) if (nested !== id) store.remove("project", nested);
+    // Project, section and member entries hang off the project, not a task.
+    for (const e of store.list("activity"))
+      if (typeof e.fields.project_id === "string" && doomed.has(e.fields.project_id))
+        store.remove("activity", e.id);
   } else if (kind === "section") {
     for (const e of store.list("task"))
       if (e.fields.section_id === id) {

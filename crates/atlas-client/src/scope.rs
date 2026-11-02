@@ -82,6 +82,12 @@ pub fn resolve_scope(
         },
         EntityKind::Comment | EntityKind::Activity | EntityKind::Attachment => {
             let Some(task_id) = link(entity, id, "task_id") else {
+                // A project, section or member activity entry names its project instead of a task.
+                if entity == EntityKind::Activity {
+                    if let Some(p) = link(entity, id, "project_id") {
+                        return Scope::Project(p);
+                    }
+                }
                 return if known(entity, id) {
                     Scope::Personal
                 } else {

@@ -39,7 +39,13 @@ fn app_project(app: &mut AtlasClient, name: &str) -> String {
 
 fn app_task(app: &mut AtlasClient, input: CreateTaskInput) -> String {
     let tz = resolve_time_zone(Some(TZ));
-    create_task(&mut app.session_mut().store, &input, &tz, 1_700_000_000_000)
+    create_task(
+        &mut app.session_mut().store,
+        &input,
+        None,
+        &tz,
+        1_700_000_000_000,
+    )
 }
 
 fn titles(tasks: &[atlas_client::client::TaskView]) -> Vec<String> {

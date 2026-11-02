@@ -215,8 +215,15 @@ fn locked(store: &Store, task: &Task) -> bool {
     task.locked || is_task_locked(store, &task.id)
 }
 
-/// Create a task; a recurring one takes its day of month from its due date. Returns its id.
-pub fn create_task(store: &mut Store, input: &CreateTaskInput, tz: &TimeZone, now: i64) -> String {
+/// Create a task; a recurring one takes its day of month from its due date. An actor records a
+/// `created` entry; spawned occurrences pass none. Returns its id.
+pub fn create_task(
+    store: &mut Store,
+    input: &CreateTaskInput,
+    actor_id: Option<&str>,
+    tz: &TimeZone,
+    now: i64,
+) -> String {
     let id = store.new_entity_id();
     let mut input = input.clone();
     if let (Some(rule), Some(due)) = (&input.recurrence, &input.due_at) {
@@ -225,6 +232,7 @@ pub fn create_task(store: &mut Store, input: &CreateTaskInput, tz: &TimeZone, no
     for (field, value) in task_create_fields(&input, now) {
         store.set(EntityKind::Task, &id, field, value);
     }
+    write_activity(store, actor_id, &id, "created", None, None, now);
     id
 }
 
@@ -244,7 +252,52 @@ fn js_number_string(v: &Value) -> Option<String> {
     })
 }
 
-/// Append an activity entry; nothing without an actor (`writeActivity`).
+/// Title and description edits within this long of the actor's previous one extend that entry.
+pub const ACTIVITY_MERGE_MS: i64 = 5 * 60 * 1000;
+
+/// The entry a title or description edit extends (`mergeTarget`): the latest entry of that kind on
+/// the task, when it is the actor's, at most [`ACTIVITY_MERGE_MS`] old and no undo.
+fn merge_target(store: &Store, actor: &str, task_id: &str, kind: &str, now: i64) -> Option<String> {
+    let mut latest: Option<(String, Map<String, Value>, f64)> = None;
+    for e in store.list(EntityKind::Activity) {
+        if e.fields.get("task_id").and_then(Value::as_str) != Some(task_id)
+            || e.fields.get("kind").and_then(Value::as_str) != Some(kind)
+        {
+            continue;
+        }
+        let at = e
+            .fields
+            .get("created_at")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let newer = match &latest {
+            None => true,
+            Some((id, _, latest_at)) => at > *latest_at || (at == *latest_at && e.id > *id),
+        };
+        if newer {
+            latest = Some((e.id.clone(), e.fields.clone(), at));
+        }
+    }
+    let (id, fields, at) = latest?;
+    if fields.get("actor_id").and_then(Value::as_str) != Some(actor) {
+        return None;
+    }
+    if fields
+        .get("reverts")
+        .and_then(Value::as_str)
+        .is_some_and(|r| !r.is_empty())
+    {
+        return None;
+    }
+    let now = now as f64;
+    if now < at || now - at > ACTIVITY_MERGE_MS as f64 {
+        return None;
+    }
+    Some(id)
+}
+
+/// Append an activity entry; nothing without an actor (`writeActivity`). A title or description
+/// edit extends the actor's entry of the last [`ACTIVITY_MERGE_MS`] (its `to` and time move).
 pub fn write_activity(
     store: &mut Store,
     actor_id: Option<&str>,
@@ -257,6 +310,18 @@ pub fn write_activity(
     let Some(actor) = actor_id.filter(|a| !a.is_empty()) else {
         return;
     };
+    if kind == "title" || kind == "description" {
+        if let Some(merged) = merge_target(store, actor, task_id, kind, now) {
+            store.set(
+                EntityKind::Activity,
+                &merged,
+                "to",
+                to.map_or(Value::Null, Value::from),
+            );
+            store.set(EntityKind::Activity, &merged, "created_at", now.into());
+            return;
+        }
+    }
     let id = store.new_entity_id();
     store.set(EntityKind::Activity, &id, "task_id", task_id.into());
     store.set(EntityKind::Activity, &id, "actor_id", actor.into());
@@ -320,6 +385,7 @@ pub fn toggle_task(
                     assignee_id: task.assignee_id.clone(),
                     sort_order: None,
                 },
+                None,
                 tz,
                 now,
             );
@@ -420,6 +486,7 @@ pub fn update_task(
         None => task.due_ms(),
     };
     let mut changed = false;
+    let mut moved = false;
     for (field, value) in patch {
         let mut value = value.clone();
         if field == "recurrence" {
@@ -433,31 +500,29 @@ pub fn update_task(
         }
         store.set(EntityKind::Task, &task.id, field, value.clone());
         changed = true;
-        if field == "due_at" {
-            let from = task
-                .due_at
-                .as_ref()
-                .and_then(|d| js_number_string(&Value::Number(d.clone())));
-            write_activity(
-                store,
-                actor_id,
-                &task.id,
-                "due",
-                from,
-                js_number_string(&value),
-                now,
-            );
-        } else if field == "assignee_id" {
-            write_activity(
-                store,
-                actor_id,
-                &task.id,
-                "assignee",
-                task.assignee_id.clone(),
-                value.as_str().map(str::to_owned),
-                now,
-            );
+        if field == "project_id" || field == "section_id" {
+            let before = current.filter(|v| !v.is_null());
+            let after = Some(value.clone()).filter(|v| !v.is_null());
+            moved |= before != after;
+            continue;
         }
+        if let Some((kind, from, to)) = field_activity(field, current.as_ref(), &value) {
+            write_activity(store, actor_id, &task.id, kind, from, to, now);
+        }
+    }
+    if moved {
+        let patched = |name: &str, current: &Option<String>| -> Option<String> {
+            match patch.iter().find(|(k, _)| k == name) {
+                Some((_, v)) => v.as_str().map(str::to_owned),
+                None => current.clone(),
+            }
+        };
+        let from = encode_place(task.project_id.as_deref(), task.section_id.as_deref());
+        let to = encode_place(
+            patched("project_id", &task.project_id).as_deref(),
+            patched("section_id", &task.section_id).as_deref(),
+        );
+        write_activity(store, actor_id, &task.id, "move", Some(from), Some(to), now);
     }
     if changed {
         store.set(EntityKind::Task, &task.id, "updated_at", now.into());
@@ -465,11 +530,60 @@ pub fn update_task(
     changed
 }
 
-/// Move to the trash (`softDeleteTask`).
-pub fn soft_delete_task(store: &mut Store, task: &Task, now: i64) -> bool {
+/// `move` entry values (`encodePlace`): `{"project_id","section_id"}` as JSON.
+pub fn encode_place(project_id: Option<&str>, section_id: Option<&str>) -> String {
+    let s = |v: Option<&str>| v.map_or(Value::Null, |x| Value::String(x.to_owned()));
+    // serde_json keeps insertion order with preserve_order, sorts otherwise: write it by hand.
+    format!(
+        "{{\"project_id\":{},\"section_id\":{}}}",
+        s(project_id),
+        s(section_id)
+    )
+}
+
+/// `labels` entry values (`encodeLabels`): the sorted ids as a JSON array.
+pub fn encode_labels(v: Option<&Value>) -> String {
+    let mut ids: Vec<&str> = v
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    ids.sort_unstable();
+    Value::from(ids).to_string()
+}
+
+/// The activity entry a changed task field records, if it records one (`fieldActivity`).
+fn field_activity(
+    field: &str,
+    before: Option<&Value>,
+    after: &Value,
+) -> Option<(&'static str, Option<String>, Option<String>)> {
+    let num_string = |v: Option<&Value>| v.and_then(js_number_string);
+    let str_or_none = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_owned);
+    let text = |v: Option<&Value>| Some(str_or_none(v).unwrap_or_default());
+    Some(match field {
+        "due_at" => ("due", num_string(before), num_string(Some(after))),
+        "start_at" => ("start", num_string(before), num_string(Some(after))),
+        "priority" => ("priority", num_string(before), num_string(Some(after))),
+        "assignee_id" => ("assignee", str_or_none(before), str_or_none(Some(after))),
+        "title" => ("title", text(before), text(Some(after))),
+        "notes" => ("description", text(before), text(Some(after))),
+        "label_ids" => {
+            let (from, to) = (encode_labels(before), encode_labels(Some(after)));
+            if from == to {
+                return None;
+            }
+            ("labels", Some(from), Some(to))
+        }
+        _ => return None,
+    })
+}
+
+/// Move to the trash (`softDeleteTask`); an actor records a `deleted` entry.
+pub fn soft_delete_task(store: &mut Store, task: &Task, actor_id: Option<&str>, now: i64) -> bool {
     if locked(store, task) {
         return false;
     }
     store.set(EntityKind::Task, &task.id, "deleted_at", now.into());
+    write_activity(store, actor_id, &task.id, "deleted", None, None, now);
     true
 }

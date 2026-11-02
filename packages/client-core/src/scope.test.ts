@@ -241,6 +241,21 @@ describe("resolveScope", () => {
     expect(resolveScope(store, "comment", C)).toEqual({ kind: "project", projectId: P });
   });
 
+  it("scopes a project activity entry through its project_id", () => {
+    const store = sharedStore();
+    const A = newId();
+    store.applyRemote(remote("activity", A, "project_id", P, ts(3)));
+    expect(resolveScope(store, "activity", A)).toEqual({ kind: "project", projectId: P });
+    // A task entry follows its task.
+    const B = newId();
+    store.applyRemote(remote("activity", B, "task_id", T, ts(3)));
+    expect(resolveScope(store, "activity", B)).toEqual({ kind: "project", projectId: P });
+    // Only activity names a project this way.
+    const C2 = newId();
+    store.applyRemote(remote("comment", C2, "project_id", P, ts(3)));
+    expect(resolveScope(store, "comment", C2)).toEqual({ kind: "personal" });
+  });
+
   it("does not count a pending invite as sharing", () => {
     const store = new LocalStore(DEVICE, { newId });
     store.applyRemoteBatch([

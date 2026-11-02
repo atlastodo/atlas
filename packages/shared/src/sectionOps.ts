@@ -1,6 +1,7 @@
 import type { LocalStore, Section, Task } from "@atlastodo/client-core";
 import { toSection } from "./sectionMapper";
 import { allTasks } from "./taskOps";
+import { writeProjectActivity } from "./activity";
 
 // Section rules over a {@link LocalStore} that touch more than one entity.
 
@@ -34,12 +35,24 @@ export function moveSectionToProject(
   }
 }
 
-// Tasks are untouched: the read cascade in {@link visibleTasks} hides them.
+// Tasks are untouched: the read cascade in {@link visibleTasks} hides them. `actorId` records it.
 export function setSectionArchived(
   store: LocalStore,
   sectionId: string,
   archived: boolean,
   now: number = Date.now(),
+  actorId?: string,
 ): void {
   store.set("section", sectionId, "archived_at", archived ? now : null);
+  const fields = store.get("section", sectionId);
+  if (typeof fields?.project_id !== "string" || fields.project_id === "") return;
+  writeProjectActivity(
+    store,
+    actorId,
+    { projectId: fields.project_id, sectionId },
+    archived ? "section_archived" : "section_unarchived",
+    null,
+    typeof fields.name === "string" ? fields.name : null,
+    now,
+  );
 }

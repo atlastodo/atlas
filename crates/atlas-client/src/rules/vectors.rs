@@ -194,13 +194,25 @@ fn task_rule_vectors() {
                 store.set(EntityKind::Reminder, &id, k, v.clone());
             }
         }
+        for (i, a) in s
+            .get("activities")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            let id = format!("00000000-0000-4000-8000-0000000000{:x}", 0xc0 + i);
+            for (k, v) in a.as_object().unwrap() {
+                store.set(EntityKind::Activity, &id, k, v.clone());
+            }
+        }
         let before = store.unsynced_ops().len();
         let task = all_tasks(&store).into_iter().find(|t| t.id == TASK_ID);
         let actor = s["actor"].as_str();
         let mut subject = TASK_ID.to_owned();
         let result = match s["action"].as_str().unwrap() {
             "create" => {
-                subject = create_task(&mut store, &input_of(&s["input"]), &tz, now);
+                subject = create_task(&mut store, &input_of(&s["input"]), actor, &tz, now);
                 Value::Null
             }
             "complete" | "reopen" => {
@@ -222,7 +234,12 @@ fn task_rule_vectors() {
                     &tz
                 ))
             }
-            "delete" => json!(soft_delete_task(&mut store, task.as_ref().unwrap(), now)),
+            "delete" => json!(soft_delete_task(
+                &mut store,
+                task.as_ref().unwrap(),
+                actor,
+                now
+            )),
             other => panic!("unknown action {other}"),
         };
         let ops = store.unsynced_ops()[before..].to_vec();

@@ -6,7 +6,7 @@ import {
 } from "@atlastodo/client-core";
 import { taskCreateFields, toTask } from "./taskMapper";
 import { advanceSeries, anchorMonthDay } from "./recurrence";
-import { writeActivity } from "./activity";
+import { encodeLabels, encodePlace, writeActivity, type TaskActivityKind } from "./activity";
 import { restoreEntity } from "./trash";
 import { wouldCycle } from "./taskTree";
 import { hiddenProjectIds } from "./projectTree";
@@ -109,7 +109,14 @@ export function archivedTasks(store: LocalStore, tasks: Task[] = allTasks(store)
   return archived;
 }
 
-export function createTask(store: LocalStore, input: CreateTaskInput, timeZone?: string): string {
+/** `actorId` records a `created` entry; spawned occurrences and duplicates pass none. */
+export function createTask(
+  store: LocalStore,
+  input: CreateTaskInput,
+  timeZone?: string,
+  actorId?: string,
+  now: number = Date.now(),
+): string {
   const id = store.newEntityId();
   const fields = taskCreateFields(
     input.recurrence && input.due_at != null
@@ -117,6 +124,7 @@ export function createTask(store: LocalStore, input: CreateTaskInput, timeZone?:
       : input,
   );
   for (const [field, value] of Object.entries(fields)) store.set("task", id, field, value);
+  writeActivity(store, actorId, id, "created", null, null, now);
   return id;
 }
 
@@ -216,34 +224,62 @@ export function updateTask(
     patch = { ...patch, recurrence: anchorMonthDay(patch.recurrence, due, timeZone) };
   }
   let changed = false;
+  let moved = false;
+  const current = task as unknown as Record<string, unknown>;
   for (const [field, value] of Object.entries(patch)) {
-    if ((task as unknown as Record<string, unknown>)[field] === value) continue;
+    if (current[field] === value) continue;
     store.set("task", task.id, field, value);
     changed = true;
-    if (field === "due_at") {
-      writeActivity(
-        store,
-        actorId,
-        task.id,
-        "due",
-        task.due_at != null ? String(task.due_at) : null,
-        typeof value === "number" ? String(value) : null,
-        now,
-      );
-    } else if (field === "assignee_id") {
-      writeActivity(
-        store,
-        actorId,
-        task.id,
-        "assignee",
-        task.assignee_id,
-        typeof value === "string" ? value : null,
-        now,
-      );
+    if (field === "project_id" || field === "section_id") {
+      moved ||= (current[field] ?? null) !== (value ?? null);
+      continue;
     }
+    const entry = fieldActivity(field, current[field], value);
+    if (entry) writeActivity(store, actorId, task.id, entry.kind, entry.from, entry.to, now);
+  }
+  if (moved) {
+    const to = {
+      project_id: patch.project_id !== undefined ? patch.project_id : task.project_id,
+      section_id: patch.section_id !== undefined ? patch.section_id : task.section_id,
+    };
+    writeActivity(store, actorId, task.id, "move", encodePlace(task), encodePlace(to), now);
   }
   if (changed) store.set("task", task.id, "updated_at", now);
   return changed;
+}
+
+const numString = (v: unknown): string | null => (typeof v === "number" ? String(v) : null);
+const strOrNull = (v: unknown): string | null => (typeof v === "string" ? v : null);
+
+/** The activity entry a changed task field records, if it records one. */
+function fieldActivity(
+  field: string,
+  before: unknown,
+  after: unknown,
+): { kind: TaskActivityKind; from: string | null; to: string | null } | null {
+  switch (field) {
+    case "due_at":
+      return { kind: "due", from: numString(before), to: numString(after) };
+    case "start_at":
+      return { kind: "start", from: numString(before), to: numString(after) };
+    case "priority":
+      return { kind: "priority", from: numString(before), to: numString(after) };
+    case "assignee_id":
+      return { kind: "assignee", from: strOrNull(before), to: strOrNull(after) };
+    case "title":
+      return { kind: "title", from: strOrNull(before) ?? "", to: strOrNull(after) ?? "" };
+    case "notes":
+      return { kind: "description", from: strOrNull(before) ?? "", to: strOrNull(after) ?? "" };
+    case "label_ids": {
+      const ids = (v: unknown) =>
+        Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+      const from = encodeLabels(ids(before));
+      const to = encodeLabels(ids(after));
+      return from === to ? null : { kind: "labels", from, to };
+    }
+    default:
+      return null;
+  }
 }
 
 export type RecurEditScope = "this_occurrence" | "all_occurrences";
@@ -343,21 +379,49 @@ export function skipTask(
   return true;
 }
 
+/** A drag: `actorId` records a section change as `move` and a due change as `due`. */
 export function moveTask(
   store: LocalStore,
   id: string,
   patch: TaskMove,
   now: number = Date.now(),
+  actorId?: string,
 ): boolean {
   if (isTaskLocked(store, id)) return false;
+  const before = store.get("task", id) ?? {};
   let changed = false;
   for (const [field, value] of Object.entries(patch)) {
     if (value === undefined) continue;
     store.set("task", id, field, value);
     changed = true;
   }
-  if (changed) store.set("task", id, "updated_at", now);
-  return changed;
+  if (!changed) return false;
+  store.set("task", id, "updated_at", now);
+  const project = strOrNull(before.project_id);
+  const fromSection = strOrNull(before.section_id);
+  if (patch.section_id !== undefined && (patch.section_id ?? null) !== fromSection) {
+    writeActivity(
+      store,
+      actorId,
+      id,
+      "move",
+      encodePlace({ project_id: project, section_id: fromSection }),
+      encodePlace({ project_id: project, section_id: patch.section_id ?? null }),
+      now,
+    );
+  }
+  if (patch.due_at !== undefined && (patch.due_at ?? null) !== (before.due_at ?? null)) {
+    writeActivity(
+      store,
+      actorId,
+      id,
+      "due",
+      numString(before.due_at),
+      numString(patch.due_at),
+      now,
+    );
+  }
+  return true;
 }
 
 // Rejected (`false`) when it would create a cycle in `allTasks`. A subtask keeps its project and section.
@@ -385,8 +449,17 @@ export function moveTaskToProject(
   id: string,
   target: TaskProjectMove,
   now: number = Date.now(),
+  actorId?: string,
 ): boolean {
   if (isTaskLocked(store, id)) return false;
+  const before = store.get("task", id) ?? {};
+  const from = {
+    project_id: strOrNull(before.project_id),
+    section_id: strOrNull(before.section_id),
+  };
+  if (from.project_id !== target.project_id || from.section_id !== target.section_id) {
+    writeActivity(store, actorId, id, "move", encodePlace(from), encodePlace(target), now);
+  }
   store.set("task", id, "project_id", target.project_id);
   store.set("task", id, "section_id", target.section_id);
   if (target.sort_order !== undefined) store.set("task", id, "sort_order", target.sort_order);
@@ -394,15 +467,27 @@ export function moveTaskToProject(
   return true;
 }
 
-export function softDeleteTask(store: LocalStore, task: Task, now: number = Date.now()): boolean {
+export function softDeleteTask(
+  store: LocalStore,
+  task: Task,
+  now: number = Date.now(),
+  actorId?: string,
+): boolean {
   if (locked(store, task)) return false;
   store.set("task", task.id, "deleted_at", now);
+  writeActivity(store, actorId, task.id, "deleted", null, null, now);
   return true;
 }
 
-export function restoreTask(store: LocalStore, task: Task): boolean {
+export function restoreTask(
+  store: LocalStore,
+  task: Task,
+  actorId?: string,
+  now: number = Date.now(),
+): boolean {
   if (locked(store, task)) return false;
   restoreEntity(store, "task", task.id);
+  writeActivity(store, actorId, task.id, "restored", null, null, now);
   return true;
 }
 

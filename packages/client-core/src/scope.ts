@@ -97,7 +97,12 @@ export function resolveScope(
     case "activity":
     case "attachment": {
       const taskId = link(entity, id, "task_id");
-      if (!taskId) return known(entity, id) ? { kind: "personal" } : { kind: "unknown" };
+      if (!taskId) {
+        // A project, section or member activity entry names its project instead of a task.
+        const projectId = entity === "activity" ? link(entity, id, "project_id") : null;
+        if (projectId) return { kind: "project", projectId };
+        return known(entity, id) ? { kind: "personal" } : { kind: "unknown" };
+      }
       const projectId = link("task", taskId, "project_id");
       if (projectId) return { kind: "project", projectId };
       return known("task", taskId) ? { kind: "personal" } : { kind: "unknown" };
@@ -631,6 +636,11 @@ export function rescopeProject(
   // Before its first share the project's content was personal: only the DEK unwraps.
   for (const e of store.list("task")) {
     if (e.fields.project_id === projectId) written += rescopeTask(store, keyring, e.id, null);
+  }
+  // Project, section and member entries, which name the project rather than a task.
+  for (const e of store.list("activity")) {
+    if (!e.fields.task_id && e.fields.project_id === projectId)
+      written += rewriteEntity(store, "activity", e.id);
   }
   return written;
 }
