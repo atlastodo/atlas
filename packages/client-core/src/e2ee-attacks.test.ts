@@ -18,7 +18,7 @@ import {
 } from "./crypto";
 import type { Hlc } from "./hlc";
 import { hydrateProjectKeys } from "./projectKeys";
-import { keyForScope, rescopeTask, type ScopeKey } from "./scope";
+import { keyForScope, rescopeEntity, type ScopeKey } from "./scope";
 import { LocalStore } from "./store";
 import { SyncClient } from "./sync-client";
 import * as trust from "./trust";
@@ -219,7 +219,7 @@ describe("attachment keys", () => {
     expect(() => unwrapAekAny(wrapped, keyring, planted)).toThrow();
 
     store.set("task", OTHER_PRIVATE_TASK, "project_id", Y);
-    rescopeTask(store, keyring, OTHER_PRIVATE_TASK, null);
+    rescopeEntity(store, keyring, "task", OTHER_PRIVATE_TASK, null);
     expect(store.get("attachment", planted)!.wrapped_key).toEqual(wrapped);
     const asY: ScopeKey = {
       key: pekY,

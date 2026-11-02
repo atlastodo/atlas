@@ -23,7 +23,7 @@ import {
   applyRepairs,
   memberEntityId,
   resolveScope,
-  rescopeTask,
+  rescopeEntity,
   revokedProjectOps,
   reviveLockedValues,
 } from "./scope";
@@ -611,7 +611,7 @@ describe("locked values", () => {
   });
 });
 
-describe("rescopeTask", () => {
+describe("rescopeEntity (a task)", () => {
   it("re-writes only the account's own activity entries when told who it is", () => {
     const store = sharedStore();
     const { keyring } = keys();
@@ -626,7 +626,7 @@ describe("rescopeTask", () => {
       remote("activity", theirs, "actor_id", "bo", ts(52, 1)),
     ]);
     store.set("task", task, "project_id", P);
-    rescopeTask(store, keyring, task, null, "me");
+    rescopeEntity(store, keyring, "task", task, null, "me");
     expect(store.fieldTs("activity", mine, "actor_id")).toEqual(successorHlc(ts(51, 1)));
     // Re-written by "me", Bo's entry would arrive with an actor that did not push it: dropped.
     expect(store.fieldTs("activity", theirs, "actor_id")).toEqual(ts(52, 1));
@@ -648,7 +648,7 @@ describe("rescopeTask", () => {
     store.set("task", personal, "project_id", P);
     const moved = store.fieldTs("task", personal, "project_id")!;
 
-    const written = rescopeTask(store, keyring, personal);
+    const written = rescopeEntity(store, keyring, "task", personal);
     expect(written).toBeGreaterThanOrEqual(6);
     expect(store.fieldTs("task", personal, "title")).toEqual(successorHlc(ts(50)));
     expect(store.fieldTs("task", personal, "project_id")).toEqual(successorHlc(moved));
@@ -682,7 +682,7 @@ describe("rescopeTask", () => {
     ]);
     store.set("task", personal, "project_id", P);
 
-    rescopeTask(store, keyring, personal);
+    rescopeEntity(store, keyring, "task", personal);
     expect(store.get("attachment", A)!.wrapped_key).toEqual(copied);
   });
 });

@@ -1,4 +1,3 @@
-export * from "./client";
+export * from "./session";
 export * from "./vault";
 export { InvalidApiTokenError } from "@atlastodo/client-core";
-export * from "./dates";

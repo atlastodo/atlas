@@ -7,7 +7,7 @@ import {
   type FieldEnvelopeV3,
   isEncryptedEnvelope,
 } from "@atlastodo/client-core";
-import { AtlasError } from "./client";
+import { AtlasError } from "./session";
 import { FakeServer } from "./testing";
 import { VaultClient } from "./vault";
 

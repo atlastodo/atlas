@@ -52,7 +52,7 @@ pub fn encode_op(op: &Operation, k: &ScopeKey) -> Result<Value> {
             let wire_field = wire_field_of(&k.key, kind, &id, field);
             let value = if should_encrypt_field(kind, field) {
                 let at = FieldLocation {
-                    entity: wire,
+                    entity: &wire,
                     entity_id: &id,
                     field: &wire_field,
                 };
@@ -98,9 +98,9 @@ pub fn open_sealed(
         field: wire_field,
     };
     let sealed = open_sealed_field(&key, &key_scope, at, envelope).ok()?;
-    let kind = EntityKind::from_wire(&sealed.kind)?;
-    if wire_kind_of(kind.as_str()) != Some(wire)
-        || wire_field_of(&key, kind.as_str(), id, &sealed.field) != wire_field
+    let kind = sealed.kind;
+    if wire_kind_of(&kind).as_deref() != Some(wire)
+        || wire_field_of(&key, &kind, id, &sealed.field) != wire_field
     {
         return None;
     }
@@ -144,7 +144,7 @@ pub fn decode_ops(
 ) -> (Vec<Decoded>, Aside) {
     let mut out: Vec<Decoded> = Vec::new();
     let mut aside = Aside::default();
-    let mut page_kinds: Vec<(String, EntityKind)> = Vec::new();
+    let mut page_kinds: Vec<(String, String)> = Vec::new();
     let mut kindless: Vec<(String, Hlc, Uuid)> = Vec::new();
     for w in wire_ops {
         let entity = w.get("entity").and_then(Value::as_str).unwrap_or_default();
@@ -161,7 +161,7 @@ pub fn decode_ops(
             continue;
         };
         let is_delete = w.get("op").and_then(Value::as_str) == Some("delete");
-        let make = |kind: EntityKind, change: Change| Operation {
+        let make = |kind: String, change: Change| Operation {
             id: op_id,
             entity: kind,
             entity_id: entity_uuid,
@@ -172,7 +172,8 @@ pub fn decode_ops(
             let Some(kind) = EntityKind::from_wire(entity) else {
                 continue;
             };
-            page_kinds.push((id.to_owned(), kind));
+            let kind = String::from(kind);
+            page_kinds.push((id.to_owned(), kind.clone()));
             let legacy = entity != "project_member";
             if is_delete {
                 out.push(Decoded {
@@ -231,7 +232,7 @@ pub fn decode_ops(
         if let Some(kind) = real_kind_of(entity, Some(field)).filter(|k| {
             is_public_field(k.as_str(), field) && !should_encrypt_field(k.as_str(), field)
         }) {
-            page_kinds.push((id.to_owned(), kind));
+            page_kinds.push((id.to_owned(), kind.clone()));
             let change = Change::Set {
                 field: field.to_owned(),
                 value: value.clone(),
@@ -257,14 +258,14 @@ pub fn decode_ops(
             });
             continue;
         };
-        if opened.kind == EntityKind::Activity && opened.field == "actor_id" {
-            // The server says who pushed an op; an activity naming someone else is forged.
+        if crate::apps::actor_field_of(&opened.kind).as_deref() == Some(opened.field.as_str()) {
+            // The server says who pushed an op; an entry naming someone else as its writer is forged.
             let pushed_by = w.get("pushed_by").and_then(Value::as_str);
             if pushed_by.is_none() || opened.value.as_str() != pushed_by {
                 continue;
             }
         }
-        page_kinds.push((id.to_owned(), opened.kind));
+        page_kinds.push((id.to_owned(), opened.kind.clone()));
         let change = Change::Set {
             field: opened.field,
             value: opened.value,
@@ -281,7 +282,7 @@ pub fn decode_ops(
             Some((_, kind)) => out.push(Decoded {
                 op: Operation {
                     id: op_id,
-                    entity: *kind,
+                    entity: kind.clone(),
                     entity_id: Uuid::parse_str(&id).expect("parsed above"),
                     change: Change::Delete,
                     ts,
@@ -331,6 +332,7 @@ mod tests {
 
     #[test]
     fn encodes_and_decodes_like_the_typescript_client() {
+        crate::testing::register_test_app();
         let (keyring, personal, project) = keys();
         let store = Store::new(Uuid::nil());
         let task = Uuid::new_v4();
@@ -381,6 +383,7 @@ mod tests {
 
     #[test]
     fn an_activity_actor_must_be_its_pusher_and_a_delete_finds_its_kind() {
+        crate::testing::register_test_app();
         let (keyring, _, project) = keys();
         let store = Store::new(Uuid::nil());
         let activity = Uuid::new_v4();

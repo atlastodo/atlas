@@ -408,3 +408,19 @@ impl Transport for FakeServer {
         ))
     }
 }
+
+/// Register the test app of `test-vectors/scope_rule_vectors.json`: a todo-shaped app definition
+/// (task, comment and activity scope links) that core's own tests run with, core having no app's
+/// rules of its own. Idempotent.
+pub fn register_test_app() {
+    let path = format!(
+        "{}/../../test-vectors/scope_rule_vectors.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("scope_rule_vectors.json"))
+            .expect("scope_rule_vectors.json");
+    let def: crate::apps::AppDefinition =
+        serde_json::from_value(doc["definition"].clone()).expect("definition");
+    crate::apps::register_app(def).expect("the test app registers");
+}

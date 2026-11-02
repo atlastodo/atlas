@@ -1,3 +1,4 @@
+use atlas_core::EntityKind;
 use serde_json::{json, Value};
 
 use super::*;
@@ -7,6 +8,7 @@ use super::*;
 /// or not, and when delivered twice.
 #[test]
 fn shared_conflict_vectors() {
+    crate::testing::register_test_app();
     let path = format!(
         "{}/../../test-vectors/conflict_vectors.json",
         env!("CARGO_MANIFEST_DIR")
@@ -82,6 +84,7 @@ fn test_store() -> Store {
 
 #[test]
 fn local_writes_queue_ops_and_resolve() {
+    crate::testing::register_test_app();
     let mut store = test_store();
     let id = store.new_entity_id();
     store.set(EntityKind::Task, &id, "title", json!("a"));
@@ -98,6 +101,7 @@ fn local_writes_queue_ops_and_resolve() {
 
 #[test]
 fn discarding_an_op_uncovers_nothing_and_drops_empty_entities() {
+    crate::testing::register_test_app();
     let mut store = test_store();
     let id = store.new_entity_id();
     let op = store.set(EntityKind::Task, &id, "title", json!("x"));
@@ -108,6 +112,7 @@ fn discarding_an_op_uncovers_nothing_and_drops_empty_entities() {
 
 #[test]
 fn a_readable_value_replaces_an_envelope_at_the_same_stamp() {
+    crate::testing::register_test_app();
     let mut store = test_store();
     let ts = Hlc {
         wall_ms: 5,
@@ -118,7 +123,7 @@ fn a_readable_value_replaces_an_envelope_at_the_same_stamp() {
     let envelope = json!({"__enc": 2, "kid": "dek", "iv": "a", "ct": "b"});
     let op = |id: u128, value: Value| Operation {
         id: Uuid::from_u128(id),
-        entity: EntityKind::Task,
+        entity: EntityKind::Task.into(),
         entity_id: entity,
         change: Change::Set {
             field: "title".into(),
@@ -141,6 +146,7 @@ fn a_readable_value_replaces_an_envelope_at_the_same_stamp() {
 
 #[test]
 fn restamping_moves_ops_from_a_fast_clock_below_the_limit() {
+    crate::testing::register_test_app();
     let mut store = Store::with(
         Uuid::from_u128(1),
         Box::new(|| 10_000_000),

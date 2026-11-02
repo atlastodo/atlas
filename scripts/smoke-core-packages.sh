@@ -38,15 +38,16 @@ EOF
 (cd "$work" && bun install --silent)
 
 cat >"$work/src/main.ts" <<'EOF'
-import { generateDek } from "@atlastodo/client-core";
-import { resolveServerUrl } from "@atlastodo/shared";
-import { AtlasClient } from "@atlastodo/sdk";
+import { generateDek, registerApp } from "@atlastodo/client-core";
+import { VAULT_FIELD_KINDS } from "@atlastodo/shared";
+import { TokenSession } from "@atlastodo/sdk";
 import { FakeServer } from "@atlastodo/sdk/testing";
 import kdf from "@atlastodo/client-core/test-vectors/password_kdf_vectors.json" with { type: "json" };
 
 const dek: Uint8Array = generateDek();
-const url: string = resolveServerUrl(null, "https://atlas.example/");
-console.log(dek.length, url, typeof AtlasClient, typeof FakeServer, Object.keys(kdf).length > 0);
+registerApp({ app: "todo", kinds: { smoke_note: { scope: [{ field: "task_id", kind: "task" }] } } });
+const kinds: readonly string[] = VAULT_FIELD_KINDS;
+console.log(dek.length, kinds.length, typeof TokenSession, typeof FakeServer, Object.keys(kdf).length > 0);
 EOF
 for mode in nodenext:nodenext esnext:bundler; do
   cat >"$work/tsconfig.json" <<EOF

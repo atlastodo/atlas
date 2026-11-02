@@ -90,18 +90,17 @@ fn apply_aside(store: &mut Store, aside: Aside) {
     }
 }
 
-/// Whether `user` may re-write every field of the entity (`mayReencode`): their own activity only,
-/// a shared project only as its owner, a shared project's item only as an active member.
-fn may_reencode(store: &Store, user: Option<&str>, kind: EntityKind, id: &str) -> bool {
+/// Whether `user` may re-write every field of the entity (`mayReencode`): an entry with a writer
+/// field only as its writer, a shared project only as its owner, a shared project's item only as an
+/// active member.
+fn may_reencode(store: &Store, user: Option<&str>, kind: &str, id: &str) -> bool {
     let Some(user) = user else {
         return false;
     };
-    if kind == EntityKind::Activity
-        && store
-            .raw_field(kind, id, "actor_id")
-            .and_then(|v| v.as_str())
-            != Some(user)
-    {
+    let foreign = crate::apps::actor_field_of(kind).is_some_and(|actor| {
+        store.raw_field(kind, id, &actor).and_then(|v| v.as_str()) != Some(user)
+    });
+    if foreign {
         return false;
     }
     let project = match resolve_scope(store, kind, id, None) {
@@ -126,12 +125,13 @@ fn may_reencode(store: &Store, user: Option<&str>, kind: EntityKind, id: &str) -
     else {
         return false;
     };
-    kind != EntityKind::Project || mine.fields.get("role").and_then(|v| v.as_str()) == Some("owner")
+    *kind != EntityKind::Project
+        || mine.fields.get("role").and_then(|v| v.as_str()) == Some("owner")
 }
 
 /// The ops that re-encode `kind` entity `id` from `store`'s copy, each field and the tombstone
 /// with its stamp; `None` while it cannot (not here, or a value no key opens).
-fn reencode(store: &mut Store, kind: EntityKind, id: &str) -> Option<Vec<Operation>> {
+fn reencode(store: &mut Store, kind: &str, id: &str) -> Option<Vec<Operation>> {
     if !store.exists(kind, id) {
         return None;
     }
@@ -144,7 +144,7 @@ fn reencode(store: &mut Store, kind: EntityKind, id: &str) -> Option<Vec<Operati
         .into_iter()
         .map(|(field, value, ts)| Operation {
             id: Uuid::new_v4(),
-            entity: kind,
+            entity: kind.to_owned(),
             entity_id,
             change: Change::Set { field, value },
             ts,
@@ -497,8 +497,8 @@ pub fn migrate_legacy(cx: &mut SyncContext<'_>) -> Result<LegacyMigration> {
                 continue;
             }
             let reencoded = EntityKind::from_wire(&key.entity)
-                .filter(|k| may_reencode(cx.store, cx.user_id, *k, &key.entity_id))
-                .and_then(|k| reencode(cx.store, k, &key.entity_id))
+                .filter(|k| may_reencode(cx.store, cx.user_id, k.as_str(), &key.entity_id))
+                .and_then(|k| reencode(cx.store, k.as_str(), &key.entity_id))
                 .filter(|o| !o.is_empty());
             match reencoded {
                 Some(o) => {
