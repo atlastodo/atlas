@@ -801,7 +801,10 @@
     "retention": "Meine Aktivität löschen nach",
     "retentionNever": "Nie",
     "retentionDays": "{{days}} Tagen",
-    "retentionHint": "Deine eigenen Aktivitätseinträge, die älter sind, werden auf allen Geräten gelöscht. Die Einträge anderer Mitglieder verwalten diese selbst."
+    "retentionHint": "Deine eigenen Aktivitätseinträge, die älter sind, werden auf allen Geräten gelöscht. Die Einträge anderer Mitglieder verwalten diese selbst.",
+    "serverRetention": "Dieser Server löscht Aktivität nach {{days}} Tagen.",
+    "adminRetention": "Aktivität löschen nach",
+    "adminRetentionHint": "Gilt für alle Konten: Die Apps löschen die Aktivitätseinträge ihrer Nutzer, die älter sind. Aktivität ist Ende-zu-Ende-verschlüsselt, daher kann der Server sie nicht selbst löschen."
   },
   "attachment": {
     "heading": "Anhänge",

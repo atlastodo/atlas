@@ -821,7 +821,10 @@
     "retention": "Elimina la mia attività dopo",
     "retentionNever": "Mai",
     "retentionDays": "{{days}} giorni",
-    "retentionHint": "Le tue voci di attività più vecchie vengono eliminate su tutti i dispositivi. Le voci degli altri membri restano loro."
+    "retentionHint": "Le tue voci di attività più vecchie vengono eliminate su tutti i dispositivi. Le voci degli altri membri restano loro.",
+    "serverRetention": "Questo server elimina l’attività dopo {{days}} giorni.",
+    "adminRetention": "Elimina l’attività dopo",
+    "adminRetentionHint": "Vale per tutti gli account: le app eliminano le voci di attività più vecchie del proprio utente. L’attività è cifrata end-to-end, quindi il server non può eliminarla da solo."
   },
   "attachment": {
     "heading": "Allegati",

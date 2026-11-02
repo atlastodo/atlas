@@ -801,7 +801,10 @@
     "retention": "Slet min aktivitet efter",
     "retentionNever": "Aldrig",
     "retentionDays": "{{days}} dage",
-    "retentionHint": "Dine egne aktivitetsposter, der er ældre end dette, slettes på alle enheder. Andre medlemmers poster bestemmer de selv over."
+    "retentionHint": "Dine egne aktivitetsposter, der er ældre end dette, slettes på alle enheder. Andre medlemmers poster bestemmer de selv over.",
+    "serverRetention": "Denne server sletter aktivitet efter {{days}} dage.",
+    "adminRetention": "Slet aktivitet efter",
+    "adminRetentionHint": "Gælder alle konti: apperne sletter deres brugers aktivitetsposter, der er ældre end dette. Aktivitet er end-to-end-krypteret, så serveren kan ikke selv slette den."
   },
   "attachment": {
     "heading": "Vedhæftede filer",

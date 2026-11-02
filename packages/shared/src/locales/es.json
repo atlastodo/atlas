@@ -821,7 +821,10 @@
     "retention": "Eliminar mi actividad después de",
     "retentionNever": "Nunca",
     "retentionDays": "{{days}} días",
-    "retentionHint": "Tus propias entradas de actividad más antiguas se eliminan en todos los dispositivos. Las entradas de otros miembros son suyas."
+    "retentionHint": "Tus propias entradas de actividad más antiguas se eliminan en todos los dispositivos. Las entradas de otros miembros son suyas.",
+    "serverRetention": "Este servidor elimina la actividad después de {{days}} días.",
+    "adminRetention": "Eliminar la actividad después de",
+    "adminRetentionHint": "Se aplica a todas las cuentas: las apps eliminan las entradas de actividad de su usuario más antiguas. La actividad está cifrada de extremo a extremo, así que el servidor no puede eliminarla por sí mismo."
   },
   "attachment": {
     "heading": "Archivos adjuntos",

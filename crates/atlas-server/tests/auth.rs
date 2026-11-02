@@ -42,6 +42,7 @@ async fn setup() -> Router {
         port: 8080,
         admin_emails: Vec::new(),
         signup_enabled: true,
+        activity_retention_days: 0,
         bug_reports_enabled: true,
         op_retention_days: 0,
         max_push_bytes: 2 * 1024 * 1024,
@@ -351,6 +352,7 @@ async fn signup_closed_by_flag_returns_typed_error_while_login_still_works() {
 
     let closed = setup_with(Config {
         signup_enabled: false,
+        activity_retention_days: 0,
         ..Config {
             database_url: test_database_url(),
             jwt_secret: b"integration-test-secret-32-bytes-x".to_vec(),
@@ -359,6 +361,7 @@ async fn signup_closed_by_flag_returns_typed_error_while_login_still_works() {
             port: 8080,
             admin_emails: Vec::new(),
             signup_enabled: true,
+            activity_retention_days: 0,
             bug_reports_enabled: true,
             op_retention_days: 0,
             max_push_bytes: 2 * 1024 * 1024,

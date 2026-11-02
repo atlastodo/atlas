@@ -129,6 +129,7 @@ pub fn app(state: AppState) -> Router {
         .route("/health", get(health))
         .merge(auth_routes)
         .merge(apps::routes())
+        .merge(settings::routes())
         .merge(projects::routes())
         .merge(members::routes(invite_rl))
         .merge(sync_routes)
@@ -414,6 +415,7 @@ mod tests {
             port: 8080,
             admin_emails: Vec::new(),
             signup_enabled: true,
+            activity_retention_days: 0,
             bug_reports_enabled: true,
             op_retention_days: 0,
             max_push_bytes: 2 * 1024 * 1024,

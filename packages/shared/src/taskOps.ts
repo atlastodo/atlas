@@ -499,6 +499,9 @@ export function discardTask(store: LocalStore, id: string): boolean {
   // the attachment itself is tombstoned.
   for (const e of store.list("attachment"))
     if (e.fields.task_id === id) store.remove("attachment", e.id);
+  // Its `created` entry (and any other) would otherwise point at nothing.
+  for (const e of store.list("activity"))
+    if (e.fields.task_id === id) store.remove("activity", e.id);
   store.remove("task", id);
   return true;
 }

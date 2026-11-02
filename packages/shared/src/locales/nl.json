@@ -801,7 +801,10 @@
     "retention": "Mijn activiteit verwijderen na",
     "retentionNever": "Nooit",
     "retentionDays": "{{days}} dagen",
-    "retentionHint": "Je eigen activiteitsitems die ouder zijn, worden op alle apparaten verwijderd. Items van andere leden blijven van hen."
+    "retentionHint": "Je eigen activiteitsitems die ouder zijn, worden op alle apparaten verwijderd. Items van andere leden blijven van hen.",
+    "serverRetention": "Deze server verwijdert activiteit na {{days}} dagen.",
+    "adminRetention": "Activiteit verwijderen na",
+    "adminRetentionHint": "Geldt voor alle accounts: de apps verwijderen de oudere activiteitsitems van hun gebruiker. Activiteit is end-to-end versleuteld, dus de server kan die niet zelf verwijderen."
   },
   "attachment": {
     "heading": "Bijlagen",

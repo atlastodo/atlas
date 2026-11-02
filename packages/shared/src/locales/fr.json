@@ -821,7 +821,10 @@
     "retention": "Supprimer mon activité après",
     "retentionNever": "Jamais",
     "retentionDays": "{{days}} jours",
-    "retentionHint": "Vos propres entrées d’activité plus anciennes sont supprimées sur tous les appareils. Les entrées des autres membres leur appartiennent."
+    "retentionHint": "Vos propres entrées d’activité plus anciennes sont supprimées sur tous les appareils. Les entrées des autres membres leur appartiennent.",
+    "serverRetention": "Ce serveur supprime l’activité après {{days}} jours.",
+    "adminRetention": "Supprimer l’activité après",
+    "adminRetentionHint": "S’applique à tous les comptes : les applications suppriment les entrées d’activité plus anciennes de leur utilisateur. L’activité est chiffrée de bout en bout, le serveur ne peut donc pas la supprimer lui-même."
   },
   "attachment": {
     "heading": "Pièces jointes",

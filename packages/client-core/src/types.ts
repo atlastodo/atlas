@@ -546,6 +546,17 @@ export interface AdminInviteView {
 
 export interface AdminSettingsView {
   signup_enabled: boolean;
+  /** Days after which clients delete their users' activity entries; 0 keeps them. */
+  activity_retention_days: number;
+}
+
+/**
+ * Instance policies a client enforces itself. Activity is end-to-end encrypted and travels as an
+ * anonymous sealed row, so the server publishes the retention and each client deletes its own
+ * user's entries older than it (0: no limit).
+ */
+export interface InstancePolicy {
+  activity_retention_days: number;
 }
 
 export interface AdminAuditEntry {

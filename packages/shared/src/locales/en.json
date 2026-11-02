@@ -801,7 +801,10 @@
     "retention": "Delete my activity after",
     "retentionNever": "Never",
     "retentionDays": "{{days}} days",
-    "retentionHint": "Your own activity entries older than this are deleted on every device. Other members' entries are theirs to keep."
+    "retentionHint": "Your own activity entries older than this are deleted on every device. Other members' entries are theirs to keep.",
+    "serverRetention": "This server deletes activity after {{days}} days.",
+    "adminRetention": "Delete activity after",
+    "adminRetentionHint": "Applies to every account: the apps delete their user's activity entries older than this. Activity is end-to-end encrypted, so the server cannot delete it itself."
   },
   "attachment": {
     "heading": "Attachments",

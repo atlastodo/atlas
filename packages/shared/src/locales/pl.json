@@ -841,7 +841,10 @@
     "retention": "Usuwaj moją aktywność po",
     "retentionNever": "Nigdy",
     "retentionDays": "{{days}} dniach",
-    "retentionHint": "Twoje własne wpisy aktywności starsze niż ten okres są usuwane na wszystkich urządzeniach. Wpisy innych członków należą do nich."
+    "retentionHint": "Twoje własne wpisy aktywności starsze niż ten okres są usuwane na wszystkich urządzeniach. Wpisy innych członków należą do nich.",
+    "serverRetention": "Ten serwer usuwa aktywność po {{days}} dniach.",
+    "adminRetention": "Usuwaj aktywność po",
+    "adminRetentionHint": "Dotyczy wszystkich kont: aplikacje usuwają starsze wpisy aktywności swojego użytkownika. Aktywność jest szyfrowana end-to-end, więc serwer nie może jej usunąć sam."
   },
   "attachment": {
     "heading": "Załączniki",

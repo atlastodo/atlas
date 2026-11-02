@@ -33,6 +33,7 @@ async fn setup() -> Router {
         port: 8080,
         admin_emails: Vec::new(),
         signup_enabled: true,
+        activity_retention_days: 0,
         bug_reports_enabled: true,
         op_retention_days: 0,
         max_push_bytes: 2 * 1024 * 1024,

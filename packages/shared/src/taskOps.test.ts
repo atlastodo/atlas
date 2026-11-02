@@ -650,6 +650,14 @@ describe("softDeleteTask / restoreTask / discardTask", () => {
     expect(allTasks(store)).toHaveLength(0);
   });
 
+  it("discard takes the task's activity entries with it", () => {
+    const { store } = setup();
+    const id = createTask(store, { title: "t" }, "UTC", "u1");
+    expect(store.list("activity")).toHaveLength(1);
+    discardTask(store, id);
+    expect(store.list("activity")).toHaveLength(0);
+  });
+
   it("discard refuses a task this device cannot decrypt", () => {
     const { store } = setup();
     // A synced-in task whose title stayed an encrypted envelope: its blank-looking title is not

@@ -521,6 +521,22 @@ describe("ApiClient admin panel (users, invites, settings, audit)", () => {
     await client.listAudit({ limit: 10, beforeId: 42 });
     expect(fetchMock.mock.calls[2]![0]).toBe("http://x/admin/audit?limit=10&before_id=42");
   });
+
+  it("sends only the settings it changes, and reads the instance policy", async () => {
+    const fetchMock = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(jsonResponse(200, { activity_retention_days: 90 }));
+    const client = new ApiClient({ baseUrl: "http://x", token: "t", fetch: fetchMock });
+
+    await client.updateAdminSettings({ activity_retention_days: 90 });
+    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({
+      activity_retention_days: 90,
+    });
+
+    const policy = await client.instancePolicy();
+    expect(fetchMock.mock.calls[1]![0]).toBe("http://x/instance/policy");
+    expect(policy.activity_retention_days).toBe(90);
+  });
 });
 
 describe("ApiClient account security (change password, delete account)", () => {

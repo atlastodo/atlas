@@ -4,6 +4,7 @@ import type {
   AdminAuditEntry,
   AdminInviteView,
   AdminSettingsView,
+  InstancePolicy,
   AdminUserView,
   AuthResponse,
   AuthUser,
@@ -1115,8 +1116,13 @@ export class ApiClient {
   getAdminSettings(): Promise<AdminSettingsView> {
     return this.request("GET", "/admin/settings");
   }
-  updateAdminSettings(settings: { signup_enabled: boolean }): Promise<AdminSettingsView> {
+  /** A partial update: only the fields sent change. */
+  updateAdminSettings(settings: Partial<AdminSettingsView>): Promise<AdminSettingsView> {
     return this.request("PATCH", "/admin/settings", settings);
+  }
+  /** The instance policies this client enforces itself (`GET /instance/policy`). */
+  instancePolicy(): Promise<InstancePolicy> {
+    return this.request("GET", "/instance/policy");
   }
   listAudit(
     params: {
