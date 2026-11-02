@@ -89,7 +89,7 @@ them in (`manifest.rs`, the `Registry`), and `packages/client-core` bundles the 
 (`fieldPolicy.ts`), so server and clients read one table. Operators never load a manifest from
 disk. Bump a manifest's `version` whenever its kinds or their fields change.
 
-Todo's kinds keep their original bare wire names (`task`, `project`, …); every later app must
+Todo's kinds keep their original bare names (`task`, `project`, …); every later app must
 namespace its kinds as `<app>.<kind>` (`notes.note`), which the registry enforces. The registry
 maps each kind to its app by wire name. The server matches only on wire kinds, which stay a closed
 enum (`WireKind`); the Rust `EntityKind` enum names the kinds the manifests list, which rows

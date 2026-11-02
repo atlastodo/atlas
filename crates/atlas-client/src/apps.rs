@@ -163,6 +163,12 @@ fn definition_error(def: &AppDefinition, all: &[AppDefinition]) -> Option<String
     let has_wire = |w: &str| server.wire_kinds.contains_key(w);
     for (kind, d) in &def.kinds {
         let what = format!("app {}: kind \"{kind}\"", def.app);
+        if let Some(other) = all
+            .iter()
+            .find(|a| a.app != def.app && a.kinds.contains_key(kind))
+        {
+            return Some(format!("{what} belongs to app {}", other.app));
+        }
         let owner = manifest_owner(kind);
         if let Some(o) = owner.filter(|o| o.app != def.app) {
             return Some(format!("{what} belongs to app {}", o.app));
@@ -172,6 +178,9 @@ fn definition_error(def: &AppDefinition, all: &[AppDefinition]) -> Option<String
             && !kind.starts_with(&format!("{}.", def.app))
         {
             return Some(format!("{what} must be named \"{}.<kind>\"", def.app));
+        }
+        if owner.is_none() && UNNAMESPACED_APPS.contains(&def.app.as_str()) && kind.contains('.') {
+            return Some(format!("{what}: a dotted name is another app's namespace"));
         }
         let base = owner.and_then(|o| o.kinds.get(kind));
         let wire = d
@@ -197,6 +206,11 @@ fn definition_error(def: &AppDefinition, all: &[AppDefinition]) -> Option<String
                         "{what}: only a \"{project}\" kind is a share container"
                     ));
                 }
+            }
+            Some(ScopeRule::Links(_)) if wire == project => {
+                return Some(format!(
+                    "{what}: a \"{project}\" kind is a share container (scope \"self\")"
+                ));
             }
             Some(ScopeRule::Links(links)) => {
                 if links.is_empty() {
@@ -265,6 +279,24 @@ pub fn register_app(def: AppDefinition) -> Result<(), String> {
     }
     state.definitions = next;
     state.table = Arc::new(table);
+    Ok(())
+}
+
+/// An error unless every app in `apps` that has share containers (a `<app>.project` wire kind)
+/// has registered its definition: without one its kinds would all scope as personal, and edits to
+/// shared content would go out under the account's own key. A session checks it on connecting.
+pub fn assert_apps_defined<'a>(apps: impl IntoIterator<Item = &'a str>) -> Result<(), String> {
+    let state = STATE.read().expect("app registry");
+    for app in apps {
+        let shares = Registry::bundled()
+            .app(app)
+            .is_some_and(|m| m.wire_kinds.contains_key(&format!("{app}.project")));
+        if shares && !state.definitions.iter().any(|d| d.app == app) {
+            return Err(format!(
+                "app \"{app}\" has shared projects but no registered app definition: call register_app first"
+            ));
+        }
+    }
     Ok(())
 }
 

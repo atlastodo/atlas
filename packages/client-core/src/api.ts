@@ -57,7 +57,7 @@ import {
 } from "./crypto";
 import { SYNC_PROTOCOL, buildSyncWsUrl } from "./realtime";
 import { LEGACY_DISCOVERY, parseDiscovery, type ServerDiscovery } from "./discovery";
-import { actorFieldOf, isLegacyWireKind, legacyEncrypted } from "./fieldPolicy";
+import { actorFieldOf, assertAppsDefined, isLegacyWireKind, legacyEncrypted } from "./fieldPolicy";
 import {
   EMPTY_SCOPE_STORE,
   batchLinksOf,
@@ -1141,6 +1141,8 @@ export class ApiClient {
   async syncPush(
     ops: Operation[],
   ): Promise<{ cursor: number; applied: number; from?: number; deferred: string[] }> {
+    // A session without the app header is the server's default, todo.
+    if (ops.length > 0) assertAppsDefined(this.syncApps?.split(",") ?? ["todo"]);
     const keyring = this.unlockedKeyring();
     const store = this.scopeStore ?? EMPTY_SCOPE_STORE;
     const batch = batchLinksOf(ops);

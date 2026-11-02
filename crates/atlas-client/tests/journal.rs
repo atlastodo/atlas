@@ -220,6 +220,8 @@ fn a_token_without_the_app_is_refused_clearly() {
 
 #[test]
 fn a_token_for_both_apps_keeps_their_data_apart() {
+    // Todo has shared projects: its writes need its definition (the todo-shaped test app here).
+    atlas_client::testing::register_test_app();
     let server = server(&["todo", "journal"]);
     let mut todo = connect(&server, "todo").unwrap();
     let task = todo.session_mut().store.new_entity_id();

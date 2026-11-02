@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import vectors from "../../../test-vectors/scope_rule_vectors.json";
 import {
   actorFieldOf,
+  assertAppsDefined,
+  unregisterApp,
   registerApp,
   scopeLinkFields,
   wireKindOf,
@@ -52,5 +54,18 @@ describe("scope_rule_vectors.json", () => {
     expect(wireKindOf("vector_note")).toBe("todo.sealed");
     expect(wireKindOf("vector_a")).toBeNull();
     registerApp(TEST_APP);
+  });
+});
+
+describe("assertAppsDefined", () => {
+  it("refuses a sharing app without a definition, and lets personal apps through", () => {
+    expect(() => assertAppsDefined(["todo", "journal", "vault"])).not.toThrow();
+    unregisterApp("todo");
+    try {
+      expect(() => assertAppsDefined(["todo"])).toThrow(/registerApp/);
+      expect(() => assertAppsDefined(["journal", "vault"])).not.toThrow();
+    } finally {
+      registerApp(TEST_APP);
+    }
   });
 });

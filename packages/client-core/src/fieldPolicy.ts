@@ -112,12 +112,13 @@ export type ScopeRule = "self" | readonly ScopeLink[];
 export interface KindDefinition {
   /** The wire kind; defaults to the bundled manifest's, else `<app>.sealed`. */
   wire?: string;
-  scope?: ScopeRule;
+  /** No rule (absent or null): personal. */
+  scope?: ScopeRule | null;
   /**
    * A field naming the account that wrote the entity: an op setting it to anyone but the account
    * that pushed it is dropped as forged, and only that account re-writes the entity.
    */
-  actor_field?: string;
+  actor_field?: string | null;
 }
 
 /**
@@ -158,17 +159,35 @@ function buildTable(defs: readonly AppDefinition[]): Map<string, ResolvedKind> {
       const base = table.get(kind);
       const wire = d.wire ?? base?.wire ?? `${def.app}.sealed`;
       const entry: ResolvedKind = { ...(base ?? { wire }), app: def.app, wire };
-      if (d.scope !== undefined) entry.scope = d.scope;
-      if (d.actor_field !== undefined) entry.actor_field = d.actor_field;
+      if (d.scope != null) entry.scope = d.scope;
+      if (d.actor_field != null) entry.actor_field = d.actor_field;
       table.set(kind, entry);
     }
   }
   return table;
 }
 
+/**
+ * Throws unless every app in `apps` that has share containers (a `<app>.project` wire kind) has
+ * registered its definition: without one its kinds would all scope as personal, and edits to
+ * shared content would go out under the account's own key. Sync calls it.
+ */
+export function assertAppsDefined(apps: readonly string[]): void {
+  for (const app of apps) {
+    const m = serverManifest(app);
+    const shares = m && Object.values(m.kinds).some((k) => k.wire === `${app}.project`);
+    if (shares && !definitions.some((d) => d.app === app))
+      throw new Error(
+        `app "${app}" has shared projects but no registered app definition: call registerApp first`,
+      );
+  }
+}
+
 function table(): Map<string, ResolvedKind> {
   return (resolved ??= buildTable(definitions));
 }
+
+const KIND_KEYS = new Set(["wire", "scope", "actor_field"]);
 
 /** Why `def` cannot be registered next to `all` (which includes it), or null. */
 function definitionError(def: AppDefinition, all: readonly AppDefinition[]): string | null {
@@ -180,18 +199,27 @@ function definitionError(def: AppDefinition, all: readonly AppDefinition[]): str
   const project = `${def.app}.project`;
   for (const [kind, d] of Object.entries(def.kinds)) {
     const what = `app ${def.app}: kind "${kind}"`;
+    if (typeof d !== "object" || d === null) return `${what} must be an object`;
+    const unknownKey = Object.keys(d).find((k) => !KIND_KEYS.has(k));
+    if (unknownKey) return `${what}: unknown key "${unknownKey}"`;
+    const other = all.find((a) => a.app !== def.app && has(a.kinds, kind));
+    if (other) return `${what} belongs to app ${other.app}`;
     const owner = BUNDLED_MANIFESTS.find((m) => has(m.kinds, kind));
     if (owner && owner.app !== def.app) return `${what} belongs to app ${owner.app}`;
     if (!owner && !UNNAMESPACED_APPS.includes(def.app) && !kind.startsWith(`${def.app}.`))
       return `${what} must be named "${def.app}.<kind>"`;
+    if (!owner && UNNAMESPACED_APPS.includes(def.app) && kind.includes("."))
+      return `${what}: a dotted name is another app's namespace`;
     const base = owner?.kinds[kind];
     const wire = d.wire ?? base?.wire ?? sealed;
     if (base ? wire !== base.wire : wire !== sealed || !wires.has(sealed))
       return `${what} cannot travel as "${wire}"`;
-    if (d.actor_field !== undefined && (typeof d.actor_field !== "string" || !d.actor_field))
+    if (d.actor_field != null && (typeof d.actor_field !== "string" || !d.actor_field))
       return `${what}: actor_field must be a field name`;
     const rule = d.scope;
-    if (rule === undefined) continue;
+    if (rule == null) continue;
+    if (wire === project && rule !== "self")
+      return `${what}: a "${project}" kind is a share container (scope "self")`;
     if (rule === "self") {
       if (wire !== project) return `${what}: only a "${project}" kind is a share container`;
       continue;
@@ -201,6 +229,8 @@ function definitionError(def: AppDefinition, all: readonly AppDefinition[]): str
     if (!wires.has(project)) return `${what}: app ${def.app} has no share containers`;
     for (const link of rule as readonly ScopeLink[]) {
       if (typeof link?.field !== "string" || !link.field) return `${what}: a link needs a field`;
+      const extra = Object.keys(link).find((k) => k !== "field" && k !== "kind");
+      if (extra) return `${what}: unknown link key "${extra}"`;
       if (link.kind !== undefined) {
         const k = link.kind;
         const known =

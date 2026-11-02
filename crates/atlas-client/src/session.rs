@@ -1,4 +1,4 @@
-//! A signed-in account held in memory (`AtlasClient.connect` in `packages/sdk`): an API-token
+//! A signed-in account held in memory (`TokenSession.connect` in `packages/sdk`): an API-token
 //! session, the keys the token carries, the store and its sync.
 
 use std::path::PathBuf;
@@ -259,8 +259,12 @@ impl Session {
         Ok(())
     }
 
-    /// One sync cycle.
+    /// One sync cycle. Refused while writes of an app with shared projects wait and the app has
+    /// registered no definition (`crate::apps::assert_apps_defined`).
     pub fn sync_now(&mut self) -> Result<SyncResult> {
+        if !self.store.unsynced_ops().is_empty() {
+            crate::apps::assert_apps_defined([self.app.as_str()]).map_err(Error::Protocol)?;
+        }
         let mut cx = SyncContext {
             api: &self.api,
             store: &mut self.store,
