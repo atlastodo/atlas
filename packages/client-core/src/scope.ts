@@ -5,7 +5,7 @@
  * A value is read only with a key of its own scope, and a repair only re-encrypts within that
  * scope: the server can rewrite plaintext links and copy ciphertext, so a cross-scope repair would
  * re-encrypt server-placed content for the target's key holders. Content crosses scopes only when
- * the user moves or shares it ({@link rescopeTask}, {@link rescopeProject}).
+ * the user moves or shares it ({@link rescopeEntity}, {@link rescopeProject}).
  *
  * A repair writes at `successorHlc(ts)` only while the winning write is still the one at `ts`.
  */
@@ -30,6 +30,13 @@ import {
 } from "./crypto";
 import { sha1 } from "@noble/hashes/legacy.js";
 import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
+import {
+  actorFieldOf,
+  knownKinds,
+  scopeLinkFields,
+  scopeRuleOf,
+  type ScopeLink,
+} from "./fieldPolicy";
 import { compareHlc, successorHlc, type Hlc } from "./hlc";
 import type { LocalStore } from "./store";
 import { KEY_TRUST_ID } from "./trust";
@@ -53,13 +60,16 @@ export interface BatchLinks {
   seen: Set<string>;
 }
 
-const LINK_FIELDS = new Set(["project_id", "task_id"]);
-
+/**
+ * The link fields of a batch (every field a registered scope rule reads), which may arrive before
+ * the store has them.
+ */
 export function batchLinksOf(ops: readonly Operation[]): BatchLinks {
+  const linkFields = scopeLinkFields();
   const batch: BatchLinks = { links: new Map(), seen: new Set() };
   for (const op of ops) {
     batch.seen.add(op.entityId);
-    if (op.op !== "set" || !LINK_FIELDS.has(op.field)) continue;
+    if (op.op !== "set" || !linkFields.has(op.field)) continue;
     let fields = batch.links.get(op.entityId);
     if (!fields) batch.links.set(op.entityId, (fields = new Map()));
     const prev = fields.get(op.field);
@@ -69,7 +79,14 @@ export function batchLinksOf(ops: readonly Operation[]): BatchLinks {
   return batch;
 }
 
-/** The batch's links first, then the store's (tombstones included). */
+/** Links deeper than this resolve as unknown (registered rules have no cycles; data may). */
+const MAX_LINK_DEPTH = 16;
+
+/**
+ * The scope of `entity` `id` by its kind's rule ({@link scopeRuleOf}): the batch's links first,
+ * then the store's (tombstones included). A kind without a rule is personal; one whose links are
+ * all unset is personal once known, else unknown.
+ */
 export function resolveScope(
   store: ScopeStore,
   entity: EntityKind,
@@ -83,33 +100,20 @@ export function resolveScope(
   };
   const known = (kind: EntityKind, eid: string) =>
     (batch?.seen.has(eid) ?? false) || store.exists(kind, eid);
-
-  switch (entity) {
-    case "project":
-      return { kind: "project", projectId: id };
-    case "task":
-    case "section": {
-      const projectId = link(entity, id, "project_id");
-      if (projectId) return { kind: "project", projectId };
-      return known(entity, id) ? { kind: "personal" } : { kind: "unknown" };
+  const resolve = (kind: EntityKind, eid: string, depth: number): Scope => {
+    const rule = scopeRuleOf(kind);
+    if (rule === "self") return { kind: "project", projectId: eid };
+    if (!rule) return { kind: "personal" };
+    if (depth > MAX_LINK_DEPTH) return { kind: "unknown" };
+    for (const l of rule) {
+      const target = link(kind, eid, l.field);
+      if (!target) continue;
+      if (l.kind === undefined) return { kind: "project", projectId: target };
+      return resolve(l.kind, target, depth + 1);
     }
-    case "comment":
-    case "activity":
-    case "attachment": {
-      const taskId = link(entity, id, "task_id");
-      if (!taskId) {
-        // A project, section or member activity entry names its project instead of a task.
-        const projectId = entity === "activity" ? link(entity, id, "project_id") : null;
-        if (projectId) return { kind: "project", projectId };
-        return known(entity, id) ? { kind: "personal" } : { kind: "unknown" };
-      }
-      const projectId = link("task", taskId, "project_id");
-      if (projectId) return { kind: "project", projectId };
-      return known("task", taskId) ? { kind: "personal" } : { kind: "unknown" };
-    }
-    default:
-      return { kind: "personal" };
-  }
+    return known(kind, eid) ? { kind: "personal" } : { kind: "unknown" };
+  };
+  return resolve(entity, id, 0);
 }
 
 function activeMembers(store: Pick<ScopeStore, "list">, projectId: string) {
@@ -516,7 +520,8 @@ function isPayload(v: unknown): v is EncryptedPayload {
   );
 }
 
-function rewriteEntity(
+/** Re-write every readable field of an entity at its successor stamp (the store encrypts it on push). */
+export function rewriteEntity(
   store: RescopeStore,
   entity: EntityKind,
   id: string,
@@ -581,89 +586,106 @@ export function rewrapAttachmentKey(
   return wrapAttachmentKey(aek, target.key, target.keyId, target.scope, attachmentId);
 }
 
-/**
- * Whether this account may re-write an activity entry: only its author may (receivers drop an
- * entry whose `actor_id` was pushed by someone else, see wire.ts). Without `userId`, every entry.
- */
-function ownActivity(fields: Record<string, unknown>, userId: string | undefined): boolean {
-  return userId === undefined || fields.actor_id === userId;
+/** Whether `userId` may re-write this entity: only its writer may, when its kind names one. */
+export function ownsEntity(
+  entity: EntityKind,
+  fields: Record<string, unknown>,
+  userId: string | undefined,
+): boolean {
+  const actor = actorFieldOf(entity);
+  return actor === undefined || userId === undefined || fields[actor] === userId;
 }
 
-/**
- * Re-writes the task, its comments, activity and attachments under the new key. Only
- * `fromProjectId`'s keys and the DEK may unwrap. With `userId`, only that account's activity
- * entries are re-written: someone else's would lose their author on the way.
- */
-export function rescopeTask(
-  store: RescopeStore,
+/** The key scopes a rescope may unwrap with: the DEK, and `fromProjectId`'s keys. */
+export function rescopeSources(
+  store: Pick<ScopeStore, "list">,
   keyring: Keyring | null,
-  taskId: string,
-  fromProjectId?: string | null,
-  userId?: string,
-): number {
+  fromProjectId: string | null | undefined,
+): KeyScope[] {
   const from: KeyScope[] = [PERSONAL];
   if (keyring?.hasKeys() && fromProjectId) {
     const scope = projectKeyScope(store, keyring, fromProjectId);
     if (scope.kind === "project") from.push(scope);
   }
-  let written = rewriteEntity(store, "task", taskId);
-  for (const kind of ["comment", "activity"] as const) {
-    for (const e of store.list(kind)) {
-      if (e.fields.task_id !== taskId) continue;
-      if (kind === "activity" && !ownActivity(e.fields, userId)) continue;
-      written += rewriteEntity(store, kind, e.id);
-    }
-  }
-  for (const e of store.list("attachment")) {
-    if (e.fields.task_id !== taskId) continue;
-    written += rewriteEntity(store, "attachment", e.id, (field, value) =>
-      field === "wrapped_key" ? rewrapAttachmentKey(store, keyring, e.id, value, from) : value,
-    );
-  }
-  return written;
+  return from;
 }
 
-export function rescopeSection(
+/**
+ * Re-write one entity under the key of the scope it has now (an attachment's `wrapped_key` is
+ * re-wrapped, unwrapping only with `from`). Skips an entity someone else wrote ({@link ownsEntity}).
+ */
+export function rescopeOne(
   store: RescopeStore,
   keyring: Keyring | null,
-  sectionId: string,
+  entity: EntityKind,
+  id: string,
+  from: readonly KeyScope[],
+  userId?: string,
+): number {
+  const fields = store.get(entity, id);
+  if (fields && !ownsEntity(entity, fields, userId)) return 0;
+  if (entity !== "attachment") return rewriteEntity(store, entity, id);
+  return rewriteEntity(store, entity, id, (field, value) =>
+    field === "wrapped_key" ? rewrapAttachmentKey(store, keyring, id, value, from) : value,
+  );
+}
+
+/**
+ * After a user moves an entity to another scope: re-write it and everything that takes its scope
+ * from it through a scope link (a task's comments, activity and attachments), recursively. Only
+ * `fromProjectId`'s keys and the DEK may unwrap. With `userId`, entries someone else wrote are left
+ * alone: they would lose their author on the way.
+ */
+export function rescopeEntity(
+  store: RescopeStore,
+  keyring: Keyring | null,
+  entity: EntityKind,
+  id: string,
   fromProjectId?: string | null,
   userId?: string,
 ): number {
-  let written = rewriteEntity(store, "section", sectionId);
-  for (const e of store.list("task")) {
-    if (e.fields.section_id === sectionId) {
-      written += rescopeTask(store, keyring, e.id, fromProjectId, userId);
+  const from = rescopeSources(store, keyring, fromProjectId);
+  const walk = (kind: EntityKind, eid: string, depth: number): number => {
+    let written = rescopeOne(store, keyring, kind, eid, from, userId);
+    if (depth >= MAX_LINK_DEPTH) return written;
+    for (const child of knownKinds()) {
+      const rule = scopeRuleOf(child);
+      if (!Array.isArray(rule)) continue;
+      const links = rule as readonly ScopeLink[];
+      if (!links.some((l) => l.kind === kind)) continue;
+      for (const e of store.list(child)) {
+        // The first link that is set decides the child's scope.
+        const first = links.find((l) => {
+          const v = e.fields[l.field];
+          return typeof v === "string" && v !== "";
+        });
+        if (first?.kind === kind && e.fields[first.field] === eid)
+          written += walk(child, e.id, depth + 1);
+      }
     }
-  }
-  // The section's own entries (renames, archives), which name it rather than a task.
-  for (const e of store.list("activity")) {
-    if (!e.fields.task_id && e.fields.section_id === sectionId && ownActivity(e.fields, userId))
-      written += rewriteEntity(store, "activity", e.id);
-  }
-  return written;
+    return written;
+  };
+  return walk(entity, id, 0);
 }
 
-/** On first share: re-write the project, sections and all tasks under the project key. */
+/**
+ * On first share: re-write the project and everything whose scope is the project under the project
+ * key. Before its first share the project's content was personal: only the DEK unwraps.
+ */
 export function rescopeProject(
   store: RescopeStore,
   keyring: Keyring | null,
   projectId: string,
   userId?: string,
 ): number {
-  let written = rewriteEntity(store, "project", projectId);
-  for (const e of store.list("section")) {
-    if (e.fields.project_id === projectId) written += rewriteEntity(store, "section", e.id);
-  }
-  // Before its first share the project's content was personal: only the DEK unwraps.
-  for (const e of store.list("task")) {
-    if (e.fields.project_id === projectId)
-      written += rescopeTask(store, keyring, e.id, null, userId);
-  }
-  // Project, section and member entries, which name the project rather than a task.
-  for (const e of store.list("activity")) {
-    if (!e.fields.task_id && e.fields.project_id === projectId && ownActivity(e.fields, userId))
-      written += rewriteEntity(store, "activity", e.id);
+  let written = 0;
+  for (const kind of knownKinds()) {
+    if (scopeRuleOf(kind) === undefined) continue;
+    for (const e of store.list(kind)) {
+      const scope = resolveScope(store, kind, e.id);
+      if (scope.kind !== "project" || scope.projectId !== projectId) continue;
+      written += rescopeOne(store, keyring, kind, e.id, [PERSONAL], userId);
+    }
   }
   return written;
 }

@@ -25,7 +25,7 @@ import {
   type VaultItemPatch,
   type VaultItemSummary,
 } from "@atlastodo/shared";
-import { AtlasError } from "./client";
+import { AtlasError } from "./session";
 
 /**
  * A headless Atlas Vault client for integrations and CI, signed in with an API token that includes

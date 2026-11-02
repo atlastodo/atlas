@@ -57,7 +57,7 @@ import {
 } from "./crypto";
 import { SYNC_PROTOCOL, buildSyncWsUrl } from "./realtime";
 import { LEGACY_DISCOVERY, parseDiscovery, type ServerDiscovery } from "./discovery";
-import { isLegacyWireKind, legacyEncrypted } from "./fieldPolicy";
+import { actorFieldOf, isLegacyWireKind, legacyEncrypted } from "./fieldPolicy";
 import {
   EMPTY_SCOPE_STORE,
   batchLinksOf,
@@ -1283,15 +1283,16 @@ export class ApiClient {
     return res.dropped;
   }
   /**
-   * Whether this account may re-write every field of the entity: its own activity only (the server
-   * names the pusher as the actor), a shared project only as its owner (archive and delete are
+   * Whether this account may re-write every field of the entity: an entry with a writer field only
+   * as its writer (the server names the pusher), a shared project only as its owner (archive and delete are
    * owner-only), a shared project's item only as an active member.
    */
   mayReencode(kind: Operation["entity"], entityId: string): boolean {
     const store = this.scopeStore;
     const user = this.scopeUserId;
     if (!store || !user) return false;
-    if (kind === "activity" && store.rawField("activity", entityId, "actor_id") !== user) {
+    const actor = actorFieldOf(kind);
+    if (actor !== undefined && store.rawField(kind, entityId, actor) !== user) {
       return false;
     }
     const scope = resolveScope(store, kind, entityId);

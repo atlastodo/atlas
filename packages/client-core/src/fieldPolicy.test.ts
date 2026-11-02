@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   BUNDLED_MANIFESTS,
-  PLAINTEXT_FIELDS,
   appOfKind,
   isLegacyWireKind,
   isPublicField,
@@ -57,9 +56,7 @@ describe("field policy vectors", () => {
       expect(isPublicField(entity, field)).toBe(c.public);
       expect(shouldEncryptKindField(entity, field)).toBe(c.encrypted);
       expect(legacyEncrypted(entity, field)).toBe(c.legacy_encrypted);
-      if (entity in PLAINTEXT_FIELDS) {
-        expect(shouldEncryptField(entity as EntityKind, field)).toBe(c.encrypted);
-      }
+      expect(shouldEncryptField(entity, field)).toBe(c.encrypted);
     },
   );
 
@@ -73,12 +70,14 @@ describe("field policy vectors", () => {
 
 describe("field encryption policy", () => {
   it("is exactly the bundled manifests' plaintext_fields, every kind of every app", () => {
-    const fromManifests = Object.fromEntries(
-      [manifest, journalManifest, readManifest("vault")].flatMap((m) =>
-        Object.entries(m.kinds).map(([kind, spec]) => [kind, spec.plaintext_fields ?? []]),
-      ),
-    );
-    expect(PLAINTEXT_FIELDS).toEqual(fromManifests);
+    for (const m of [manifest, journalManifest, readManifest("vault")])
+      for (const [kind, spec] of Object.entries(m.kinds)) {
+        const plain = spec.plaintext_fields ?? [];
+        for (const field of ["title", "blob_sha", "project_id", "archived_at", "role"])
+          expect(shouldEncryptField(kind, field), `${kind}.${field}`).toBe(
+            plain !== "all" && !plain.includes(field),
+          );
+      }
   });
 
   it("bundles the todo, journal and vault manifests and maps their kinds to them", () => {

@@ -409,7 +409,7 @@ impl ApiClient {
         let mut deferred = Vec::new();
         let mut wire = Vec::new();
         for op in ops {
-            let scope = resolve_scope(store, op.entity, &op_entity_id(op), Some(&batch));
+            let scope = resolve_scope(store, &op.entity, &op_entity_id(op), Some(&batch));
             if let Scope::Project(p) = &scope {
                 if shared.contains(p) && keyring.project_key_canonical(p).is_none() {
                     deferred.push(op.id);
@@ -533,7 +533,7 @@ impl ApiClient {
             }
             let expected = expected_key_scope(
                 keyring,
-                &resolve_scope(store, op.entity, &id, Some(&legacy_links)),
+                &resolve_scope(store, &op.entity, &id, Some(&legacy_links)),
                 &shared,
             );
             let at = FieldLocation {
@@ -547,7 +547,7 @@ impl ApiClient {
                 value,
                 at,
                 expected.as_ref(),
-                open_options_for(op.entity, &id, legacy),
+                open_options_for(&op.entity, &id, legacy),
             ) {
                 *value = opened.value;
             }
@@ -566,7 +566,7 @@ impl ApiClient {
                 let id = op_entity_id(&d.op);
                 let expected = expected_key_scope(
                     keyring,
-                    &resolve_scope(store, d.op.entity, &id, Some(&batch)),
+                    &resolve_scope(store, &d.op.entity, &id, Some(&batch)),
                     &shared,
                 );
                 let canonical = match &expected {
@@ -578,7 +578,7 @@ impl ApiClient {
                 };
                 if expected.as_ref() != Some(scope) || !canonical {
                     repairs.push(Repair {
-                        entity: d.op.entity,
+                        entity: d.op.entity.clone(),
                         entity_id: id,
                         field: field.clone(),
                         ts: d.op.ts,

@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use atlas_core::{Change, EntityKind, Hlc, HlcClock, Operation};
+use atlas_core::{Change, Hlc, HlcClock, Operation};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
@@ -93,7 +93,7 @@ pub struct Opened {
 
 #[derive(Debug, Clone)]
 pub struct RevivedField {
-    pub entity: EntityKind,
+    pub entity: String,
     pub entity_id: String,
     pub field: String,
     pub ts: Hlc,
@@ -114,7 +114,7 @@ pub struct SealedPending {
 /// A sealed value opened by [`Store::revive_sealed`]'s callback.
 #[derive(Debug, Clone)]
 pub struct OpenedSealed {
-    pub kind: EntityKind,
+    pub kind: String,
     pub field: String,
     pub value: Value,
     pub key_id: String,
@@ -129,7 +129,7 @@ pub struct Store {
     wall_clock: Clock,
     clock_offset: i64,
     new_id: IdGen,
-    entities: Vec<(EntityKind, Kind)>,
+    entities: Vec<(String, Kind)>,
     outbox: Vec<Operation>,
     applied: HashSet<Uuid>,
     acknowledged: Option<Hlc>,
@@ -172,26 +172,26 @@ impl Store {
         (self.new_id)().to_string()
     }
 
-    fn kind(&self, entity: EntityKind) -> Option<&Kind> {
+    fn kind(&self, entity: &str) -> Option<&Kind> {
         self.entities
             .iter()
             .find(|(k, _)| *k == entity)
             .map(|(_, v)| v)
     }
 
-    fn kind_mut(&mut self, entity: EntityKind) -> &mut Kind {
+    fn kind_mut(&mut self, entity: &str) -> &mut Kind {
         if let Some(i) = self.entities.iter().position(|(k, _)| *k == entity) {
             return &mut self.entities[i].1;
         }
-        self.entities.push((entity, Kind::default()));
+        self.entities.push((entity.to_owned(), Kind::default()));
         &mut self.entities.last_mut().expect("just pushed").1
     }
 
-    fn state(&self, entity: EntityKind, id: &str) -> Option<&EntityState> {
+    fn state(&self, entity: &str, id: &str) -> Option<&EntityState> {
         self.kind(entity)?.by_id.get(id)
     }
 
-    fn state_mut(&mut self, entity: EntityKind, id: &str) -> Option<&mut EntityState> {
+    fn state_mut(&mut self, entity: &str, id: &str) -> Option<&mut EntityState> {
         self.entities
             .iter_mut()
             .find(|(k, _)| *k == entity)?
@@ -214,20 +214,26 @@ impl Store {
         }
     }
 
-    fn make_op(&mut self, entity: EntityKind, id: &str, change: Change, ts: Hlc) -> Operation {
+    fn make_op(&mut self, entity: &str, id: &str, change: Change, ts: Hlc) -> Operation {
         Operation {
             id: (self.new_id)(),
-            entity,
+            entity: entity.to_owned(),
             entity_id: Uuid::parse_str(id).expect("entity ids are UUIDs"),
             change,
             ts,
         }
     }
 
-    pub fn set(&mut self, entity: EntityKind, id: &str, field: &str, value: Value) -> Operation {
+    pub fn set(
+        &mut self,
+        entity: impl AsRef<str>,
+        id: &str,
+        field: &str,
+        value: Value,
+    ) -> Operation {
         let ts = self.clock.now(self.now());
         let op = self.make_op(
-            entity,
+            entity.as_ref(),
             id,
             Change::Set {
                 field: field.to_owned(),
@@ -243,14 +249,14 @@ impl Store {
     /// Write `value` at a given stamp; `None` when it does not beat the current value.
     pub fn rewrite_field(
         &mut self,
-        entity: EntityKind,
+        entity: impl AsRef<str>,
         id: &str,
         field: &str,
         value: Value,
         ts: Hlc,
     ) -> Option<Operation> {
         let op = self.make_op(
-            entity,
+            entity.as_ref(),
             id,
             Change::Set {
                 field: field.to_owned(),
@@ -267,9 +273,9 @@ impl Store {
     }
 
     /// A tombstone for the entity.
-    pub fn remove(&mut self, entity: EntityKind, id: &str) -> Operation {
+    pub fn remove(&mut self, entity: impl AsRef<str>, id: &str) -> Operation {
         let ts = self.clock.now(self.now());
-        let op = self.make_op(entity, id, Change::Delete, ts);
+        let op = self.make_op(entity.as_ref(), id, Change::Delete, ts);
         self.merge(&op);
         self.outbox.push(op.clone());
         op
@@ -296,7 +302,7 @@ impl Store {
         }
         let id = op_entity_id(op);
         let pending = self.pending_tombstones.get(&id).copied();
-        let kind = self.kind_mut(op.entity);
+        let kind = self.kind_mut(&op.entity);
         if !kind.by_id.contains_key(&id) {
             kind.order.push(id.clone());
             // A tombstone that arrived before the entity's kind was known is the entity's.
@@ -343,8 +349,8 @@ impl Store {
     }
 
     /// The entity's visible fields; `None` when it is unknown or a tombstone hides every field.
-    pub fn get(&self, entity: EntityKind, id: &str) -> Option<Map<String, Value>> {
-        let state = self.state(entity, id)?;
+    pub fn get(&self, entity: impl AsRef<str>, id: &str) -> Option<Map<String, Value>> {
+        let state = self.state(entity.as_ref(), id)?;
         let visible = state.visible_fields();
         if state.deleted.is_some() && visible.is_empty() {
             return None;
@@ -352,8 +358,8 @@ impl Store {
         Some(visible)
     }
 
-    pub fn list(&self, entity: EntityKind) -> Vec<ResolvedEntity> {
-        let Some(kind) = self.kind(entity) else {
+    pub fn list(&self, entity: impl AsRef<str>) -> Vec<ResolvedEntity> {
+        let Some(kind) = self.kind(entity.as_ref()) else {
             return Vec::new();
         };
         kind.order
@@ -377,24 +383,30 @@ impl Store {
     }
 
     /// Whether any op for the entity was merged, tombstoned or not.
-    pub fn exists(&self, entity: EntityKind, id: &str) -> bool {
-        self.state(entity, id).is_some()
+    pub fn exists(&self, entity: impl AsRef<str>, id: &str) -> bool {
+        self.state(entity.as_ref(), id).is_some()
     }
 
     /// The winning value of a field, hidden by a tombstone or not.
-    pub fn raw_field(&self, entity: EntityKind, id: &str, field: &str) -> Option<&Value> {
-        self.state(entity, id)?.field(field).map(|f| &f.value)
+    pub fn raw_field(&self, entity: impl AsRef<str>, id: &str, field: &str) -> Option<&Value> {
+        self.state(entity.as_ref(), id)?
+            .field(field)
+            .map(|f| &f.value)
     }
 
     /// The stamp of a visible field.
-    pub fn field_ts(&self, entity: EntityKind, id: &str, field: &str) -> Option<Hlc> {
-        let state = self.state(entity, id)?;
+    pub fn field_ts(&self, entity: impl AsRef<str>, id: &str, field: &str) -> Option<Hlc> {
+        let state = self.state(entity.as_ref(), id)?;
         let fs = state.field(field)?;
         state.visible(&fs.ts).then_some(fs.ts)
     }
 
-    pub fn visible_field_states(&self, entity: EntityKind, id: &str) -> Vec<(String, Value, Hlc)> {
-        let Some(state) = self.state(entity, id) else {
+    pub fn visible_field_states(
+        &self,
+        entity: impl AsRef<str>,
+        id: &str,
+    ) -> Vec<(String, Value, Hlc)> {
+        let Some(state) = self.state(entity.as_ref(), id) else {
             return Vec::new();
         };
         state
@@ -408,7 +420,7 @@ impl Store {
     /// Open stored envelopes with `open`, keeping their stamps: nothing is pushed.
     pub fn revive_locked(
         &mut self,
-        mut open: impl FnMut(&Store, EntityKind, &str, &str, &Value) -> Option<Opened>,
+        mut open: impl FnMut(&Store, &str, &str, &str, &Value) -> Option<Opened>,
     ) -> Vec<RevivedField> {
         let mut found = Vec::new();
         for (entity, kind) in &self.entities {
@@ -417,9 +429,9 @@ impl Store {
                     if !is_encrypted_envelope(&fs.value) {
                         continue;
                     }
-                    if let Some(opened) = open(self, *entity, id, field, &fs.value) {
+                    if let Some(opened) = open(self, entity, id, field, &fs.value) {
                         found.push(RevivedField {
-                            entity: *entity,
+                            entity: entity.clone(),
                             entity_id: id.clone(),
                             field: field.clone(),
                             ts: fs.ts,
@@ -432,7 +444,9 @@ impl Store {
         for r in &found {
             let op_id = (self.new_id)();
             self.applied.insert(op_id);
-            let state = self.state_mut(r.entity, &r.entity_id).expect("found above");
+            let state = self
+                .state_mut(&r.entity, &r.entity_id)
+                .expect("found above");
             let fs = state.field_mut(&r.field).expect("found above");
             fs.value = r.opened.value.clone();
             fs.op = op_id;
@@ -441,16 +455,16 @@ impl Store {
     }
 
     /// The entity's tombstone stamp, if it has one.
-    pub fn tombstone_ts(&self, entity: EntityKind, id: &str) -> Option<Hlc> {
-        self.state(entity, id)?.deleted
+    pub fn tombstone_ts(&self, entity: impl AsRef<str>, id: &str) -> Option<Hlc> {
+        self.state(entity.as_ref(), id)?.deleted
     }
 
     /// The real kind of the entity held by this id.
-    pub fn kind_of(&self, id: &str) -> Option<EntityKind> {
+    pub fn kind_of(&self, id: &str) -> Option<String> {
         self.entities
             .iter()
             .find(|(_, k)| k.by_id.contains_key(id))
-            .map(|(e, _)| *e)
+            .map(|(e, _)| e.clone())
     }
 
     /// Keep a delete of an entity whose kind is not known yet, for the entity to take over.
@@ -501,7 +515,7 @@ impl Store {
         for (opened, id, ts) in &revived {
             let op = Operation {
                 id: (self.new_id)(),
-                entity: opened.kind,
+                entity: opened.kind.clone(),
                 entity_id: Uuid::parse_str(id).expect("entity ids are UUIDs"),
                 change: Change::Set {
                     field: opened.field.clone(),
@@ -538,7 +552,7 @@ impl Store {
                 if let (Some(ts), Some(op)) = (state.deleted, state.deleted_op) {
                     out.push(Operation {
                         id: op,
-                        entity: *entity,
+                        entity: entity.clone(),
                         entity_id,
                         change: Change::Delete,
                         ts,
@@ -547,7 +561,7 @@ impl Store {
                 for (field, fs) in &state.fields {
                     out.push(Operation {
                         id: fs.op,
-                        entity: *entity,
+                        entity: entity.clone(),
                         entity_id,
                         change: Change::Set {
                             field: field.clone(),
@@ -583,7 +597,7 @@ impl Store {
             };
             let op = self.outbox.remove(i);
             let eid = op_entity_id(&op);
-            let Some(state) = self.state_mut(op.entity, &eid) else {
+            let Some(state) = self.state_mut(&op.entity, &eid) else {
                 continue;
             };
             match &op.change {
@@ -597,7 +611,7 @@ impl Store {
                 _ => {}
             }
             if state.fields.is_empty() && state.deleted.is_none() {
-                let kind = self.kind_mut(op.entity);
+                let kind = self.kind_mut(&op.entity);
                 kind.by_id.remove(&eid);
                 kind.order.retain(|x| *x != eid);
             }
@@ -642,7 +656,7 @@ impl Store {
                 o.ts = ts;
             }
             let eid = op_entity_id(old);
-            if let Some(state) = self.state_mut(old.entity, &eid) {
+            if let Some(state) = self.state_mut(&old.entity, &eid) {
                 match &old.change {
                     Change::Delete => {
                         if state.deleted_op == Some(old.id) {

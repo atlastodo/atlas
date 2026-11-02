@@ -44,14 +44,14 @@ flowchart TB
   apps["Atlas Todo apps<br/>(atlastodo/atlas-todo)"]
   cli["crates/atlas-cli<br/>the atlas CLI"]
   core["packages/client-core<br/>local store (SQLite / IndexedDB), sync client, E2EE"]
-  shared["packages/shared<br/>pure TS: recurrence, filters, quick add, habits"]
+  shared["packages/shared<br/>vault item rules"]
   rclient["crates/atlas-client<br/>Rust client core"]
   server["crates/atlas-server (Axum)"]
   atlascore["crates/atlas-core<br/>pure Rust: HLC and op types"]
   db[("PostgreSQL<br/>op log, per-user state, accounts, wrapped keys")]
 
   apps --> core
-  core --> shared
+  shared --> core
   cli --> rclient
   core <-->|"HTTPS + WebSocket<br/>(ciphertext ops)"| server
   rclient <-->|"HTTPS<br/>(ciphertext ops)"| server
@@ -159,7 +159,7 @@ crates/atlas-client   Rust: headless client (E2EE, sync, task rules) at parity w
 crates/atlas-cli      Rust: the `atlas` command-line tool, one static binary
 migrations/           sqlx migrations, the source of truth for the schema
 packages/client-core  TS: local store, sync client, E2EE
-packages/shared       TS: portable pure logic (recurrence, filters, habits, stats, i18n, …)
+packages/shared       TS: Atlas Vault's item rules (todo's are in atlastodo/atlas-todo)
 packages/sdk          TS: headless client for integrations, signed in with an API token
 manifests/            JSON app manifests (entity kinds, plaintext fields), bundled by server and clients
 test-vectors/         JSON fixtures shared by the Rust and TypeScript tests

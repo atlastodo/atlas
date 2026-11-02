@@ -114,13 +114,39 @@ impl EntityKind {
     }
 }
 
+impl AsRef<str> for EntityKind {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl PartialEq<EntityKind> for String {
+    fn eq(&self, kind: &EntityKind) -> bool {
+        self == kind.as_str()
+    }
+}
+
+impl PartialEq<EntityKind> for str {
+    fn eq(&self, kind: &EntityKind) -> bool {
+        self == kind.as_str()
+    }
+}
+
+impl From<EntityKind> for String {
+    fn from(kind: EntityKind) -> String {
+        kind.as_str().to_owned()
+    }
+}
+
 /// A single change to one field of one entity, or a delete (tombstone), as clients hold it: the
 /// real kind and field name. On the wire it travels as a [`WireOperation`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Operation {
     /// Client-generated UUIDv7 for the op itself; also the idempotency key on the server.
     pub id: Uuid,
-    pub entity: EntityKind,
+    /// The real kind: a bundled manifest's (see [`EntityKind`]) or one an app registered with
+    /// the client. Open: only clients see it.
+    pub entity: String,
     /// The target entity's client-generated UUIDv7 (created offline, stable forever).
     pub entity_id: Uuid,
     /// The op payload: a field write or a delete.
@@ -146,7 +172,7 @@ pub enum Change {
 
 impl Operation {
     pub fn set(
-        entity: EntityKind,
+        entity: impl Into<String>,
         entity_id: Uuid,
         field: &str,
         value: serde_json::Value,
@@ -154,7 +180,7 @@ impl Operation {
     ) -> Self {
         Self {
             id: Uuid::now_v7(),
-            entity,
+            entity: entity.into(),
             entity_id,
             change: Change::Set {
                 field: field.to_string(),
@@ -164,10 +190,10 @@ impl Operation {
         }
     }
 
-    pub fn delete(entity: EntityKind, entity_id: Uuid, ts: Hlc) -> Self {
+    pub fn delete(entity: impl Into<String>, entity_id: Uuid, ts: Hlc) -> Self {
         Self {
             id: Uuid::now_v7(),
-            entity,
+            entity: entity.into(),
             entity_id,
             change: Change::Delete,
             ts,

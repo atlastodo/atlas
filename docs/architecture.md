@@ -16,19 +16,19 @@ The apps (`apps/mobile`, `apps/electron`) live in their own repository,
 every `apps/` path on this page is in that repository. The server image and the flake serve a
 pinned release of its web build (`apps.lock.json`).
 
-| Path                   | Language              | Role                                                                                                                                                                                           |
-| ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `crates/atlas-core`    | Rust                  | The hybrid logical clock, the op log types and the bundled app manifest registry. No I/O.                                                                                                      |
-| `manifests/`           | JSON                  | One manifest per app of the suite (`todo.json`): its entity kinds, their wire kinds and their public and plaintext fields. Compiled into the server, bundled by the clients.                   |
-| `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.                                                                |
-| `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                                                                                  |
-| `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client.                                                                                                            |
-| `packages/shared`      | TypeScript            | Pure logic for every client: recurrence, quick-add parsing, filters, habits, stats, ordering, TickTick/Todoist import, i18n catalogs.                                                          |
-| `apps/mobile`          | React Native + Expo   | The only UI. Runs natively on Android and iOS and in the browser through react-native-web.                                                                                                     |
-| `apps/electron`        | TypeScript (Electron) | Desktop shell that loads the web export from an `app://` origin.                                                                                                                               |
-| `crates/atlas-client`  | Rust                  | A headless client for integrations: API-token sessions, the end-to-end encryption, sync and the task rules of `packages/client-core` and `packages/shared`, kept at parity by `test-vectors/`. |
-| `crates/atlas-cli`     | Rust                  | The `atlas` command line over `atlas-client`, released as one static binary per platform.                                                                                                      |
-| `test-vectors/`        | JSON                  | Shared fixtures (crypto, conflicts, recurrence, task rules, quick add, filters, CLI runs), read by both the Rust and the TypeScript tests.                                                     |
+| Path                   | Language              | Role                                                                                                                                                                         |
+| ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/atlas-core`    | Rust                  | The hybrid logical clock, the op log types and the bundled app manifest registry. No I/O.                                                                                    |
+| `manifests/`           | JSON                  | One manifest per app of the suite (`todo.json`): its entity kinds, their wire kinds and their public and plaintext fields. Compiled into the server, bundled by the clients. |
+| `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.                                              |
+| `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                                                                |
+| `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client, app definitions and the scope engine.                                                    |
+| `packages/shared`      | TypeScript            | Atlas Vault's item rules (todo's moved to the todo app's repository, `@atlastodo/todo-core`).                                                                                |
+| `apps/mobile`          | React Native + Expo   | The only UI. Runs natively on Android and iOS and in the browser through react-native-web.                                                                                   |
+| `apps/electron`        | TypeScript (Electron) | Desktop shell that loads the web export from an `app://` origin.                                                                                                             |
+| `crates/atlas-client`  | Rust                  | The same engine for integrations: API-token sessions, end-to-end encryption, sync, app definitions; Journal's and the Vault's rules. At parity by `test-vectors/`.           |
+| `crates/atlas-cli`     | Rust                  | The `atlas` command line (journal, vault) over `atlas-client`, one static binary per platform; todo's is `atlas-todo`, in its repository.                                    |
+| `test-vectors/`        | JSON                  | Shared fixtures (crypto, conflicts, field policy, scope rules, vault items, CLI runs), read by both the Rust and the TypeScript tests.                                       |
 
 ## How the clients share code
 
@@ -45,15 +45,14 @@ build time. Session storage and notifications work this way.
   [apps/electron/README.md](https://github.com/atlastodo/atlas-todo/blob/main/apps/electron/README.md)
   in the app repository.
 
-All of them use `packages/client-core` for data, sync and encryption, and `packages/shared` for
-domain logic. Neither package depends on React.
+All of them use `packages/client-core` for data, sync and encryption, and the app's own
+`@atlastodo/todo-core` (in its repository) for domain logic. Neither depends on React.
 
 ## Data model
 
-Every piece of user data is an entity: a bag of named fields with a client-generated UUIDv7 id.
-The entity kinds are `task`, `project`, `section`, `label`, `comment`, `preference`,
-`saved_filter`, `reminder`, `project_member`, `activity`, `focus_session`, `habit`,
-`habit_checkin` and `attachment`.
+Every piece of user data is an entity: a bag of named fields with a client-generated UUIDv7 id,
+of a kind its app defines (todo's include `task`, `project`, `section`, `comment` and `activity`;
+see [App definitions](#app-definitions)). The engine has no list of an app's kinds.
 
 Clients never update rows in place. Every change is an operation: it sets one field or deletes
 the entity (`"op": "delete"`, a tombstone), and its id makes pushes idempotent. Clients hold
@@ -92,11 +91,10 @@ disk. Bump a manifest's `version` whenever its kinds or their fields change.
 
 Todo's kinds keep their original bare wire names (`task`, `project`, …); every later app must
 namespace its kinds as `<app>.<kind>` (`notes.note`), which the registry enforces. The registry
-maps each kind to its app by wire name. The Rust `EntityKind` enum stays closed: authorization
-and fan-out match on todo's kinds exhaustively, and an open kind would let an op of an unknown
-kind slip past those matches. A new app adds its kinds as variants with an explicit
-`#[serde(rename = "notes.note")]` next to its manifest; a test fails until every variant is in
-exactly one manifest and every manifest kind is a variant.
+maps each kind to its app by wire name. The server matches only on wire kinds, which stay a closed
+enum (`WireKind`); the Rust `EntityKind` enum names the kinds the manifests list, which rows
+written before protocol 7 carry as their wire kind, and a test keeps the two in step. A new kind
+of an existing app is not a manifest change: see [App definitions](#app-definitions).
 
 Enablement has two levels:
 
@@ -110,9 +108,9 @@ Enablement has two levels:
 The release bundles `todo`, `journal` (Atlas Journal: `journal.entry`, `journal.preference`,
 every field encrypted) and `vault` (Atlas Vault: `vault.item`, `vault.folder`,
 `vault.preference`, every field encrypted). Their clients are separate apps; this repository
-ships their manifests, the server rules, the client-core helpers, the item rules
-(`packages/shared/src/vault.ts`, `crates/atlas-client/src/vault.rs`) and the CLI and SDK
-commands.
+ships their manifests, the server rules, the client-core helpers, the vault and journal rules
+(`packages/shared/src/vault.ts`, `crates/atlas-client/src/vault.rs`, `journal.rs`) and the CLI and
+SDK commands; those are to move to the apps' repositories as todo's did.
 
 A manifest may also carry an `api_tokens` policy (`expiry_required`, `max_lifetime_days`,
 `write_by_default`, `exclusive`; `TokenPolicy` in `atlas-core`, `tokenPolicyFor` in client-core) that the
@@ -175,6 +173,49 @@ build bundles and the instance offers: `PUT /auth/app-keys/:app` answers 400 for
 and 403 `app_not_enabled` (scope `instance`) for one `ATLAS_APPS` leaves out (`PUT /auth/apps/:app`
 answers 404 and 403), so no key row lands under the root for an app nothing can use. The
 `app_keys` of signup, migration and recovery must name bundled apps too.
+
+### App definitions
+
+The engine knows no app's rules. A manifest is the server's half of an app: its wire kinds and
+the fields the server acts on. The client's half is an **app definition**, which the app
+registers at start-up (`registerApp` in `packages/client-core/src/fieldPolicy.ts`,
+`atlas_client::apps::register_app` in Rust) and which lives in the app's repository (todo's is
+`@atlastodo/todo-core` and `atlas-todo-rules` in atlastodo/atlas-todo):
+
+```json
+{
+  "app": "todo",
+  "kinds": {
+    "task": { "scope": [{ "field": "project_id" }] },
+    "comment": { "scope": [{ "field": "task_id", "kind": "task" }] },
+    "activity": {
+      "scope": [{ "field": "task_id", "kind": "task" }, { "field": "project_id" }],
+      "actor_field": "actor_id"
+    },
+    "label": {}
+  }
+}
+```
+
+- **Kinds.** A kind the manifest does not list travels as `<app>.sealed` with every field
+  encrypted; the server never learns it exists. So a new kind, field or link is the app's
+  change alone. Only a kind the server must read something of (a public field, a share
+  container) needs a manifest change here.
+- **`scope`** says which key encrypts an entity, which is also the scope the server routes and
+  authorizes it by. `"self"`: the entity is a share container (a project; only, and every, kind
+  travelling as `<app>.project`). Links: the first one set wins; `{ field }` names the project,
+  `{ field, kind }` an entity whose scope it takes, recursively. No rule: personal. The same
+  rules decide which fields a batch must read to scope its ops, and what a move or a first share
+  re-encrypts (`rescopeEntity`, `rescopeProject`).
+- **`actor_field`** names the account that wrote an entry: an op setting it to anyone but the
+  account that pushed it is dropped as forged, and only that account re-writes it.
+
+`registerApp` refuses a definition the server would not accept: an app without a bundled
+manifest, another app's kind, an un-namespaced kind of a later app, a wire kind other than the
+manifest's or `<app>.sealed`, links in an app without share containers, a link to an unknown kind,
+or a cycle. `test-vectors/scope_rule_vectors.json` pins all of this for both clients, with a test
+app whose kinds core has no code for. Sharing itself (projects as share containers, members and
+roles, project keys), blob storage for attachments and accounts stay the engine's.
 
 ### Discovery
 

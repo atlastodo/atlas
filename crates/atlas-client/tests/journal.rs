@@ -222,7 +222,11 @@ fn a_token_without_the_app_is_refused_clearly() {
 fn a_token_for_both_apps_keeps_their_data_apart() {
     let server = server(&["todo", "journal"]);
     let mut todo = connect(&server, "todo").unwrap();
-    todo.quick_add("Buy stamps").unwrap();
+    let task = todo.session_mut().store.new_entity_id();
+    todo.session_mut()
+        .store
+        .set("task", &task, "title", serde_json::json!("Buy stamps"));
+    todo.push().unwrap();
     let mut journal = connect(&server, "journal").unwrap();
     journal
         .create_journal_entry(JournalFields {
@@ -232,7 +236,7 @@ fn a_token_for_both_apps_keeps_their_data_apart() {
         .unwrap();
     // Each session sees only its app, and named it on every sync request.
     let todo = connect(&server, "todo").unwrap();
-    assert_eq!(todo.tasks(&Default::default()).unwrap().len(), 1);
+    assert_eq!(todo.session().store.list("task").len(), 1);
     assert!(todo
         .session()
         .store

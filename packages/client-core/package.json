@@ -42,7 +42,8 @@
       "password_kdf_vectors.json",
       "recovery_challenge_vectors.json",
       "recovery_key_vectors.json",
-      "root_key_vectors.json"
+      "root_key_vectors.json",
+      "scope_rule_vectors.json"
     ]
   },
   "scripts": {

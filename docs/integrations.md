@@ -6,8 +6,8 @@ decrypt them itself. Atlas does this with three pieces:
 
 - An **API token** carries a key as well as a credential. You create it in the app, which wraps a
   copy of your account keys under a secret the server never sees.
-- The **`atlas` CLI** signs in with the token, downloads your account, decrypts it on the machine
-  it runs on, and reads or changes tasks as JSON.
+- The **`atlas` CLI** (and the todo app's **`atlas-todo`**) signs in with the token, downloads your
+  account, decrypts it on the machine it runs on, and reads or changes it as JSON.
 - **n8n** (or cron, a shell script, Home Assistant, …) runs the CLI.
 
 The server stays zero-knowledge. It sees ciphertext from the CLI, exactly as it does from the app.
@@ -70,33 +70,19 @@ up in process listings and shell history.
 | `ATLAS_TZ`        | IANA time zone for dates, e.g. `Europe/Copenhagen`         |
 | `ATLAS_STATE_DIR` | optional: a directory to keep the account in between runs  |
 
-Every command prints JSON. Each command also takes its app first, as in `atlas todo tasks list`;
-the shorter forms stay. A failure prints `{"error": …, "code": …}` on stderr and exits with
+Every command prints JSON. A failure prints `{"error": …, "code": …}` on stderr and exits with
 code 1, or 2 for a usage error.
 
-```sh
-atlas projects list
-atlas labels list
-atlas tasks list --project Work --due-before tomorrow
-atlas tasks list --filter "today & p1"          # the app's filter syntax
-atlas tasks get 0192…
-atlas tasks add --title "Renew passport" --due 2026-11-02 --priority 2 --project Home --label errand
-atlas tasks add --json '{"title": "From a form", "notes": "…", "due": "2026-11-02T09:00"}'
-atlas tasks quick "Pay rent every month on the 1st #Home p1 @bills"   # the app's quick-add syntax
-atlas tasks update 0192… --due none --notes "moved"
-atlas tasks complete 0192…        # a recurring task returns its next occurrence as "next"
-atlas tasks reopen 0192…
-atlas tasks delete 0192…          # to the trash, as in the app
-atlas changes                     # {"cursor": 1234}: the starting point
-atlas changes --since 1234        # tasks created, updated, completed and deleted since then
-```
+### Atlas Todo: the `atlas-todo` CLI
 
-How the arguments are read:
-
-- **Dates** can be `YYYY-MM-DD` (the app's default due time on that day),
-  `YYYY-MM-DDTHH:MM` (wall time in `ATLAS_TZ`), ISO 8601 with `Z` or an offset, unix
-  milliseconds, `today`, `tomorrow`, or `none`.
-- **Projects and labels** can be given by name (case-insensitive) or by id.
+Atlas Todo's commands (`tasks`, `projects`, `labels`, `changes`) moved with the todo app's rules
+to the app's repository: they are the `atlas-todo` CLI, released there as
+`atlas-todo-X.Y.Z-<target>` binaries (https://github.com/atlastodo/atlas-todo/releases), with the
+same environment, commands and output the `atlas` CLI had (`atlas-todo tasks list`,
+`atlas-todo tasks quick "Pay rent every month on the 1st #Home p1 @bills"`, `atlas-todo changes
+--since 1234`). `atlas tasks …` now exits with a usage error that points there. Core keeps no
+app's rules: an app's kinds, links and rules are its own (see "App definitions" in
+[architecture.md](./architecture.md#app-definitions)).
 
 ### Atlas Journal
 
@@ -346,7 +332,8 @@ secretspec:
 
 ## n8n
 
-n8n runs the CLI with its **Execute Command** node. Recent n8n versions disable that node by
+n8n runs the CLIs with its **Execute Command** node. The recipes below use `atlas-todo`, the todo
+app's CLI (see above), installed the same way. Recent n8n versions disable that node by
 default, so enable it first by removing it from `NODES_EXCLUDE`, e.g. `NODES_EXCLUDE="[]"`. Only
 do that on an instance whose workflows you control, because the node runs shell commands.
 
@@ -371,24 +358,28 @@ services:
 ### Recipes
 
 - **Create a task from an email.** _Email Trigger (IMAP)_ → _Execute Command_ with
-  `atlas tasks quick "{{ $json.subject }}"`. Use `tasks add --json` to keep the body as notes.
+  `atlas-todo tasks quick "{{ $json.subject }}"`. Use `tasks add --json` to keep the body as notes.
   Mind the shell quoting: `--json '{{ JSON.stringify({title: $json.subject}) }}'` breaks on a
   single quote in the subject, so strip or escape quotes first.
 - **Daily digest.** _Schedule Trigger_ (07:00) → _Execute Command_
-  `atlas tasks list --filter "today | overdue"` → _Code_ (`JSON.parse($json.stdout)`) → _Send
+  `atlas-todo tasks list --filter "today | overdue"` → _Code_ (`JSON.parse($json.stdout)`) → _Send
   Email_ / _Telegram_.
 - **React to changes.** _Schedule Trigger_ (every 5 minutes) → _Execute Command_
-  `atlas changes --since {{ $getWorkflowStaticData('global').cursor ?? '' }}` → _Code_, which
+  `atlas-todo changes --since {{ $getWorkflowStaticData('global').cursor ?? '' }}` → _Code_, which
   stores the returned `cursor` back in the static data and emits one item per entry of
   `completed` or `created` → whatever should happen next. The first run, without a cursor, only
   returns the starting cursor.
 
 ## Scripts in TypeScript or Rust
 
-`packages/sdk` (`@atlastodo/sdk`) is the same client as a TypeScript library: `AtlasClient.connect`,
-then `tasks()`, `createTask()`, `completeTask()`, `changes()` and so on. The CLI is built on
-`crates/atlas-client`, the same client in Rust (`AtlasClient::connect`), which reimplements the
-app's encryption, sync and task rules; the fixtures in `test-vectors/` hold the two at parity.
+`packages/sdk` (`@atlastodo/sdk`) is the TypeScript side: `TokenSession.connect` opens an API-token
+session, syncs the account into memory and loads the shared projects' keys; an app's own client
+sits on top of it after registering the app's definition (`registerApp` in
+`@atlastodo/client-core`). It also has the Atlas Vault client (`VaultClient`). Todo's client
+(`AtlasClient`: `tasks()`, `createTask()`, `completeTask()`, `changes()`, …) moved to the todo
+app's repository with the todo rules (`@atlastodo/todo-core`). The `atlas` CLI is built on
+`crates/atlas-client`, the same engine in Rust (`AtlasClient::connect`, `atlas_client::apps`);
+the fixtures in `test-vectors/` hold the two at parity.
 
 Every release attaches the SDK and the packages it builds on as npm tarballs
 (`atlastodo-sdk-X.Y.Z.tgz`, `atlastodo-shared-X.Y.Z.tgz`, `atlastodo-client-core-X.Y.Z.tgz`: ESM

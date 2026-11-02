@@ -7,6 +7,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use atlas_core::{Change, EntityKind, Hlc, Operation};
 use serde_json::Value;
 
+use crate::apps::{scope_link_fields, scope_rule_of, ScopeRule};
 use crate::crypto::{
     decrypt_field, decrypt_json, is_encrypted_envelope, EncryptedPayload, FieldEnvelope,
     FieldLocation, KeyScope, Keyring, DEK_KEY_ID,
@@ -23,14 +24,16 @@ pub enum Scope {
     Unknown,
 }
 
-/// The link fields of a batch of ops, which may arrive before the store has them.
+/// The link fields of a batch of ops (every field a registered scope rule reads), which may arrive
+/// before the store has them.
 #[derive(Default)]
 pub struct BatchLinks {
-    links: HashMap<String, HashMap<&'static str, (Value, Hlc)>>,
+    links: HashMap<String, HashMap<String, (Value, Hlc)>>,
     seen: HashSet<String>,
 }
 
 pub fn batch_links_of(ops: &[Operation]) -> BatchLinks {
+    let link_fields = scope_link_fields();
     let mut batch = BatchLinks::default();
     for op in ops {
         let id = op_entity_id(op);
@@ -38,27 +41,25 @@ pub fn batch_links_of(ops: &[Operation]) -> BatchLinks {
         let Change::Set { field, value } = &op.change else {
             continue;
         };
-        let field: &'static str = match field.as_str() {
-            "project_id" => "project_id",
-            "task_id" => "task_id",
-            _ => continue,
-        };
+        if !link_fields.contains(field) {
+            continue;
+        }
         let fields = batch.links.entry(id).or_default();
         if fields.get(field).is_none_or(|(_, ts)| op.ts > *ts) {
-            fields.insert(field, (value.clone(), op.ts));
+            fields.insert(field.clone(), (value.clone(), op.ts));
         }
     }
     batch
 }
 
-/// The batch's links first, then the store's (tombstones included).
-pub fn resolve_scope(
-    store: &Store,
-    entity: EntityKind,
-    id: &str,
-    batch: Option<&BatchLinks>,
-) -> Scope {
-    let link = |kind: EntityKind, eid: &str, field: &str| -> Option<String> {
+/// Links deeper than this resolve as unknown (registered rules have no cycles; data may).
+const MAX_LINK_DEPTH: usize = 16;
+
+/// The scope of `entity` `id` by its kind's rule ([`scope_rule_of`]): the batch's links first, then
+/// the store's (tombstones included). A kind without a rule is personal; one whose links are all
+/// unset is personal once known, else unknown.
+pub fn resolve_scope(store: &Store, entity: &str, id: &str, batch: Option<&BatchLinks>) -> Scope {
+    let link = |kind: &str, eid: &str, field: &str| -> Option<String> {
         let from_batch = batch
             .and_then(|b| b.links.get(eid))
             .and_then(|f| f.get(field));
@@ -70,38 +71,33 @@ pub fn resolve_scope(
             .filter(|s| !s.is_empty())
             .map(str::to_owned)
     };
-    let known = |kind: EntityKind, eid: &str| {
+    let known = |kind: &str, eid: &str| {
         batch.is_some_and(|b| b.seen.contains(eid)) || store.exists(kind, eid)
     };
-    match entity {
-        EntityKind::Project => Scope::Project(id.to_owned()),
-        EntityKind::Task | EntityKind::Section => match link(entity, id, "project_id") {
-            Some(p) => Scope::Project(p),
-            None if known(entity, id) => Scope::Personal,
-            None => Scope::Unknown,
-        },
-        EntityKind::Comment | EntityKind::Activity | EntityKind::Attachment => {
-            let Some(task_id) = link(entity, id, "task_id") else {
-                // A project, section or member activity entry names its project instead of a task.
-                if entity == EntityKind::Activity {
-                    if let Some(p) = link(entity, id, "project_id") {
-                        return Scope::Project(p);
-                    }
+    let mut kind = entity.to_owned();
+    let mut eid = id.to_owned();
+    for _ in 0..=MAX_LINK_DEPTH {
+        let links = match scope_rule_of(&kind) {
+            None => return Scope::Personal,
+            Some(ScopeRule::Container) => return Scope::Project(eid),
+            Some(ScopeRule::Links(links)) => links,
+        };
+        let first = links
+            .iter()
+            .find_map(|l| link(&kind, &eid, &l.field).map(|target| (l, target)));
+        match first {
+            None if known(&kind, &eid) => return Scope::Personal,
+            None => return Scope::Unknown,
+            Some((l, target)) => match &l.kind {
+                None => return Scope::Project(target),
+                Some(next) => {
+                    kind = next.clone();
+                    eid = target;
                 }
-                return if known(entity, id) {
-                    Scope::Personal
-                } else {
-                    Scope::Unknown
-                };
-            };
-            match link(EntityKind::Task, &task_id, "project_id") {
-                Some(p) => Scope::Project(p),
-                None if known(EntityKind::Task, &task_id) => Scope::Personal,
-                None => Scope::Unknown,
-            }
+            },
         }
-        _ => Scope::Personal,
     }
+    Scope::Unknown
 }
 
 fn str_field<'a>(fields: &'a serde_json::Map<String, Value>, name: &str) -> Option<&'a str> {
@@ -222,10 +218,10 @@ pub struct OpenOptions {
     pub adopt_personal_v1: bool,
 }
 
-pub fn open_options_for(entity: EntityKind, id: &str, personal_v1: bool) -> OpenOptions {
+pub fn open_options_for(entity: &str, id: &str, personal_v1: bool) -> OpenOptions {
     OpenOptions {
         personal_v1: Some(personal_v1),
-        v2_only: entity == EntityKind::Preference && id == KEY_TRUST_ID,
+        v2_only: *entity == EntityKind::Preference && id == KEY_TRUST_ID,
         adopt_personal_v1: false,
     }
 }
@@ -354,7 +350,7 @@ pub enum RepairReason {
 /// A value to write again under the right key, at the successor of its stamp.
 #[derive(Debug, Clone)]
 pub struct Repair {
-    pub entity: EntityKind,
+    pub entity: String,
     pub entity_id: String,
     pub field: String,
     pub ts: Hlc,
@@ -400,7 +396,7 @@ pub fn confirm_repairs(
             if r.reason == RepairReason::Key {
                 let desired = preferred_key(
                     keyring,
-                    &resolve_scope(store, r.entity, &r.entity_id, None),
+                    &resolve_scope(store, &r.entity, &r.entity_id, None),
                     &shared,
                 );
                 let (Some(desired), Some(scope)) = (desired, r.scope.as_ref()) else {
@@ -421,7 +417,7 @@ pub fn confirm_repairs(
                     }
                 }
             }
-            r.entity != EntityKind::Project || may_repair_project(store, user_id, r)
+            r.entity != EntityKind::Project.as_str() || may_repair_project(store, user_id, r)
         })
         .collect()
 }
@@ -430,12 +426,12 @@ pub fn confirm_repairs(
 pub fn apply_repairs(store: &mut Store, repairs: &[Repair]) -> usize {
     let mut written = 0;
     for r in repairs {
-        if store.field_ts(r.entity, &r.entity_id, &r.field) != Some(r.ts) {
+        if store.field_ts(&r.entity, &r.entity_id, &r.field) != Some(r.ts) {
             continue;
         }
         if store
             .rewrite_field(
-                r.entity,
+                &r.entity,
                 &r.entity_id,
                 &r.field,
                 r.value.clone(),
@@ -474,7 +470,7 @@ pub fn revive_locked_values(
             keyring,
             envelope,
             FieldLocation {
-                entity: entity.as_str(),
+                entity,
                 entity_id: id,
                 field,
             },

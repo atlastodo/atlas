@@ -5,9 +5,13 @@
  * (`plaintext_fields`). Everything else, including fields nothing declares yet, travels under a
  * tag in an encrypted value, so a new field cannot leak because a list was forgotten.
  *
- * The tables are the bundled app manifests (`manifests/<app>.json`), which the server compiles in
- * too. `legacy_plaintext_fields` is what protocol 6 sent unencrypted, which reading the rows
- * written before protocol 7 needs.
+ * Two halves make the tables:
+ * - the bundled app manifests (`manifests/<app>.json`), which the server compiles in too: an app's
+ *   wire kinds and the fields the server reads. `legacy_plaintext_fields` is what protocol 6 sent
+ *   unencrypted, which reading the rows written before protocol 7 needs;
+ * - the app definitions registered at run time ({@link registerApp}): an app's own kinds, which
+ *   travel as `<app>.sealed` unless its manifest says otherwise, and their scope and authorship
+ *   rules. A new kind, field or link is the app's business: it needs no change here.
  */
 
 import journalManifest from "../../../manifests/journal.json";
@@ -30,7 +34,7 @@ export interface TokenPolicy {
   exclusive: boolean;
 }
 
-/** A bundled app manifest: its id, version, the entity kinds it syncs and its token policy. */
+/** A kind in a bundled app manifest. */
 export interface KindManifest {
   /** The kind the server sees. */
   wire: string;
@@ -39,6 +43,7 @@ export interface KindManifest {
   legacy_plaintext_fields?: readonly string[];
 }
 
+/** A bundled app manifest: its id, version, the kinds the server knows of and its token policy. */
 export interface AppManifest {
   app: string;
   name: string;
@@ -48,16 +53,20 @@ export interface AppManifest {
 }
 
 /**
- * The manifests bundled into this client, as the server bundles them. `EntityKind` (and so
- * {@link PLAINTEXT_FIELDS}) holds every bundled app's kinds, as `atlas_core::EntityKind` does;
- * which of them a client syncs is its session's app scope. Journal's and the vault's kinds
- * encrypt every field.
+ * The server half of each app, bundled into this client as the server bundles it. Which apps a
+ * client syncs is its session's app scope.
  */
 export const BUNDLED_MANIFESTS: readonly AppManifest[] = Object.freeze([
   todoManifest as unknown as AppManifest,
   journalManifest as unknown as AppManifest,
   vaultManifest as unknown as AppManifest,
 ]);
+
+/**
+ * Apps whose kinds predate namespacing and keep their bare names (`task`, `project`); every other
+ * app's kinds are `<app>.<kind>` (`atlas_core::UNNAMESPACED_APPS`).
+ */
+export const UNNAMESPACED_APPS: readonly string[] = Object.freeze(["todo"]);
 
 /**
  * The policy of a token for all of `apps` (bundled ids), the strictest of theirs as the server
@@ -88,62 +97,196 @@ export function tokenPolicyFor(apps: readonly string[]): TokenPolicy {
   return policy;
 }
 
-/** The bundled app owning the kind with this wire name, if any. */
-export function appOfKind(kind: string): AppManifest | undefined {
-  return BUNDLED_MANIFESTS.find((m) => Object.prototype.hasOwnProperty.call(m.kinds, kind));
+/**
+ * How an entity finds the share scope whose key encrypts it.
+ * - `"self"`: the entity is a share container (a project). Only a kind travelling as its app's
+ *   `<app>.project` wire kind is one, and every such kind is one without saying so.
+ * - A list of links: the first one that is set wins. `{ field }` names the project directly;
+ *   `{ field, kind }` names an entity of `kind`, whose scope it takes.
+ * - No rule: personal, under the account's own key.
+ */
+export type ScopeLink = { readonly field: string; readonly kind?: string };
+export type ScopeRule = "self" | readonly ScopeLink[];
+
+/** What an app tells the engine about one of its kinds. Every key is optional. */
+export interface KindDefinition {
+  /** The wire kind; defaults to the bundled manifest's, else `<app>.sealed`. */
+  wire?: string;
+  scope?: ScopeRule;
+  /**
+   * A field naming the account that wrote the entity: an op setting it to anyone but the account
+   * that pushed it is dropped as forged, and only that account re-writes the entity.
+   */
+  actor_field?: string;
 }
 
 /**
- * Every entity kind, as a record so adding a kind to `EntityKind` fails to compile until listed.
+ * An app's definition: the kinds it syncs and their rules. It adds to the app's bundled manifest
+ * (the server's half) and needs no core change. Register it with {@link registerApp} before
+ * opening a store or syncing. See docs/architecture.md (App definitions).
  */
-const ENTITY_KINDS: Record<EntityKind, true> = {
-  task: true,
-  project: true,
-  section: true,
-  label: true,
-  comment: true,
-  preference: true,
-  saved_filter: true,
-  reminder: true,
-  project_member: true,
-  activity: true,
-  focus_session: true,
-  habit: true,
-  habit_checkin: true,
-  attachment: true,
-  "journal.entry": true,
-  "journal.preference": true,
-  "vault.item": true,
-  "vault.folder": true,
-  "vault.preference": true,
-};
-
-function kindSpec(kind: string): KindManifest | undefined {
-  return appOfKind(kind)?.kinds[kind];
+export interface AppDefinition {
+  app: string;
+  kinds: Readonly<Record<string, KindDefinition>>;
 }
 
-function loadTable(
-  manifests: readonly AppManifest[],
-): Record<EntityKind, readonly string[] | "all"> {
-  const table = {} as Record<EntityKind, readonly string[] | "all">;
-  for (const kind of Object.keys(ENTITY_KINDS) as EntityKind[]) {
-    const owner = manifests.find((m) => Object.prototype.hasOwnProperty.call(m.kinds, kind));
-    const spec = owner?.kinds[kind];
-    if (typeof spec?.wire !== "string") {
-      throw new Error(`app manifests: no wire kind for "${kind}"`);
+interface ResolvedKind extends KindManifest {
+  app: string;
+  scope?: ScopeRule;
+  actor_field?: string;
+}
+
+const has = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+
+let definitions: readonly AppDefinition[] = [];
+let resolved: Map<string, ResolvedKind> | null = null;
+
+function serverManifest(app: string): AppManifest | undefined {
+  return BUNDLED_MANIFESTS.find((m) => m.app === app);
+}
+
+function buildTable(defs: readonly AppDefinition[]): Map<string, ResolvedKind> {
+  const table = new Map<string, ResolvedKind>();
+  for (const m of BUNDLED_MANIFESTS) {
+    for (const [kind, spec] of Object.entries(m.kinds)) {
+      const self = spec.wire === `${m.app}.project`;
+      table.set(kind, { ...spec, app: m.app, ...(self ? { scope: "self" as const } : {}) });
     }
-    const entry: unknown = spec.plaintext_fields ?? [];
-    if (entry === "all") table[kind] = "all";
-    else if (Array.isArray(entry) && entry.every((f) => typeof f === "string"))
-      table[kind] = Object.freeze([...entry]);
-    else throw new Error(`app manifests: no valid plaintext_fields for "${kind}"`);
   }
-  return Object.freeze(table);
+  for (const def of defs) {
+    for (const [kind, d] of Object.entries(def.kinds)) {
+      const base = table.get(kind);
+      const wire = d.wire ?? base?.wire ?? `${def.app}.sealed`;
+      const entry: ResolvedKind = { ...(base ?? { wire }), app: def.app, wire };
+      if (d.scope !== undefined) entry.scope = d.scope;
+      if (d.actor_field !== undefined) entry.actor_field = d.actor_field;
+      table.set(kind, entry);
+    }
+  }
+  return table;
 }
 
-/** Per real kind, the fields whose value travels unencrypted. */
-export const PLAINTEXT_FIELDS: Readonly<Record<EntityKind, readonly string[] | "all">> =
-  loadTable(BUNDLED_MANIFESTS);
+function table(): Map<string, ResolvedKind> {
+  return (resolved ??= buildTable(definitions));
+}
+
+/** Why `def` cannot be registered next to `all` (which includes it), or null. */
+function definitionError(def: AppDefinition, all: readonly AppDefinition[]): string | null {
+  const server = serverManifest(def.app);
+  if (!server) return `no bundled manifest for app "${def.app}": the server would refuse it`;
+  if (typeof def.kinds !== "object" || def.kinds === null) return `app ${def.app}: no kinds`;
+  const wires = new Set(Object.values(server.kinds).map((k) => k.wire));
+  const sealed = `${def.app}.sealed`;
+  const project = `${def.app}.project`;
+  for (const [kind, d] of Object.entries(def.kinds)) {
+    const what = `app ${def.app}: kind "${kind}"`;
+    const owner = BUNDLED_MANIFESTS.find((m) => has(m.kinds, kind));
+    if (owner && owner.app !== def.app) return `${what} belongs to app ${owner.app}`;
+    if (!owner && !UNNAMESPACED_APPS.includes(def.app) && !kind.startsWith(`${def.app}.`))
+      return `${what} must be named "${def.app}.<kind>"`;
+    const base = owner?.kinds[kind];
+    const wire = d.wire ?? base?.wire ?? sealed;
+    if (base ? wire !== base.wire : wire !== sealed || !wires.has(sealed))
+      return `${what} cannot travel as "${wire}"`;
+    if (d.actor_field !== undefined && (typeof d.actor_field !== "string" || !d.actor_field))
+      return `${what}: actor_field must be a field name`;
+    const rule = d.scope;
+    if (rule === undefined) continue;
+    if (rule === "self") {
+      if (wire !== project) return `${what}: only a "${project}" kind is a share container`;
+      continue;
+    }
+    if (!Array.isArray(rule) || rule.length === 0)
+      return `${what}: scope must be "self" or a list of links`;
+    if (!wires.has(project)) return `${what}: app ${def.app} has no share containers`;
+    for (const link of rule as readonly ScopeLink[]) {
+      if (typeof link?.field !== "string" || !link.field) return `${what}: a link needs a field`;
+      if (link.kind !== undefined) {
+        const k = link.kind;
+        const known =
+          all.some((a) => has(a.kinds, k)) || BUNDLED_MANIFESTS.some((m) => has(m.kinds, k));
+        if (!known) return `${what}: links to unknown kind "${k}"`;
+      }
+    }
+  }
+  return null;
+}
+
+function cycleError(t: Map<string, ResolvedKind>): string | null {
+  const walk = (kind: string, path: Set<string>): boolean => {
+    if (path.has(kind)) return true;
+    const rule = t.get(kind)?.scope;
+    if (!Array.isArray(rule)) return false;
+    path.add(kind);
+    const cyclic = (rule as readonly ScopeLink[]).some(
+      (l) => l.kind !== undefined && walk(l.kind, path),
+    );
+    path.delete(kind);
+    return cyclic;
+  };
+  for (const start of t.keys()) if (walk(start, new Set())) return `"${start}" links in a cycle`;
+  return null;
+}
+
+/**
+ * Register (or replace) an app's definition. Throws when it conflicts with the bundled manifests
+ * or with itself; nothing changes then.
+ */
+export function registerApp(def: AppDefinition): void {
+  const next = [...definitions.filter((d) => d.app !== def.app), def];
+  const error = definitionError(def, next);
+  if (error) throw new Error(`app definition: ${error}`);
+  const t = buildTable(next);
+  const cycle = cycleError(t);
+  if (cycle) throw new Error(`app definition: ${cycle}`);
+  definitions = next;
+  resolved = t;
+}
+
+/** Drop an app's registered definition (tests). */
+export function unregisterApp(app: string): void {
+  definitions = definitions.filter((d) => d.app !== app);
+  resolved = null;
+}
+
+/** The registered app definitions. */
+export function appDefinitions(): readonly AppDefinition[] {
+  return definitions;
+}
+
+/** Every kind this client knows: the bundled manifests' and the registered definitions'. */
+export function knownKinds(): EntityKind[] {
+  return [...table().keys()];
+}
+
+/** How `kind` finds its scope; undefined for a personal kind. */
+export function scopeRuleOf(kind: string): ScopeRule | undefined {
+  return table().get(kind)?.scope;
+}
+
+/** The field naming the writer of a `kind` entity, if it has one. */
+export function actorFieldOf(kind: string): string | undefined {
+  return table().get(kind)?.actor_field;
+}
+
+/** Every field a scope link reads, of any kind. */
+export function scopeLinkFields(): ReadonlySet<string> {
+  const fields = new Set<string>();
+  for (const spec of table().values())
+    if (Array.isArray(spec.scope))
+      for (const l of spec.scope as readonly ScopeLink[]) fields.add(l.field);
+  return fields;
+}
+
+/** The bundled manifest of the app owning `kind`. */
+export function appOfKind(kind: string): AppManifest | undefined {
+  const spec = kindSpec(kind);
+  return spec ? serverManifest(spec.app) : undefined;
+}
+
+function kindSpec(kind: string): ResolvedKind | undefined {
+  return table().get(kind);
+}
 
 /**
  * The app owning wire name `name`: a wire kind (`todo.sealed`), or a real kind name, which rows
@@ -156,7 +299,7 @@ export function appOfWire(name: string): AppManifest | undefined {
   );
 }
 
-/** The wire kind `kind` travels as; null for a kind no bundled manifest names. */
+/** The wire kind `kind` travels as; null for a kind neither a manifest nor a definition names. */
 export function wireKindOf(kind: string): string | null {
   return kindSpec(kind)?.wire ?? null;
 }
@@ -176,9 +319,7 @@ export function shouldEncryptKindField(entity: string, field: string): boolean {
 }
 
 export function shouldEncryptField(entity: EntityKind, field: string): boolean {
-  const plain = PLAINTEXT_FIELDS[entity] as readonly string[] | "all" | undefined;
-  if (plain === "all") return false;
-  return !plain?.includes(field);
+  return shouldEncryptKindField(entity, field);
 }
 
 /** Whether protocol 6 encrypted a value of `kind`.`field`: how a legacy row is read. */
@@ -188,16 +329,19 @@ export function legacyEncrypted(kind: string, field: string): boolean {
   return !(spec?.legacy_plaintext_fields ?? []).includes(field);
 }
 
-/** Whether `name` is the wire kind of rows written before protocol 7: a real kind that now
- * travels as another. */
+/**
+ * Whether `name` is the wire kind of rows written before protocol 7: a real kind a bundled
+ * manifest names that now travels as another.
+ */
 export function isLegacyWireKind(name: string): boolean {
-  const spec = kindSpec(name);
+  const owner = BUNDLED_MANIFESTS.find((m) => has(m.kinds, name));
+  const spec = owner?.kinds[name];
   return spec !== undefined && spec.wire !== name;
 }
 
 /** The real kinds that travel as wire kind `wire`. */
 export function kindsOfWire(wire: string): EntityKind[] {
-  return (Object.keys(ENTITY_KINDS) as EntityKind[]).filter((k) => kindSpec(k)?.wire === wire);
+  return knownKinds().filter((k) => kindSpec(k)?.wire === wire);
 }
 
 /**
