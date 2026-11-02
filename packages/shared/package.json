@@ -1,7 +1,7 @@
 {
   "name": "@atlastodo/shared",
-  "version": "0.1.14",
-  "description": "Atlas shared logic: the portable task rules, recurrence, quick add, filters, i18n and theme used by every Atlas client",
+  "version": "0.1.15",
+  "description": "Atlas Vault item rules, shared by the SDK and the vault app (todo rules moved to atlastodo/atlas-todo)",
   "license": "AGPL-3.0-only",
   "homepage": "https://github.com/atlastodo/atlas/tree/main/packages/shared",
   "repository": {
@@ -33,10 +33,6 @@
   },
   "atlas": {
     "testVectors": [
-      "filter_vectors.json",
-      "quick_add_vectors.json",
-      "recurrence_vectors.json",
-      "task_rules_vectors.json",
       "vault_item_vectors.json"
     ]
   },
@@ -46,9 +42,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@atlastodo/client-core": "workspace:*",
-    "@noble/hashes": "^2.4.0",
-    "fflate": "^0.8.3"
+    "@atlastodo/client-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

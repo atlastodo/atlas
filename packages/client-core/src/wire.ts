@@ -23,6 +23,7 @@ import {
   type Keyring,
 } from "./crypto";
 import {
+  actorFieldOf,
   isLegacyWireKind,
   isPublicField,
   kindsOfWire,
@@ -260,11 +261,11 @@ export function decodeOps(wireOps: readonly WireOp[], ctx: DecodeContext): Decod
       });
       continue;
     }
-    if (opened.kind === "activity" && opened.field === "actor_id") {
-      // The server says who pushed an op; an activity naming someone else is forged.
+    if (opened.field === actorFieldOf(opened.kind)) {
+      // The server says who pushed an op; an entry naming someone else as its writer is forged.
       if (!w.pushed_by || opened.value !== w.pushed_by) {
         console.warn(
-          `[atlas-e2ee] dropped an activity whose actor did not push it (${w.entity_id})`,
+          `[atlas-e2ee] dropped a ${opened.kind} whose writer did not push it (${w.entity_id})`,
         );
         out.push(null);
         continue;

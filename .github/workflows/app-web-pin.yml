@@ -1,0 +1,77 @@
+# Hourly check for a new release of the app whose web build the image and the flake serve
+# (apps.lock.json): when the app has a newer release, rc or stable, `pin-app-web.mjs --latest` moves
+# the pin and the change is opened as a PR to `dev` from the `chore/app-web-pin` branch, which each
+# run rebuilds. deps-automerge.yml merges it once CI has passed, then dispatches the dev image.
+# The weekly deps-refresh.yml moves the pin the same way, so the two never pull it in different
+# directions.
+#
+# A PR opened with GITHUB_TOKEN starts no workflow runs, so CI is dispatched on the branch by hand;
+# its checks land on the PR's head commit. Opening the PR needs the repository setting "Allow
+# GitHub Actions to create and approve pull requests".
+name: App web pin
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: app-web-pin
+  cancel-in-progress: false
+
+env:
+  BRANCH: chore/app-web-pin
+
+jobs:
+  pin:
+    name: Pin the newest app web build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: dev
+      - name: Pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/pin-app-web.mjs --latest
+      - name: Open or update the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet; then
+            echo "The pin is current"
+            exit 0
+          fi
+          # An open PR already carrying this pin waits for CI or the merge; don't restart either.
+          if git fetch -q origin "$BRANCH" 2>/dev/null &&
+            [ -n "$(gh pr list --head "$BRANCH" --base dev --state open --json number --jq '.[].number')" ] &&
+            git diff --quiet FETCH_HEAD -- apps.lock.json; then
+            echo "The open PR already has this pin"
+            exit 0
+          fi
+          version="$(jq -r .todo.version apps.lock.json)"
+          title="chore: pin the todo web build to atlas-todo v$version"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git commit -aqm "$title"
+          git push -f origin "$BRANCH"
+          {
+            echo "atlas-todo [v$version](https://github.com/atlastodo/atlas-todo/releases/tag/v$version) is out; \`scripts/pin-app-web.mjs --latest\` checked its web build and notices against the release's \`SHA256SUMS.txt\` ([log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID))."
+            echo
+            echo '```diff'
+            git show --format= HEAD -- apps.lock.json
+            echo '```'
+          } >"$RUNNER_TEMP/body.md"
+          if [ -n "$(gh pr list --head "$BRANCH" --base dev --state open --json number --jq '.[].number')" ]; then
+            gh pr edit "$BRANCH" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --base dev --head "$BRANCH" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          fi
+          gh workflow run ci.yml --ref "$BRANCH"

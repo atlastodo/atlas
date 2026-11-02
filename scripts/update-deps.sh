@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Refreshes every dependency Dependabot can't reach, so nothing sits on an old version:
-#   flake.lock(s) and devenv.lock (nixpkgs, shared by the two: Node, Bun, …); the Bun pins in the
-#   workflows, the Dockerfile and the docs, which follow the Bun that nixpkgs ships; the core pin (in the
-#   apps) and the app web pins (apps.lock.json, in core); the whole
-#   bun.lock, transitive dependencies and overrides included; each Expo app's SDK-managed packages
-#   (`expo install --fix`); Cargo.lock; and nix/bun.nix. Steps for files a repo doesn't have are
-#   skipped. Run by `.github/workflows/deps-refresh.yml` weekly, or locally as `deps:update`.
+#   flake.lock(s) and devenv.lock (nixpkgs, shared by the two: Node, Bun, …); the Bun pin
+#   (.bun-version) and the docs, which follow the Bun that nixpkgs ships; the core pin (in the apps)
+#   and the app web pins (apps.lock.json, in core); the whole bun.lock, transitive dependencies and
+#   overrides included; each Expo app's SDK-managed packages (`expo install --fix`); Cargo.lock;
+#   and nix/bun.nix. Steps for files a repo doesn't have are skipped. Run by
+#   `.github/workflows/deps-refresh.yml` weekly, or locally as `deps:update`.
 #
 # npm releases must be at least DEPS_MIN_AGE seconds old (default 3 days), a buffer against
 # hijacked releases. Exempt: the packages in bunfig.toml's `minimumReleaseAgeExcludes` (our own)
@@ -15,7 +15,7 @@ cd "$(git rev-parse --show-toplevel)"
 
 age="${DEPS_MIN_AGE:-259200}"
 step() { printf '\n==> %s\n' "$*"; }
-have() { command -v "$1" >/dev/null 2>&1; }
+have() { type -P "$1" >/dev/null; }
 devenv() { if have devenv; then command devenv "$@"; else nix run nixpkgs#devenv -- "$@"; fi; }
 
 # Runs a command with the release age in force: bunfig.toml gets `minimumReleaseAge` and, added to
@@ -74,22 +74,23 @@ if [[ -f nix/flake.desktop.lock ]]; then
   rm -rf "$tmp"
 fi
 
-# Bun is pinned in lockstep: devenv gets it from its nixpkgs, CI and the image from BUN_VERSION.
-# Move every pin to the version that nixpkgs now ships.
-if [[ -f devenv.lock ]]; then
+# Bun is pinned in lockstep: devenv gets it from its nixpkgs, CI from .bun-version (setup-bun's
+# bun-version-file). Move every pin to the version that nixpkgs now ships. Keep every pin out of
+# .github/: the refresh workflow's token may not push changes to workflow files.
+if [[ -f devenv.lock && -f .bun-version ]]; then
   step "Bun version"
   ref="$(bun -e 'const l = (await Bun.file("devenv.lock").json()).nodes.nixpkgs.locked;
     console.log(`github:${l.owner}/${l.repo}/${l.rev}`)')"
   new="$(nix eval --raw "$ref#bun.version")"
-  old="$(sed -nE 's/^ *BUN_VERSION: "([0-9.]+)".*/\1/p' .github/workflows/ci.yml | head -1)"
-  if [[ -n "$old" && "$old" != "$new" ]]; then
+  old="$(tr -d '[:space:]' <.bun-version)"
+  if [[ "$old" != "$new" ]]; then
     echo "Bun $old -> $new"
-    mapfile -t files < <(git ls-files '.github/workflows/*.yml' '.github/actions/*/action.yml' \
-      'docker/Dockerfile' devenv.yaml devenv.nix AGENTS.md CONTRIBUTING.md README.md 'docs/*.md')
+    echo "$new" >.bun-version
+    mapfile -t files < <(git ls-files devenv.yaml devenv.nix AGENTS.md CONTRIBUTING.md README.md 'docs/*.md')
     # Only lines that talk about Bun, so an unrelated "1.4.2" elsewhere stays put.
     sed -i -E "/[Bb][Uu][Nn]/s/(^|[^0-9.])${old//./\\.}([^0-9]|$)/\1${new}\2/g" "${files[@]}"
   else
-    echo "Bun stays at ${old:-?}"
+    echo "Bun stays at $old"
   fi
 fi
 
@@ -118,23 +119,17 @@ if [[ -n "$core_old" ]]; then
   fi
 fi
 
-# The app web builds core's image and flake serve (apps.lock.json) follow each app's latest stable
-# release; scripts/pin-app-web.mjs checks the build and its notices against the release's sums.
+# The app web builds core's image and flake serve (apps.lock.json) follow each app's newest
+# release, rc or stable, and never move back (`pin-app-web.mjs --latest`, which also checks the build
+# and its notices against the release's sums). app-web-pin.yml does the same hourly.
 if [[ -f apps.lock.json && -f scripts/pin-app-web.mjs ]]; then
   step "apps.lock.json"
-  while read -r app repo pinned; do
-    latest="$(gh api "repos/$repo/releases/latest" --jq .tag_name)"
-    latest="${latest#v}"
-    if [[ "$latest" != "$pinned" ]]; then
-      echo "$app web $pinned -> $latest"
-      node scripts/pin-app-web.mjs "$latest" --repo "$repo" --app "$app"
-    else
-      echo "$app web stays at $pinned"
-    fi
+  while read -r app repo; do
+    node scripts/pin-app-web.mjs --latest --repo "$repo" --app "$app"
   done < <(bun -e '
     const lock = await Bun.file("apps.lock.json").json();
     for (const [app, pin] of Object.entries(lock))
-      if (pin?.url) console.log(app, new URL(pin.url).pathname.split("/").slice(1, 3).join("/"), pin.version)')
+      if (pin?.url) console.log(app, new URL(pin.url).pathname.split("/").slice(1, 3).join("/"))')
 fi
 
 if [[ -f bun.lock ]]; then

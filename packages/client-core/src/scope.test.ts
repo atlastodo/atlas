@@ -23,7 +23,7 @@ import {
   applyRepairs,
   memberEntityId,
   resolveScope,
-  rescopeTask,
+  rescopeEntity,
   revokedProjectOps,
   reviveLockedValues,
 } from "./scope";
@@ -239,6 +239,21 @@ describe("resolveScope", () => {
     // A tombstoned task still names its project.
     store.applyRemote({ id: newId(), entity: "task", entityId: T, ts: ts(4), op: "delete" });
     expect(resolveScope(store, "comment", C)).toEqual({ kind: "project", projectId: P });
+  });
+
+  it("scopes a project activity entry through its project_id", () => {
+    const store = sharedStore();
+    const A = newId();
+    store.applyRemote(remote("activity", A, "project_id", P, ts(3)));
+    expect(resolveScope(store, "activity", A)).toEqual({ kind: "project", projectId: P });
+    // A task entry follows its task.
+    const B = newId();
+    store.applyRemote(remote("activity", B, "task_id", T, ts(3)));
+    expect(resolveScope(store, "activity", B)).toEqual({ kind: "project", projectId: P });
+    // Only activity names a project this way.
+    const C2 = newId();
+    store.applyRemote(remote("comment", C2, "project_id", P, ts(3)));
+    expect(resolveScope(store, "comment", C2)).toEqual({ kind: "personal" });
   });
 
   it("does not count a pending invite as sharing", () => {
@@ -596,7 +611,27 @@ describe("locked values", () => {
   });
 });
 
-describe("rescopeTask", () => {
+describe("rescopeEntity (a task)", () => {
+  it("re-writes only the account's own activity entries when told who it is", () => {
+    const store = sharedStore();
+    const { keyring } = keys();
+    const task = newId();
+    const mine = newId();
+    const theirs = newId();
+    store.applyRemoteBatch([
+      remote("task", task, "title", "Shared", ts(50)),
+      remote("activity", mine, "task_id", task, ts(51)),
+      remote("activity", mine, "actor_id", "me", ts(51, 1)),
+      remote("activity", theirs, "task_id", task, ts(52)),
+      remote("activity", theirs, "actor_id", "bo", ts(52, 1)),
+    ]);
+    store.set("task", task, "project_id", P);
+    rescopeEntity(store, keyring, "task", task, null, "me");
+    expect(store.fieldTs("activity", mine, "actor_id")).toEqual(successorHlc(ts(51, 1)));
+    // Re-written by "me", Bo's entry would arrive with an actor that did not push it: dropped.
+    expect(store.fieldTs("activity", theirs, "actor_id")).toEqual(ts(52, 1));
+  });
+
   it("re-writes every field of the task and its children under the new project's key", async () => {
     const store = sharedStore();
     const { dek, pek, keyring } = keys();
@@ -613,7 +648,7 @@ describe("rescopeTask", () => {
     store.set("task", personal, "project_id", P);
     const moved = store.fieldTs("task", personal, "project_id")!;
 
-    const written = rescopeTask(store, keyring, personal);
+    const written = rescopeEntity(store, keyring, "task", personal);
     expect(written).toBeGreaterThanOrEqual(6);
     expect(store.fieldTs("task", personal, "title")).toEqual(successorHlc(ts(50)));
     expect(store.fieldTs("task", personal, "project_id")).toEqual(successorHlc(moved));
@@ -647,7 +682,7 @@ describe("rescopeTask", () => {
     ]);
     store.set("task", personal, "project_id", P);
 
-    rescopeTask(store, keyring, personal);
+    rescopeEntity(store, keyring, "task", personal);
     expect(store.get("attachment", A)!.wrapped_key).toEqual(copied);
   });
 });

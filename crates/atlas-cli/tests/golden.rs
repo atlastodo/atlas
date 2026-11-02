@@ -194,7 +194,7 @@ fn reproduces_the_recorded_runs() {
                         .map_or_else(|| captured.to_string(), str::to_owned),
                 );
             }
-            let stdout = if stdout.starts_with("atlas ") && stdout.contains("Commands") {
+            let stdout = if stdout == atlas_cli::usage_text() {
                 "<usage>".to_owned()
             } else if stdout == env!("CARGO_PKG_VERSION") {
                 // `--version`: the release bump changes it, the recording should not.

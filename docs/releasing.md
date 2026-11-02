@@ -127,10 +127,15 @@ longer reads them.
 The server image and the flake's `web-dist` serve a released web build of the todo app, never a
 build from source. The pin is the `todo` entry of `apps.lock.json`: the version, the URL and
 SHA-256 of `atlas-todo-web-X.Y.Z.tar.gz`, and the same for that release's
-`THIRD_PARTY_NOTICES.txt`. To move it to a new app release:
+`THIRD_PARTY_NOTICES.txt`.
+
+It moves by itself: `app-web-pin.yml` checks the app's releases hourly and, when there is a newer
+one (rc or stable; the pin never moves back), opens a PR to `dev` from `chore/app-web-pin`, which
+`deps-automerge.yml` merges once CI passes. `deps:update` does the same weekly. To move it by hand:
 
 ```sh
 node scripts/pin-app-web.mjs X.Y.Z    # downloads both, checks them against its SHA256SUMS.txt
+node scripts/pin-app-web.mjs --latest # the newest release, if newer than the pin
 ```
 
 Review the `apps.lock.json` diff and commit it (`chore: pin the todo web build to atlas-todo

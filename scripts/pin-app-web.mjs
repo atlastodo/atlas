@@ -4,6 +4,7 @@
 // only a pinned build: the app itself lives in its own repository.
 //
 //   node scripts/pin-app-web.mjs <version> [--repo owner/name] [--app todo]
+//   node scripts/pin-app-web.mjs --latest [--repo owner/name] [--app todo]
 //
 // <version> is a release of the app repository (default atlastodo/atlas-todo) carrying
 // atlas-todo-web-<version>.tar.gz and THIRD_PARTY_NOTICES.txt (the web app's third-party
@@ -11,6 +12,11 @@
 // SHA-256 and checks them against the release's SHA256SUMS.txt, then writes
 // { version, url, sha256, notices: { url, sha256 } } under the app's key. Review and commit the
 // change like any other pin.
+//
+// --latest picks the newest release, rc or stable, that carries the web build, and leaves the pin
+// alone unless that is newer than it: the pin never moves back. `deps:update` and
+// .github/workflows/app-web-pin.yml use it. It reads the releases from the GitHub API, with
+// GH_TOKEN or GITHUB_TOKEN when set.
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -22,23 +28,64 @@ const args = process.argv.slice(2);
 let repo = "atlastodo/atlas-todo";
 let app = "todo";
 let version = null;
+let latest = false;
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
-  if (a === "--repo") repo = args[++i];
+  if (a === "--latest") latest = true;
+  else if (a === "--repo") repo = args[++i];
   else if (a === "--app") app = args[++i];
   else if (a.startsWith("-")) usage(`unknown option ${a}`);
   else version = a.replace(/^v/, "");
 }
 function usage(message) {
   console.error(`error: ${message}`);
-  console.error("usage: pin-app-web.mjs <version> [--repo owner/name] [--app todo]");
+  console.error("usage: pin-app-web.mjs <version> | --latest [--repo owner/name] [--app todo]");
   process.exit(2);
 }
-if (!version) usage("give a version");
-if (!/^\d+\.\d+\.\d+(-rc\.\d+)?$/.test(version)) usage(`not a release version: ${version}`);
+const RELEASE = /^\d+\.\d+\.\d+(-rc\.\d+)?$/;
+if (latest === (version !== null)) usage("give a version or --latest");
+if (version !== null && !RELEASE.test(version)) usage(`not a release version: ${version}`);
 if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) usage(`not owner/name: ${repo}`);
 
 const lock = fs.existsSync(LOCK) ? JSON.parse(fs.readFileSync(LOCK, "utf8")) : {};
+
+/** Release order: X.Y.Z-rc.N sorts before X.Y.Z. */
+function compare(a, b) {
+  const parts = (v) => {
+    const [, maj, min, pat, rc] = v.match(/^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/);
+    return [+maj, +min, +pat, rc === undefined ? Infinity : +rc];
+  };
+  const [pa, pb] = [parts(a), parts(b)];
+  for (let i = 0; i < 4; i++) if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
+  return 0;
+}
+
+if (latest) {
+  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  const res = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=100`, {
+    headers: {
+      accept: "application/vnd.github+json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) throw new Error(`${repo} releases: HTTP ${res.status}`);
+  // A release still uploading its assets (or one without a web build) is skipped.
+  const newest = (await res.json())
+    .filter((r) => !r.draft)
+    .map((r) => ({ v: r.tag_name.replace(/^v/, ""), assets: r.assets.map((a) => a.name) }))
+    .filter(({ v, assets }) => RELEASE.test(v) && assets.includes(`atlas-${app}-web-${v}.tar.gz`))
+    .map(({ v }) => v)
+    .sort(compare)
+    .at(-1);
+  if (!newest) throw new Error(`${repo} has no release`);
+  const current = lock[app]?.version;
+  if (current !== undefined && RELEASE.test(current) && compare(newest, current) <= 0) {
+    console.log(`${app} web stays at ${current} (newest release: ${newest})`);
+    process.exit(0);
+  }
+  console.log(`${app} web ${current ?? "(none)"} -> ${newest}`);
+  version = newest;
+}
 const base = `https://github.com/${repo}/releases/download/v${version}`;
 
 // The release's SHA256SUMS.txt (every asset's hash) checks what is downloaded, when it exists.

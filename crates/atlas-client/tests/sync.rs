@@ -33,6 +33,7 @@ fn inject(server: &FakeServer, op: Value) {
 
 #[test]
 fn the_state_dir_caches_the_account_between_runs() {
+    atlas_client::testing::register_test_app();
     let server = FakeServer::new();
     let dir = std::env::temp_dir().join(format!("atlas-state-test-{}", Uuid::new_v4()));
     let open = |dir: &std::path::Path| {
@@ -86,6 +87,7 @@ fn the_state_dir_caches_the_account_between_runs() {
 
 #[test]
 fn writes_travel_encrypted_and_another_session_reads_them() {
+    atlas_client::testing::register_test_app();
     let server = FakeServer::new();
     let mut a = connect(&server);
     let task = Uuid::new_v4().to_string();
@@ -123,6 +125,7 @@ fn writes_travel_encrypted_and_another_session_reads_them() {
 
 #[test]
 fn an_expired_access_token_is_exchanged_again() {
+    atlas_client::testing::register_test_app();
     let server = FakeServer::new();
     let mut a = connect(&server);
     server.state.lock().unwrap().expired.push("access-1".into());
@@ -135,6 +138,7 @@ fn an_expired_access_token_is_exchanged_again() {
 
 #[test]
 fn a_revoked_or_wrong_token_does_not_connect() {
+    atlas_client::testing::register_test_app();
     let server = FakeServer::new();
     server.state.lock().unwrap().revoked = true;
     let mut opts = ConnectOptions::new("http://atlas.test", &server.token_string());
@@ -150,6 +154,7 @@ fn a_revoked_or_wrong_token_does_not_connect() {
 
 #[test]
 fn an_incompatible_server_is_refused_before_signing_in() {
+    atlas_client::testing::register_test_app();
     let server = FakeServer::new();
     server.state.lock().unwrap().discovery = Some(json!({
         "version": "0.0.9", "protocol_version": 5, "capabilities": [], "apps": []
@@ -165,6 +170,7 @@ fn an_incompatible_server_is_refused_before_signing_in() {
 /// owner, and opens the project's values. A delivery with a bad signature is refused.
 #[test]
 fn signed_project_key_deliveries_open_shared_content() {
+    atlas_client::testing::register_test_app();
     for good_signature in [true, false] {
         let server = FakeServer::new();
         let owner = "01920000-0000-7000-8000-0000000000bb";
@@ -265,6 +271,7 @@ fn signed_project_key_deliveries_open_shared_content() {
 
 #[test]
 fn values_under_the_wrong_scope_stay_unread() {
+    atlas_client::testing::register_test_app();
     let server = FakeServer::new();
     let task = Uuid::new_v4().to_string();
     let other = Uuid::new_v4().to_string();
@@ -294,6 +301,7 @@ fn values_under_the_wrong_scope_stay_unread() {
 /// that reads them (`migrate_legacy`).
 #[test]
 fn protocol_6_rows_are_re_encoded_and_dropped() {
+    atlas_client::testing::register_test_app();
     let server = FakeServer::new();
     let task = Uuid::new_v4().to_string();
     let dek = server.dek;

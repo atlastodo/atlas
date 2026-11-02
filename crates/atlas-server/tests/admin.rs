@@ -65,6 +65,7 @@ fn config_with_admins(admin_emails: Vec<String>) -> Config {
         port: 8080,
         admin_emails,
         signup_enabled: true,
+        activity_retention_days: 0,
         bug_reports_enabled: true,
         op_retention_days: 0,
         max_push_bytes: 2 * 1024 * 1024,
@@ -811,6 +812,7 @@ async fn a_listed_email_gets_no_signup_privileges() {
     let other = format!("r-listed-{}@example.com", Uuid::now_v7());
     let closed = setup_with(Config {
         signup_enabled: false,
+        activity_retention_days: 0,
         ..config_with_admins(vec![other.clone()])
     })
     .await;
@@ -1353,6 +1355,7 @@ async fn an_invite_admits_one_person_to_a_closed_instance() {
     let (_, admin) = setup_with_fresh_admin().await;
     let router = setup_with(Config {
         signup_enabled: false,
+        activity_retention_days: 0,
         ..config_with_admins(Vec::new())
     })
     .await;
@@ -1511,6 +1514,7 @@ async fn a_bad_invite_code_does_not_reveal_whether_an_email_has_an_account() {
     let existing = new_user(&open).await;
     let closed = setup_with(Config {
         signup_enabled: false,
+        activity_retention_days: 0,
         ..config_with_admins(Vec::new())
     })
     .await;
@@ -1575,6 +1579,7 @@ async fn the_settings_override_beats_the_env_default() {
     let (_, admin) = setup_with_fresh_admin().await;
     let router = setup_with(Config {
         signup_enabled: false,
+        activity_retention_days: 0,
         ..config_with_admins(Vec::new())
     })
     .await;
@@ -1633,6 +1638,77 @@ async fn the_settings_override_beats_the_env_default() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(view["signup_enabled"], false, "the env default is back");
+}
+
+#[tokio::test]
+async fn the_activity_retention_policy_is_published_to_every_user() {
+    let pool = pool().await;
+    let _guard = admin_lock(&pool).await;
+    let clear = || async {
+        sqlx::query("DELETE FROM instance_settings WHERE key = 'activity_retention_days'")
+            .execute(&pool)
+            .await
+            .unwrap();
+    };
+    clear().await;
+
+    let (_, admin) = setup_with_fresh_admin().await;
+    let router = setup_with(Config {
+        activity_retention_days: 365,
+        ..config_with_admins(Vec::new())
+    })
+    .await;
+    let user = new_user(&router).await;
+
+    // Any signed-in user reads the env default; signed out it is 401.
+    let (status, policy) = send(
+        &router,
+        "GET",
+        "/instance/policy",
+        Some(&user.token),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(policy["activity_retention_days"], 365);
+    let (status, _) = send(&router, "GET", "/instance/policy", None, Value::Null).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // The admin's override wins, leaves the signup flag alone, and reaches users.
+    let (status, view) = send(
+        &router,
+        "PATCH",
+        "/admin/settings",
+        Some(&admin.token),
+        json!({ "activity_retention_days": 90 }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(view["activity_retention_days"], 90);
+    assert_eq!(view["signup_enabled"], true);
+    let (_, policy) = send(
+        &router,
+        "GET",
+        "/instance/policy",
+        Some(&user.token),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(policy["activity_retention_days"], 90);
+
+    // Out of range is refused.
+    for days in [-1, 3651] {
+        let (status, _) = send(
+            &router,
+            "PATCH",
+            "/admin/settings",
+            Some(&admin.token),
+            json!({ "activity_retention_days": days }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{days}");
+    }
+    clear().await;
 }
 
 #[tokio::test]

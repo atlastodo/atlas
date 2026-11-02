@@ -12,5 +12,6 @@ pub mod op;
 pub use hlc::{Hlc, HlcClock};
 pub use manifest::{
     AppManifest, KindManifest, PlaintextFields, Registry, TokenPolicy, WireKindManifest,
+    UNNAMESPACED_APPS,
 };
 pub use op::{Change, EntityKind, Operation, WireKind, WireOperation};

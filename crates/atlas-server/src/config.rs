@@ -14,6 +14,8 @@ pub const DEFAULT_REFRESH_TOKEN_RETENTION_DAYS: i64 = 30;
 /// The default op-log retention window in days. Fresh devices fold `GET /sync/snapshot` instead
 /// of replaying `since=0`, so purging old history is safe. `0` disables.
 pub const DEFAULT_OP_RETENTION_DAYS: i64 = 30;
+/// The longest `ACTIVITY_RETENTION_DAYS` (and admin-panel value) accepted: ten years.
+pub const MAX_ACTIVITY_RETENTION_DAYS: i64 = 3650;
 
 /// The default fs blob-store root (`BLOB_DIR`), matching the Docker `/app` layout.
 pub const DEFAULT_BLOB_DIR: &str = "/app/data/blobs";
@@ -85,6 +87,10 @@ pub struct Config {
     pub admin_emails: Vec<String>,
     /// Whether `POST /auth/signup` accepts new accounts (`SIGNUP_ENABLED`, default true).
     pub signup_enabled: bool,
+    /// Days after which clients delete their users' activity entries (`ACTIVITY_RETENTION_DAYS`,
+    /// default 0: no limit). Activity is end-to-end encrypted and indistinguishable on the wire, so
+    /// the server only publishes the policy (`GET /instance/policy`); clients enforce it.
+    pub activity_retention_days: i64,
     /// Whether the anonymous `POST /reports` endpoint is mounted (`BUG_REPORTS_ENABLED`, default true).
     pub bug_reports_enabled: bool,
     /// Days of sync-operation history to keep (`OP_RETENTION_DAYS`, default 30). 0 or negative
@@ -357,6 +363,8 @@ impl Config {
             port: env_number("PORT", 8080)?,
             admin_emails: parse_admin_emails(std::env::var("ADMIN_EMAILS").ok()),
             signup_enabled: env_bool("SIGNUP_ENABLED", true)?,
+            activity_retention_days: env_number("ACTIVITY_RETENTION_DAYS", 0i64)?
+                .clamp(0, MAX_ACTIVITY_RETENTION_DAYS),
             bug_reports_enabled: env_bool("BUG_REPORTS_ENABLED", true)?,
             op_retention_days: env_number("OP_RETENTION_DAYS", DEFAULT_OP_RETENTION_DAYS)?,
             max_push_bytes: env_number("MAX_PUSH_BYTES", DEFAULT_MAX_PUSH_BYTES)?.max(1),
@@ -538,6 +546,7 @@ mod tests {
             port: 8080,
             admin_emails: Vec::new(),
             signup_enabled: true,
+            activity_retention_days: 0,
             bug_reports_enabled: true,
             op_retention_days: 0,
             max_push_bytes: DEFAULT_MAX_PUSH_BYTES,

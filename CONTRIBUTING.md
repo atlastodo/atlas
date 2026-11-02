@@ -161,32 +161,18 @@ Where the tests live:
 - `packages/*/src/*.test.ts`: next to the code they test.
 - `manifests/`: the app manifests (entity kinds and their plaintext fields), compiled into the
   server and bundled by the clients; both sides test against them.
-- `test-vectors/`: JSON fixtures. Conflict resolution and recovery challenges are read by both
-  the Rust and the TypeScript tests, so the two sides agree; the recurrence vectors are
-  TypeScript only. The merge rule exists in TypeScript
+- `test-vectors/`: JSON fixtures. Conflict resolution, scope rules and recovery challenges are read
+  by both the Rust and the TypeScript tests, so the two sides agree. The merge rule exists in TypeScript
   (`packages/client-core`) and in the server's SQL fold (`crates/atlas-server/src/sync/apply.rs`). If
   you change one side of that logic, change the other and extend the vectors.
 
-## Adding or changing UI text
+## App rules and UI text
 
-All user-facing text goes through i18next. The catalogs are in `packages/shared/src/locales/`:
-English (`en.json`, the base), Danish, German, Spanish, French, Italian, Dutch, Polish and
-Brazilian Portuguese (`pt.json`).
-
-1. Add the key to every catalog, at the same path. For a plural, `en.json` has `_one`/`_other`;
-   each other catalog has its own language's plural forms (Polish `_one`/`_few`/`_many`/`_other`).
-   If you can't write a language, add the English text to its catalog and say so in the PR.
-2. Use it with `t("section.key")`.
-3. Run `cd packages/shared && bunx --bun vitest run src/i18n.test.ts`: it checks that every
-   locale has exactly the English keys, in its own plural forms, and is valid UTF-8. The app
-   repository's `i18n/keys` test checks that every literal key the app uses exists in every
-   locale; it runs there once the app picks up a core release with the new keys.
-
-A new language also needs an entry in `packages/shared/src/i18n.ts` and a quick-add lexicon in
-`packages/shared/src/quickAddLexicons.ts` (its words for today, tomorrow, weekdays, months, "in 3
-days", "every week" and times), with cases in the "every UI language" table of
-`quickAddParse.test.ts`. The settings and onboarding text about smart dates quotes examples in the
-language; they must parse.
+Core has no app's rules or UI text. Atlas Todo's (task rules, recurrence, quick add, filters,
+the i18n catalogs) live in its repository,
+[atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo), in `packages/todo-core`; an app
+tells core about its kinds with an app definition (see
+[App definitions](docs/architecture.md#app-definitions)). A change there needs no change here.
 
 ## Commits and pull requests
 

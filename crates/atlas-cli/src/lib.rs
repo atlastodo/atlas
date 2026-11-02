@@ -1,16 +1,13 @@
-//! The `atlas` command line, at parity with `packages/cli/src/cli.ts`: the same environment, commands,
-//! JSON output and exit codes. Commands also take the app they belong to (`atlas todo tasks list`);
-//! the flat forms (`atlas tasks list`) stay as aliases. Atlas Journal's commands always name their
+//! The `atlas` command line: the same environment, JSON output and exit codes as the apps' own
+//! CLIs (Atlas Todo's is `atlas-todo`, in the todo app's repository). Atlas Journal's commands always name their
 //! app (`atlas journal entries list`) and open a journal session of the token; so do Atlas
 //! Vault's (`atlas vault list`, `atlas vault get NAME --field password`).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use atlas_client::client::{AtlasClient, CreateTask, TaskQuery, TaskStatus};
+use atlas_client::client::AtlasClient;
 use atlas_client::journal::{check_mood, JournalFields, JournalQuery, JOURNAL_APP};
-use atlas_client::rules::dates::parse_due;
-use atlas_client::rules::zoned::resolve_time_zone;
 use atlas_client::session::ConnectOptions;
 use atlas_client::vault::{summary_view, VaultQuery, VAULT_APP};
 use atlas_client::Error;
@@ -21,7 +18,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn usage_text() -> String {
     format!(
-        "atlas {VERSION} - Atlas Todo from the command line, for scripts and n8n.
+        "atlas {VERSION} - Atlas Journal and Atlas Vault from the command line, for scripts and n8n.
 
 Configuration (environment):
   ATLAS_URL        the server, e.g. https://app.atlastodo.dev (or --url)
@@ -30,21 +27,10 @@ Configuration (environment):
   ATLAS_STATE_DIR  optional: a directory to cache the account in between runs (sealed with
                    the token), so a run downloads only what changed
 
-Commands (all print JSON; each also works with its app first, e.g. `atlas todo tasks list`):
-  projects list
-  labels list
-  tasks list [--project P] [--status open|completed|all] [--label L] [--search TEXT]
-             [--due-before DATE] [--due-after DATE] [--filter \"today & p1\"]
-  tasks get ID
-  tasks add --title TEXT [--notes TEXT] [--due DATE] [--priority 1-4] [--project P]
-            [--label L]... [--recurrence RRULE] [--json OBJECT]
-  tasks quick \"Pay rent tomorrow #Home p1 @bills\"
-  tasks update ID [same fields as add] [--json OBJECT]
-  tasks complete ID
-  tasks reopen ID
-  tasks delete ID
-  changes [--since CURSOR]   tasks created, updated, completed and deleted after CURSOR;
-                             without one, only the current cursor to start from
+Atlas Todo's commands (tasks, projects, labels, changes) are the atlas-todo CLI's:
+https://github.com/atlastodo/atlas-todo/releases
+
+All commands print JSON.
 
 Atlas Journal (needs a token that includes Atlas Journal):
   journal entries list [--from DAY] [--to DAY] [--tag T] [--search TEXT]
@@ -65,9 +51,6 @@ Atlas Vault (needs a token that includes Atlas Vault; read-only unless made with
   vault folders list
   vault folders add NAME
 
-DATE is YYYY-MM-DD, YYYY-MM-DDTHH:MM (in ATLAS_TZ), ISO 8601 with an offset, unix ms, today,
-tomorrow, or none. P and L are names or ids. --json takes the fields as one JSON object
-(title, notes, due, priority, project, labels, recurrence), handy when templating from n8n.
 DAY is YYYY-MM-DD, today, yesterday or tomorrow (in ATLAS_TZ); an entry's date defaults to
 today. A journal --json takes date, title, body, mood (null clears it) and tags.
 ITEM and F are names (case-insensitive) or ids. A vault --json takes type, name, fields
@@ -247,24 +230,8 @@ fn parse_args(argv: &[String]) -> Result<(Values, Vec<String>), String> {
     Ok((values, positionals))
 }
 
-const NEEDS_ID: &[&str] = &[
-    "tasks get",
-    "tasks update",
-    "tasks complete",
-    "tasks reopen",
-    "tasks delete",
-];
-const COMMANDS: &[&str] = &[
-    "projects list",
-    "labels list",
-    "tasks list",
-    "tasks add",
-    "tasks quick",
-    "changes",
-];
-
-/// The apps whose commands may also go without the app's name (`atlas tasks list`).
-const APPS: &[&str] = &["todo"];
+/// The first words of todo's commands, which moved to the `atlas-todo` CLI.
+const MOVED_TO_ATLAS_TODO: &[&str] = &["todo", "projects", "labels", "tasks", "changes"];
 
 /// Atlas Journal's commands, always after `journal`.
 const JOURNAL_NEEDS_ID: &[&str] = &[
@@ -296,6 +263,16 @@ pub fn run(argv: &[String], io: &mut Io<'_>) -> i32 {
     if values.help || positionals.is_empty() {
         (io.stdout)(&usage_text());
         return if values.help { 0 } else { 2 };
+    }
+    if positionals
+        .first()
+        .is_some_and(|w| MOVED_TO_ATLAS_TODO.contains(&w.as_str()))
+    {
+        return usage(
+            io,
+            "Atlas Todo's commands moved to the atlas-todo CLI: \
+             https://github.com/atlastodo/atlas-todo/releases",
+        );
     }
     let server_url = values
         .get("url")
@@ -371,26 +348,10 @@ pub fn run(argv: &[String], io: &mut Io<'_>) -> i32 {
         }
         (command, target)
     } else {
-        // `atlas todo tasks list` is `atlas tasks list`.
-        let rest: &[String] = match positionals.first() {
-            Some(app) if APPS.contains(&app.as_str()) && positionals.len() > 1 => &positionals[1..],
-            _ => &positionals,
-        };
-        let command = rest.iter().take(2).cloned().collect::<Vec<_>>().join(" ");
-        let target = rest.get(2).cloned();
-        if !COMMANDS.contains(&command.as_str()) && !NEEDS_ID.contains(&command.as_str()) {
-            return usage(
-                io,
-                &format!("unknown command \"{}\"", positionals.join(" ")),
-            );
-        }
-        if NEEDS_ID.contains(&command.as_str()) && target.is_none() {
-            return usage(io, &format!("\"{command}\" needs a task id"));
-        }
-        if command == "tasks quick" && target.is_none() {
-            return usage(io, "\"tasks quick\" needs the text");
-        }
-        (command, target)
+        return usage(
+            io,
+            &format!("unknown command \"{}\"", positionals.join(" ")),
+        );
     };
     let mut opts = ConnectOptions::new(&server_url, &token);
     opts.time_zone = time_zone.clone();
@@ -427,13 +388,7 @@ pub fn run(argv: &[String], io: &mut Io<'_>) -> i32 {
         Ok(c) => c,
         Err(e) => return fail(io, &e),
     };
-    let result = dispatch(
-        &mut client,
-        &command,
-        target.as_deref(),
-        &values,
-        time_zone.as_deref(),
-    );
+    let result = dispatch(&mut client, &command, target.as_deref(), &values);
     // A failed cache write costs the next run a full sync, nothing more.
     let _ = client.session().save_state();
     match result {
@@ -455,81 +410,9 @@ fn dispatch(
     command: &str,
     id: Option<&str>,
     values: &Values,
-    tz: Option<&str>,
 ) -> Result<String, Fail> {
     let id = id.unwrap_or("");
     Ok(match command {
-        "projects list" => to_json(atlas.projects()),
-        "labels list" => to_json(atlas.labels()),
-        "tasks list" => to_json(atlas.tasks(&list_query(values, tz, atlas.now())?)?),
-        "tasks get" => match atlas.task(id) {
-            Some(t) => to_json(t),
-            None => return Err(Error::atlas("unknown_task", format!("no task \"{id}\"")).into()),
-        },
-        "tasks add" => {
-            let f = task_fields(values, tz, atlas.now())?;
-            let Some(title) = f.title.filter(|t| !t.is_empty()) else {
-                return Err(Fail::Usage(
-                    "tasks add needs --title (or a title in --json)".into(),
-                ));
-            };
-            to_json(atlas.create_task(CreateTask {
-                title,
-                notes: f.notes,
-                priority: f.priority,
-                due_at: f.due_at.flatten(),
-                recurrence: f.recurrence.flatten(),
-                project: f.project.flatten(),
-                labels: f.labels.unwrap_or_default(),
-                ..CreateTask::default()
-            })?)
-        }
-        "tasks quick" => to_json(atlas.quick_add(id)?),
-        "tasks update" => {
-            let f = task_fields(values, tz, atlas.now())?;
-            // The order the TypeScript CLI builds its patch in.
-            let mut patch: Vec<(String, Value)> = Vec::new();
-            if let Some(n) = f.notes {
-                patch.push(("notes".into(), n.into()));
-            }
-            if let Some(d) = f.due_at {
-                patch.push(("due_at".into(), d.map_or(Value::Null, Value::from)));
-            }
-            if let Some(p) = f.priority {
-                patch.push(("priority".into(), p));
-            }
-            if let Some(r) = f.recurrence {
-                patch.push(("recurrence".into(), r.map_or(Value::Null, Value::from)));
-            }
-            if let Some(t) = f.title {
-                patch.push(("title".into(), t.into()));
-            }
-            if let Some(p) = f.project {
-                patch.push(("project_id".into(), p.map_or(Value::Null, Value::from)));
-            }
-            if let Some(l) = f.labels {
-                patch.push(("label_ids".into(), l.into()));
-            }
-            to_json(atlas.update_task(id, patch)?)
-        }
-        "tasks complete" => to_json(atlas.complete_task(id)?),
-        "tasks reopen" => to_json(atlas.reopen_task(id)?),
-        "tasks delete" => {
-            atlas.delete_task(id)?;
-            to_json(json!({ "deleted": id }))
-        }
-        "changes" => match values.get("since") {
-            None => to_json(json!({ "cursor": atlas.cursor() })),
-            Some(s) => {
-                let since = js_number_of_str(s);
-                if !(since.fract() == 0.0 && since >= 0.0 && since.is_finite()) {
-                    return Err(Fail::Usage(
-                        "--since takes a cursor from an earlier run".into(),
-                    ));
-                }
-                to_json(atlas.changes(since as u64)?)
-            }
-        },
         "journal entries list" => {
             let tags = values.all("tag").cloned().unwrap_or_default();
             if tags.len() > 1 {
@@ -755,49 +638,6 @@ fn vault_input(command: &str, values: &Values) -> Result<Value, Fail> {
     Ok(Value::Object(input))
 }
 
-fn optional_due(value: Option<&str>, tz: Option<&str>, now: i64) -> Result<Option<i64>, Fail> {
-    match value {
-        None => Ok(None),
-        Some(v) => Ok(parse_due(&Value::from(v), &resolve_time_zone(tz), now)?),
-    }
-}
-
-fn list_query(values: &Values, tz: Option<&str>, now: i64) -> Result<TaskQuery, Fail> {
-    let status = match values.get("status") {
-        None | Some("") => None,
-        Some("open") => Some(TaskStatus::Open),
-        Some("completed") => Some(TaskStatus::Completed),
-        Some("all") => Some(TaskStatus::All),
-        Some(_) => return Err(Fail::Usage("--status is open, completed or all".into())),
-    };
-    let labels = values.all("label").cloned().unwrap_or_default();
-    if labels.len() > 1 {
-        return Err(Fail::Usage("tasks list takes one --label".into()));
-    }
-    Ok(TaskQuery {
-        project: values.get("project").map(str::to_owned),
-        status,
-        label: labels.into_iter().next(),
-        search: values.get("search").map(str::to_owned),
-        filter: values.get("filter").map(str::to_owned),
-        due_before: optional_due(values.get("due-before"), tz, now)?,
-        due_after: optional_due(values.get("due-after"), tz, now)?,
-    })
-}
-
-/// The task fields of `add` and `update`: from flags, over those from `--json`. The outer `Option`
-/// is whether the field was given, the inner one a cleared value.
-#[derive(Default)]
-struct TaskFields {
-    title: Option<String>,
-    notes: Option<String>,
-    due_at: Option<Option<i64>>,
-    priority: Option<Value>,
-    project: Option<Option<String>>,
-    recurrence: Option<Option<String>>,
-    labels: Option<Vec<String>>,
-}
-
 /// JavaScript's `String(value)`.
 fn js_string(v: &Value) -> String {
     match v {
@@ -834,7 +674,7 @@ fn js_number_text(f: f64) -> String {
 
 /// JavaScript's `Number(string)`.
 fn js_number_of_str(s: &str) -> f64 {
-    let t = s.trim_matches(atlas_client::rules::filter::js_space);
+    let t = s.trim_matches(js_space);
     if t.is_empty() {
         return 0.0;
     }
@@ -885,75 +725,6 @@ fn js_number(v: &Value) -> Value {
     } else {
         Value::from(f)
     }
-}
-
-fn truthy(v: &Value) -> bool {
-    match v {
-        Value::Null => false,
-        Value::Bool(b) => *b,
-        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
-        Value::String(s) => !s.is_empty(),
-        _ => true,
-    }
-}
-
-fn task_fields(values: &Values, tz: Option<&str>, now: i64) -> Result<TaskFields, Fail> {
-    let mut json = Map::new();
-    if let Some(text) = values.get("json") {
-        let parsed: Value = serde_json::from_str(text)
-            .map_err(|_| Fail::Usage("--json is not valid JSON".into()))?;
-        match parsed {
-            Value::Object(o) => json = o,
-            _ => return Err(Fail::Usage("--json must be an object".into())),
-        }
-    }
-    let pick = |flag: &str, key: &str| -> Option<Value> {
-        match values.get(flag) {
-            Some(v) => Some(Value::from(v)),
-            None => json.get(key).cloned(),
-        }
-    };
-    // `a ?? b`: `b` when `a` is absent or null.
-    let or_else = |a: Option<Value>, key: &str| match a {
-        Some(v) if !v.is_null() => Some(v),
-        _ => json.get(key).cloned(),
-    };
-    let mut f = TaskFields {
-        title: pick("title", "title").map(|v| js_string(&v)),
-        notes: pick("notes", "notes").map(|v| js_string(&v)),
-        ..TaskFields::default()
-    };
-    if let Some(due) = or_else(pick("due", "due"), "due_at") {
-        let due = match due {
-            Value::Bool(_) | Value::Array(_) | Value::Object(_) => {
-                return Err(Error::Protocol("value.trim is not a function".into()).into());
-            }
-            other => other,
-        };
-        f.due_at = Some(parse_due(&due, &resolve_time_zone(tz), now)?);
-    }
-    f.priority = pick("priority", "priority").map(|v| js_number(&v));
-    if let Some(project) = or_else(pick("project", "project"), "project_id") {
-        f.project = Some(if project.is_null() {
-            None
-        } else {
-            Some(js_string(&project))
-        });
-    }
-    if let Some(r) = pick("recurrence", "recurrence") {
-        f.recurrence = Some(truthy(&r).then(|| js_string(&r)));
-    }
-    let labels = match values.all("label") {
-        Some(l) => Some(Value::from(l.clone())),
-        None => json.get("labels").cloned(),
-    };
-    if let Some(labels) = labels {
-        let Value::Array(items) = labels else {
-            return Err(Fail::Usage("labels must be a list".into()));
-        };
-        f.labels = Some(items.iter().map(js_string).collect());
-    }
-    Ok(f)
 }
 
 fn usage(io: &mut Io<'_>, message: &str) -> i32 {
@@ -1025,6 +796,21 @@ pub fn describe(err: &Error) -> String {
 fn fail(io: &mut Io<'_>, err: &Error) -> i32 {
     (io.stderr)(&describe(err));
     1
+}
+
+/// JavaScript's white space and line terminators (`String.prototype.trim`).
+fn js_space(c: char) -> bool {
+    matches!(
+        c,
+        '\t' | '\n' | '\x0b' | '\x0c' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
+    )
 }
 
 #[cfg(test)]

@@ -1,66 +1,4 @@
-/** Entity and wire types Timestamps are Unix ms. */
-
-export type Priority = 1 | 2 | 3 | 4;
-
-export type ProjectKind = "project" | "folder";
-/** How a project opens when the URL does not say: its task list or its board. */
-export type ProjectView = "list" | "board";
-
-export interface Task {
-  id: string;
-  project_id: string | null;
-  section_id: string | null;
-  parent_id: string | null;
-  title: string;
-  notes: string;
-  priority: Priority;
-  start_at: number | null;
-  due_at: number | null;
-  is_completed: boolean;
-  completed_at: number | null;
-  archived_at: number | null;
-  deleted_at: number | null;
-  recurrence: string | null;
-  assignee_id: string | null;
-  estimate_min: number | null;
-  label_ids: string[];
-  sort_order: number;
-  created_at: number;
-  updated_at: number;
-  /** Some field is undecryptable ciphertext; typed fields hold placeholders, so don't edit a locked task. */
-  locked?: boolean;
-}
-
-export interface Project {
-  id: string;
-  owner_id: string;
-  name: string;
-  color: string;
-  icon: string;
-  sort_order: number;
-  is_favorite: boolean;
-  parent_id: string | null;
-  kind: ProjectKind;
-  default_view: ProjectView;
-  archived_at: number | null;
-  deleted_at: number | null;
-}
-
-export interface Section {
-  id: string;
-  project_id: string;
-  name: string;
-  sort_order: number;
-  deleted_at: number | null;
-  archived_at: number | null;
-}
-
-export interface Label {
-  id: string;
-  owner_id: string;
-  name: string;
-  color: string;
-}
+/** Entity and wire types. Timestamps are Unix ms. The apps own their entity shapes. */
 
 export interface AuthUser {
   id: string;
@@ -399,51 +337,11 @@ export type Operation = {
   ts: import("./hlc").Hlc;
 } & ({ op: "set"; field: string; value: unknown } | { op: "delete" });
 
-export type EntityKind =
-  | "task"
-  | "project"
-  | "section"
-  | "label"
-  | "comment"
-  | "preference"
-  | "saved_filter"
-  | "reminder"
-  | "project_member"
-  | "activity"
-  | "focus_session"
-  | "habit"
-  | "habit_checkin"
-  /** Metadata only; ciphertext travels via `/attachments/blobs/:sha256`. */
-  | "attachment"
-  /**
-   * Atlas Journal's kinds (`manifests/journal.json`), namespaced `<app>.<kind>` like every app's
-   * after todo. Personal and fully encrypted: no plaintext field, no project scope. A journal
-   * client syncs them in a journal-scoped session (`ApiClientOptions.apps`).
-   */
-  | JournalEntityKind
-  /** Atlas Vault (`manifests/vault.json`): personal, every field encrypted. */
-  | "vault.item"
-  | "vault.folder"
-  | "vault.preference";
-
-/** Atlas Journal's entity kinds: `journal.entry` (one entry) and `journal.preference` (a setting). */
-export type JournalEntityKind = "journal.entry" | "journal.preference";
-
-export interface CreateTaskInput {
-  title: string;
-  notes?: string;
-  priority?: Priority;
-  project_id?: string | null;
-  section_id?: string | null;
-  parent_id?: string | null;
-  start_at?: number | null;
-  due_at?: number | null;
-  recurrence?: string | null;
-  assignee_id?: string | null;
-  estimate_min?: number | null;
-  label_ids?: string[];
-  sort_order?: number;
-}
+/**
+ * A real entity kind: a bundled manifest's (`task`, `project_member`, `journal.entry`) or one an app
+ * registered (`registerApp`). Open: the engine has no list of an app's kinds.
+ */
+export type EntityKind = string;
 
 export type BugReportKind = "crash" | "manual";
 
@@ -546,6 +444,17 @@ export interface AdminInviteView {
 
 export interface AdminSettingsView {
   signup_enabled: boolean;
+  /** Days after which clients delete their users' activity entries; 0 keeps them. */
+  activity_retention_days: number;
+}
+
+/**
+ * Instance policies a client enforces itself. Activity is end-to-end encrypted and travels as an
+ * anonymous sealed row, so the server publishes the retention and each client deletes its own
+ * user's entries older than it (0: no limit).
+ */
+export interface InstancePolicy {
+  activity_retention_days: number;
 }
 
 export interface AdminAuditEntry {
@@ -663,3 +572,6 @@ export interface PasskeyRegistrationPayload {
 
 /** A current password or a passkey re-authentication proof, for the account-critical routes. */
 export type AccountProof = { current_password: string } | { reauth_token: string };
+
+/** Atlas Journal's entity kinds: `journal.entry` (one entry) and `journal.preference` (a setting). */
+export type JournalEntityKind = "journal.entry" | "journal.preference";

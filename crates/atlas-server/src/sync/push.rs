@@ -576,7 +576,8 @@ fn check_batch(
         }
     }
 
-    // Clients check an activity's actor against the pusher, which only the server may say.
+    // Clients check an entry's writer field (an app's `actor_field`) against the pusher, which only
+    // the server may say.
     let mut ops = operations;
     for op in &mut ops {
         op.pushed_by = Some(caller);

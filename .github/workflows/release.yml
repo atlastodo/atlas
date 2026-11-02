@@ -26,7 +26,6 @@ defaults:
     shell: bash
 
 env:
-  BUN_VERSION: "1.4.2"
   NODE_VERSION: "26"
   CARGO_TERM_COLOR: always
 
@@ -135,7 +134,7 @@ jobs:
           rustup toolchain install --no-self-update
           rustup target add "$TARGET"
       - if: ${{ matrix.zig }}
-        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:
           tool: cargo-zigbuild@0.23.4
           fallback: none
@@ -207,7 +206,7 @@ jobs:
           registry-url: https://registry.npmjs.org
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: ${{ env.BUN_VERSION }}
+          bun-version-file: .bun-version
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
