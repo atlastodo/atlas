@@ -1,12 +1,12 @@
 {
   "//": "The app web builds the server image (docker/Dockerfile via docker.yml) and the flake's web-dist serve; the apps themselves live in their own repositories (todo: atlastodo/atlas-todo). A pin is { \"version\": \"X.Y.Z\", \"url\": \"https://.../atlas-todo-web-X.Y.Z.tar.gz\", \"sha256\": \"<64 hex>\", \"notices\": { \"url\": \"https://.../THIRD_PARTY_NOTICES.txt\", \"sha256\": \"<64 hex>\" } }. Set one with scripts/pin-app-web.mjs.",
   "todo": {
-    "version": "0.1.17-rc.2",
-    "url": "https://github.com/atlastodo/atlas-todo/releases/download/v0.1.17-rc.2/atlas-todo-web-0.1.17-rc.2.tar.gz",
-    "sha256": "b5662839b65c0c554d79c6a51220b4edd5884be4f923da103b242d77ebee1286",
+    "version": "0.1.18",
+    "url": "https://github.com/atlastodo/atlas-todo/releases/download/v0.1.18/atlas-todo-web-0.1.18.tar.gz",
+    "sha256": "eada3edd98785a0289cc825511e52913acfc3179bc9e6afa492f62ece3ff0e62",
     "notices": {
-      "url": "https://github.com/atlastodo/atlas-todo/releases/download/v0.1.17-rc.2/THIRD_PARTY_NOTICES.txt",
-      "sha256": "2caf66c5d5a1b7e91a564578f9b2f7ed25415698ccb7deaa865dea4e12a640b7"
+      "url": "https://github.com/atlastodo/atlas-todo/releases/download/v0.1.18/THIRD_PARTY_NOTICES.txt",
+      "sha256": "024f3c7eb409b77881ea136d1a7aa2fa7ff12a907c0453666da5aa2fe53b7a43"
     }
   }
 }
