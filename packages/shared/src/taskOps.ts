@@ -6,7 +6,13 @@ import {
 } from "@atlastodo/client-core";
 import { taskCreateFields, toTask } from "./taskMapper";
 import { advanceSeries, anchorMonthDay } from "./recurrence";
-import { encodeLabels, encodePlace, writeActivity, type TaskActivityKind } from "./activity";
+import {
+  encodeLabels,
+  encodePlace,
+  hashText,
+  writeActivity,
+  type TaskActivityKind,
+} from "./activity";
 import { restoreEntity } from "./trash";
 import { wouldCycle } from "./taskTree";
 import { hiddenProjectIds } from "./projectTree";
@@ -269,7 +275,12 @@ function fieldActivity(
     case "title":
       return { kind: "title", from: strOrNull(before) ?? "", to: strOrNull(after) ?? "" };
     case "notes":
-      return { kind: "description", from: strOrNull(before) ?? "", to: strOrNull(after) ?? "" };
+      // The new text only as a fingerprint: autosaves would otherwise re-send it with every keystroke.
+      return {
+        kind: "description",
+        from: strOrNull(before) ?? "",
+        to: hashText(strOrNull(after) ?? ""),
+      };
     case "label_ids": {
       const ids = (v: unknown) =>
         Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
@@ -506,8 +517,13 @@ export function discardTask(store: LocalStore, id: string): boolean {
   return true;
 }
 
-// The copy always starts open. A locked task is not copied (`null`).
-export function duplicateTask(store: LocalStore, task: Task, timeZone?: string): string | null {
+// The copy always starts open. A locked task is not copied (`null`). `actorId` records it as created.
+export function duplicateTask(
+  store: LocalStore,
+  task: Task,
+  timeZone?: string,
+  actorId?: string,
+): string | null {
   if (locked(store, task)) return null;
   return createTask(
     store,
@@ -526,6 +542,7 @@ export function duplicateTask(store: LocalStore, task: Task, timeZone?: string):
       assignee_id: task.assignee_id,
     },
     timeZone,
+    actorId,
   );
 }
 

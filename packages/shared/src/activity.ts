@@ -108,41 +108,225 @@ export function listActivities(store: Pick<LocalStore, "list">): Activity[] {
 /** Title and description edits within this long of the actor's previous one extend that entry. */
 export const ACTIVITY_MERGE_MS = 5 * 60 * 1000;
 
+/**
+ * An actor reversing their own latest change to a field within this long (a toast's undo, a
+ * mis-click put right) takes that entry back instead of recording the reverse: nothing happened.
+ */
+export const ACTIVITY_CANCEL_MS = 60 * 1000;
+
 const MERGED_KINDS: ReadonlySet<string> = new Set(["title", "description"]);
 
 /**
- * The entry a title or description edit extends: the latest entry of that kind on the task, when
- * it is the actor's, at most {@link ACTIVITY_MERGE_MS} old and no undo.
+ * A short fingerprint of a text: FNV-1a (32-bit) over its code points, as `#` and 8 hex digits.
+ * A description entry's `to` holds this rather than the text, so autosaving a long description does
+ * not re-send it with every keystroke; the old text (`from`) is what an undo needs.
  */
-function mergeTarget(
+export function hashText(text: string): string {
+  let h = 0x811c9dc5;
+  for (const ch of text) {
+    h ^= ch.codePointAt(0)!;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `#${h.toString(16).padStart(8, "0")}`;
+}
+
+/**
+ * The field an entry changed, per target: entries sharing a key supersede each other. Member
+ * entries have none.
+ */
+export function activityKeyOf(fields: Record<string, unknown>): string | null {
+  const kind = fields.kind;
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  switch (kind) {
+    case "created":
+    case "deleted":
+    case "restored":
+      return `task:${str(fields.task_id)}:trash`;
+    case "project_renamed":
+      return `project:${str(fields.project_id)}:name`;
+    case "project_archived":
+    case "project_unarchived":
+      return `project:${str(fields.project_id)}:archive`;
+    case "project_deleted":
+    case "project_restored":
+      return `project:${str(fields.project_id)}:trash`;
+    case "section_renamed":
+      return `section:${str(fields.section_id)}:name`;
+    case "section_archived":
+    case "section_unarchived":
+      return `section:${str(fields.section_id)}:archive`;
+    case "section_deleted":
+    case "section_restored":
+      return `section:${str(fields.section_id)}:trash`;
+    case "member_invited":
+    case "member_joined":
+    case "member_removed":
+      return null;
+    default:
+      return typeof kind === "string" && str(fields.task_id)
+        ? `task:${str(fields.task_id)}:${kind}`
+        : null;
+  }
+}
+
+interface Latest {
+  id: string;
+  fields: Record<string, unknown>;
+  at: number;
+}
+
+const createdAt = (f: Record<string, unknown>) =>
+  typeof f.created_at === "number" ? f.created_at : 0;
+
+/** Whether `a` sorts after `b` (newest first: later time, then higher id). */
+const isNewer = (a: Latest, b: Latest) => a.at > b.at || (a.at === b.at && a.id > b.id);
+
+// The latest entry per field key, per store; rebuilt when someone else touched activity.
+const latestCache = new WeakMap<LocalStore, { rev: number; map: Map<string, Latest> }>();
+
+function latestIndex(store: LocalStore): Map<string, Latest> {
+  const rev = store.revision("activity");
+  const cached = latestCache.get(store);
+  if (cached?.rev === rev) return cached.map;
+  const map = new Map<string, Latest>();
+  for (const e of store.list("activity")) {
+    const key = activityKeyOf(e.fields);
+    if (!key) continue;
+    const entry = { id: e.id, fields: e.fields, at: createdAt(e.fields) };
+    const prev = map.get(key);
+    if (!prev || isNewer(entry, prev)) map.set(key, entry);
+  }
+  latestCache.set(store, { rev, map });
+  return map;
+}
+
+/** After this module's own write: keep the index rather than rebuild it on the next keystroke. */
+function noteWrite(store: LocalStore, id: string): void {
+  const cached = latestCache.get(store);
+  if (!cached) return;
+  const fields = store.get("activity", id);
+  const key = fields ? activityKeyOf(fields) : null;
+  if (fields && key) cached.map.set(key, { id, fields, at: createdAt(fields) });
+  cached.rev = store.revision("activity");
+}
+
+/** After a cancel: who is latest on that field now is not known without a scan. */
+function noteRemove(store: LocalStore): void {
+  latestCache.delete(store);
+}
+
+/** The latest entry on that field, if the actor wrote it, it undid nothing and it is recent. */
+function ownRecent(
+  store: LocalStore,
+  key: string,
+  actorId: string,
+  now: number,
+  windowMs: number,
+): Latest | null {
+  const latest = latestIndex(store).get(key);
+  if (!latest || latest.fields.actor_id !== actorId) return null;
+  const reverts = latest.fields.reverts;
+  if (typeof reverts === "string" && reverts !== "") return null;
+  if (now < latest.at || now - latest.at > windowMs) return null;
+  return latest;
+}
+
+const strOrNull = (v: unknown) => (typeof v === "string" ? v : null);
+
+/** Whether writing `kind` with `to` puts back what `prev` changed. */
+function reverses(prev: Record<string, unknown>, kind: string, to: string | null): boolean {
+  const prevKind = prev.kind;
+  switch (kind) {
+    case "status":
+      return prevKind === "status" && strOrNull(prev.to) !== to;
+    case "restored":
+      return prevKind === "deleted";
+    case "project_restored":
+      return prevKind === "project_deleted";
+    case "section_restored":
+      return prevKind === "section_deleted";
+    case "project_archived":
+    case "project_unarchived":
+    case "section_archived":
+    case "section_unarchived":
+      return prevKind !== kind;
+    case "created":
+    case "deleted":
+    case "project_deleted":
+    case "section_deleted":
+      return false;
+    case "description":
+      return prevKind === kind && to === hashText(strOrNull(prev.from) ?? "");
+    default:
+      return prevKind === kind && strOrNull(prev.from) === to;
+  }
+}
+
+// Stores in the middle of an undo from the feed: its entry is the record of the undo, never a cancel.
+const recording = new WeakSet<LocalStore>();
+
+/** Run `fn` with every entry it writes kept, even one that reverses a recent change. */
+export function withoutCancel<T>(store: LocalStore, fn: () => T): T {
+  recording.add(store);
+  try {
+    return fn();
+  } finally {
+    recording.delete(store);
+  }
+}
+
+/** Append (or merge, or cancel) an entry; the shared tail of both writers. */
+function record(
   store: LocalStore,
   actorId: string,
-  taskId: string,
+  target: Record<string, string>,
   kind: string,
+  from: string | null,
+  to: string | null,
   now: number,
+  merge: boolean,
 ): string | null {
-  let latest: { id: string; fields: Record<string, unknown> } | null = null;
-  let latestAt = -Infinity;
-  for (const e of store.list("activity")) {
-    if (e.fields.task_id !== taskId || e.fields.kind !== kind) continue;
-    const at = typeof e.fields.created_at === "number" ? e.fields.created_at : 0;
-    if (at > latestAt || (at === latestAt && latest !== null && e.id > latest.id)) {
-      latest = e;
-      latestAt = at;
+  const key = activityKeyOf({ ...target, kind });
+  if (key && merge && MERGED_KINDS.has(kind)) {
+    const prev = ownRecent(store, key, actorId, now, ACTIVITY_MERGE_MS);
+    if (prev) {
+      store.set("activity", prev.id, "to", to);
+      store.set("activity", prev.id, "created_at", now);
+      noteWrite(store, prev.id);
+      return prev.id;
     }
   }
-  if (!latest || latest.fields.actor_id !== actorId) return null;
-  if (typeof latest.fields.reverts === "string" && latest.fields.reverts !== "") return null;
-  if (now < latestAt || now - latestAt > ACTIVITY_MERGE_MS) return null;
-  return latest.id;
+  if (key && !recording.has(store) && !MERGED_KINDS.has(kind)) {
+    const prev = ownRecent(store, key, actorId, now, ACTIVITY_CANCEL_MS);
+    if (prev && reverses(prev.fields, kind, to)) {
+      store.remove("activity", prev.id);
+      noteRemove(store);
+      return null;
+    }
+  }
+  const id = store.newEntityId();
+  for (const [field, value] of Object.entries(target)) store.set("activity", id, field, value);
+  store.set("activity", id, "actor_id", actorId);
+  store.set("activity", id, "kind", kind);
+  if (from !== null) store.set("activity", id, "from", from);
+  if (to !== null) store.set("activity", id, "to", to);
+  store.set("activity", id, "created_at", now);
+  noteWrite(store, id);
+  return id;
 }
 
 /**
  * Append a task activity entry. No-op when `actorId` is unknown (background contexts), so only
- * user-driven edits are recorded. A title or description edit extends the actor's entry of the
- * last {@link ACTIVITY_MERGE_MS} (its `to` and time move; its `from` stays), so typing is one
- * entry. The id comes from `store.newEntityId()`: Hermes has no global `crypto`, and a non-UUID id
- * would 422 the sync batch. `merge: false` always appends (an undo). Returns the entry's id.
+ * user-driven edits are recorded.
+ *
+ * - A title or description edit extends the actor's entry of the last {@link ACTIVITY_MERGE_MS}
+ *   (its `to` and time move; its `from` stays), so typing is one entry.
+ * - A change that puts back what the actor's own latest entry on that field changed, within
+ *   {@link ACTIVITY_CANCEL_MS}, removes that entry instead (see {@link withoutCancel}).
+ * - A description's `to` is {@link hashText} of the new text.
+ *
+ * The id comes from `store.newEntityId()`: Hermes has no global `crypto`, and a non-UUID id would
+ * 422 the sync batch. `merge: false` always appends. Returns the entry's id, or null.
  */
 export function writeActivity(
   store: LocalStore,
@@ -155,27 +339,13 @@ export function writeActivity(
   options: { merge?: boolean } = {},
 ): string | null {
   if (!actorId) return null;
-  if (options.merge !== false && MERGED_KINDS.has(kind)) {
-    const merged = mergeTarget(store, actorId, taskId, kind, now);
-    if (merged) {
-      store.set("activity", merged, "to", to);
-      store.set("activity", merged, "created_at", now);
-      return merged;
-    }
-  }
-  const id = store.newEntityId();
-  store.set("activity", id, "task_id", taskId);
-  store.set("activity", id, "actor_id", actorId);
-  store.set("activity", id, "kind", kind);
-  if (from !== null) store.set("activity", id, "from", from);
-  if (to !== null) store.set("activity", id, "to", to);
-  store.set("activity", id, "created_at", now);
-  return id;
+  return record(store, actorId, { task_id: taskId }, kind, from, to, now, options.merge !== false);
 }
 
 /**
  * Append a project, section or member entry (no task). `sectionId` names the section of a section
- * event; the entry scopes through `projectId`. No-op without an actor.
+ * event; the entry scopes through `projectId`. Reversals cancel as in {@link writeActivity}.
+ * Member entries name the member's user id. No-op without an actor.
  */
 export function writeProjectActivity(
   store: LocalStore,
@@ -187,15 +357,9 @@ export function writeProjectActivity(
   now: number = Date.now(),
 ): string | null {
   if (!actorId) return null;
-  const id = store.newEntityId();
-  store.set("activity", id, "project_id", target.projectId);
-  if (target.sectionId) store.set("activity", id, "section_id", target.sectionId);
-  store.set("activity", id, "actor_id", actorId);
-  store.set("activity", id, "kind", kind);
-  if (from !== null) store.set("activity", id, "from", from);
-  if (to !== null) store.set("activity", id, "to", to);
-  store.set("activity", id, "created_at", now);
-  return id;
+  const fields: Record<string, string> = { project_id: target.projectId };
+  if (target.sectionId) fields.section_id = target.sectionId;
+  return record(store, actorId, fields, kind, from, to, now, false);
 }
 
 /** `labels` entry values: the label ids, sorted, as a JSON array. */

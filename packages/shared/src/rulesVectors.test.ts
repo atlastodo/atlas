@@ -213,6 +213,10 @@ function runRuleScenario(s: RuleScenario): { result: unknown; expected: unknown 
       written: clean(tasks.get(subject)),
       spawned: spawnedId ? clean(tasks.get(spawnedId)) : null,
       activities: [...written("activity").values()].map(clean),
+      // Seeded entries a write took back (a reversal within a minute).
+      removed_activities: ops
+        .filter((o) => o.entity === "activity" && o.op === "delete")
+        .map((o) => o.entityId),
       reminders: [...written("reminder").values()].map(clean),
     },
   };

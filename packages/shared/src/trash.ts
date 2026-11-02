@@ -163,6 +163,8 @@ function purgeCascade(store: LocalStore, kind: EntityKind, id: string): void {
         store.remove("task", e.id);
         tasks.add(e.id);
       }
+    for (const e of store.list("activity"))
+      if (e.fields.section_id === id) store.remove("activity", e.id);
   } else if (kind === "habit") {
     // Soft delete keeps check-ins (so restore brings back history); only the purge collects them.
     // A group takes its members with it; groups never nest, so one pass finds them.

@@ -1,5 +1,5 @@
 {
-  "_doc": "The task rules (packages/shared/src/taskOps.ts). Each scenario seeds a store with `task` (the fields of task 00000000-0000-4000-8000-000000000001) its `reminders` and the `activities` already stored, then runs `action` at `now` in `tz` as `actor`: `create` with `input`, `update` with `patch` (fields in order), `complete`, `reopen` or `delete`. `expected` lists the field values the action wrote: to the task (`written`; for `create`, the new task), to a spawned next occurrence (`spawned`), and to new activity and reminder entities, in the order written. `<spawned>` and `<created>` stand for the new task's id. `result` is updateTask's or softDeleteTask's return value, or for complete/reopen whether a task was spawned. Asserted by packages/shared/src/rulesVectors.test.ts and crates/atlas-client.",
+  "_doc": "The task rules (packages/shared/src/taskOps.ts). Each scenario seeds a store with `task` (the fields of task 00000000-0000-4000-8000-000000000001) its `reminders` and the `activities` already stored, then runs `action` at `now` in `tz` as `actor`: `create` with `input`, `update` with `patch` (fields in order), `complete`, `reopen` or `delete`. `expected` lists the field values the action wrote: to the task (`written`; for `create`, the new task), to a spawned next occurrence (`spawned`), and to new activity and reminder entities, in the order written, and the seeded activity entries it removed (`removed_activities`). `<spawned>` and `<created>` stand for the new task's id. `result` is updateTask's or softDeleteTask's return value, or for complete/reopen whether a task was spawned. Asserted by packages/shared/src/rulesVectors.test.ts and crates/atlas-client.",
   "scenarios": [
     {
       "name": "create a plain task",
@@ -28,6 +28,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -87,6 +88,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -114,6 +116,7 @@
         },
         "spawned": null,
         "activities": [],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -138,6 +141,7 @@
         },
         "spawned": null,
         "activities": [],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -171,6 +175,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -192,6 +197,7 @@
         },
         "spawned": null,
         "activities": [],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -258,6 +264,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": [
           {
             "task_id": "<spawned>",
@@ -309,6 +316,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -349,6 +357,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -379,6 +388,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -410,6 +420,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -442,6 +453,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -468,6 +480,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -522,10 +535,11 @@
             "actor_id": "u1",
             "kind": "description",
             "from": "a",
-            "to": "b",
+            "to": "#e70c2de5",
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -562,6 +576,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -597,6 +612,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -633,6 +649,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -660,6 +677,7 @@
         },
         "spawned": null,
         "activities": [],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -701,6 +719,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -729,6 +748,7 @@
         "written": null,
         "spawned": null,
         "activities": [],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -752,6 +772,7 @@
         "written": null,
         "spawned": null,
         "activities": [],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -823,7 +844,7 @@
             "actor_id": "u1",
             "kind": "description",
             "from": "a",
-            "to": "b",
+            "to": "#e70c2de5",
             "created_at": 1791972000000
           },
           {
@@ -850,6 +871,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -886,6 +908,7 @@
         },
         "spawned": null,
         "activities": [],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -928,6 +951,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -969,6 +993,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -1014,6 +1039,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -1067,6 +1093,7 @@
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -1110,10 +1137,11 @@
             "actor_id": "u1",
             "kind": "description",
             "from": "b",
-            "to": "c",
+            "to": "#e60c2c52",
             "created_at": 1791972000000
           }
         ],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -1140,6 +1168,7 @@
         },
         "spawned": null,
         "activities": [],
+        "removed_activities": [],
         "reminders": []
       }
     },
@@ -1159,6 +1188,222 @@
         },
         "spawned": null,
         "activities": [],
+        "removed_activities": [],
+        "reminders": []
+      }
+    },
+    {
+      "name": "reopening the actor's own completion within a minute takes its entry back",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "T",
+        "is_completed": true,
+        "completed_at": 1791971990000
+      },
+      "activities": [
+        {
+          "task_id": "00000000-0000-4000-8000-000000000001",
+          "actor_id": "u1",
+          "kind": "status",
+          "to": "completed",
+          "created_at": 1791971990000
+        }
+      ],
+      "action": "reopen",
+      "result": false,
+      "expected": {
+        "written": {
+          "is_completed": false,
+          "completed_at": null
+        },
+        "spawned": null,
+        "activities": [],
+        "removed_activities": [
+          "00000000-0000-4000-8000-0000000000c0"
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "name": "putting the due date back within a minute takes the entry back",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "T",
+        "due_at": 1792058400000
+      },
+      "activities": [
+        {
+          "task_id": "00000000-0000-4000-8000-000000000001",
+          "actor_id": "u1",
+          "kind": "due",
+          "from": "1791972000000",
+          "to": "1792058400000",
+          "created_at": 1791971995000
+        }
+      ],
+      "action": "update",
+      "patch": [
+        [
+          "due_at",
+          1791972000000
+        ]
+      ],
+      "result": true,
+      "expected": {
+        "written": {
+          "due_at": 1791972000000,
+          "updated_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [],
+        "removed_activities": [
+          "00000000-0000-4000-8000-0000000000c0"
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "name": "putting the due date back after a minute records it",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "T",
+        "due_at": 1792058400000
+      },
+      "activities": [
+        {
+          "task_id": "00000000-0000-4000-8000-000000000001",
+          "actor_id": "u1",
+          "kind": "due",
+          "from": "1791972000000",
+          "to": "1792058400000",
+          "created_at": 1791971939999
+        }
+      ],
+      "action": "update",
+      "patch": [
+        [
+          "due_at",
+          1791972000000
+        ]
+      ],
+      "result": true,
+      "expected": {
+        "written": {
+          "due_at": 1791972000000,
+          "updated_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "due",
+            "from": "1792058400000",
+            "to": "1791972000000",
+            "created_at": 1791972000000
+          }
+        ],
+        "removed_activities": [],
+        "reminders": []
+      }
+    },
+    {
+      "name": "putting back someone else's change records it",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "T",
+        "due_at": 1792058400000
+      },
+      "activities": [
+        {
+          "task_id": "00000000-0000-4000-8000-000000000001",
+          "actor_id": "u2",
+          "kind": "due",
+          "from": "1791972000000",
+          "to": "1792058400000",
+          "created_at": 1791971995000
+        }
+      ],
+      "action": "update",
+      "patch": [
+        [
+          "due_at",
+          1791972000000
+        ]
+      ],
+      "result": true,
+      "expected": {
+        "written": {
+          "due_at": 1791972000000,
+          "updated_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "due",
+            "from": "1792058400000",
+            "to": "1791972000000",
+            "created_at": 1791972000000
+          }
+        ],
+        "removed_activities": [],
+        "reminders": []
+      }
+    },
+    {
+      "name": "a different value is no reversal",
+      "tz": "UTC",
+      "now": 1791972000000,
+      "actor": "u1",
+      "task": {
+        "title": "T",
+        "priority": 1
+      },
+      "activities": [
+        {
+          "task_id": "00000000-0000-4000-8000-000000000001",
+          "actor_id": "u1",
+          "kind": "priority",
+          "from": "4",
+          "to": "1",
+          "created_at": 1791971995000
+        }
+      ],
+      "action": "update",
+      "patch": [
+        [
+          "priority",
+          2
+        ]
+      ],
+      "result": true,
+      "expected": {
+        "written": {
+          "priority": 2,
+          "updated_at": 1791972000000
+        },
+        "spawned": null,
+        "activities": [
+          {
+            "task_id": "00000000-0000-4000-8000-000000000001",
+            "actor_id": "u1",
+            "kind": "priority",
+            "from": "1",
+            "to": "2",
+            "created_at": 1791972000000
+          }
+        ],
+        "removed_activities": [],
         "reminders": []
       }
     }

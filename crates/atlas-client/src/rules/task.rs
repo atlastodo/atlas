@@ -254,14 +254,46 @@ fn js_number_string(v: &Value) -> Option<String> {
 
 /// Title and description edits within this long of the actor's previous one extend that entry.
 pub const ACTIVITY_MERGE_MS: i64 = 5 * 60 * 1000;
+/// An actor reversing their own latest change to a field within this long takes that entry back.
+pub const ACTIVITY_CANCEL_MS: i64 = 60 * 1000;
 
-/// The entry a title or description edit extends (`mergeTarget`): the latest entry of that kind on
-/// the task, when it is the actor's, at most [`ACTIVITY_MERGE_MS`] old and no undo.
-fn merge_target(store: &Store, actor: &str, task_id: &str, kind: &str, now: i64) -> Option<String> {
+/// `hashText`: FNV-1a (32-bit) over the code points, as `#` and 8 hex digits. A description
+/// entry's `to` holds this rather than the text.
+pub fn hash_text(text: &str) -> String {
+    let mut h: u32 = 0x811c_9dc5;
+    for ch in text.chars() {
+        h ^= ch as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    format!("#{h:08x}")
+}
+
+/// The field group a task entry changes (`activityKeyOf`): the trash moves share one.
+fn field_group(kind: &str) -> &str {
+    match kind {
+        "created" | "deleted" | "restored" => "trash",
+        k => k,
+    }
+}
+
+/// The latest entry on the task's field, when the actor wrote it, it undid nothing and it is at
+/// most `window` old (`ownRecent`).
+fn own_recent(
+    store: &Store,
+    actor: &str,
+    task_id: &str,
+    kind: &str,
+    now: i64,
+    window: i64,
+) -> Option<(String, Map<String, Value>)> {
+    let group = field_group(kind);
     let mut latest: Option<(String, Map<String, Value>, f64)> = None;
     for e in store.list(EntityKind::Activity) {
+        let Some(k) = e.fields.get("kind").and_then(Value::as_str) else {
+            continue;
+        };
         if e.fields.get("task_id").and_then(Value::as_str) != Some(task_id)
-            || e.fields.get("kind").and_then(Value::as_str) != Some(kind)
+            || field_group(k) != group
         {
             continue;
         }
@@ -290,14 +322,31 @@ fn merge_target(store: &Store, actor: &str, task_id: &str, kind: &str, now: i64)
         return None;
     }
     let now = now as f64;
-    if now < at || now - at > ACTIVITY_MERGE_MS as f64 {
+    if now < at || now - at > window as f64 {
         return None;
     }
-    Some(id)
+    Some((id, fields))
+}
+
+/// Whether writing `kind` with `to` puts back what `prev` changed (`reverses`).
+fn reverses(prev: &Map<String, Value>, kind: &str, to: Option<&str>) -> bool {
+    let prev_kind = prev.get("kind").and_then(Value::as_str);
+    let prev_from = prev.get("from").and_then(Value::as_str);
+    match kind {
+        "status" => prev_kind == Some("status") && prev.get("to").and_then(Value::as_str) != to,
+        "restored" => prev_kind == Some("deleted"),
+        "created" | "deleted" => false,
+        "description" => {
+            prev_kind == Some(kind) && to == Some(hash_text(prev_from.unwrap_or("")).as_str())
+        }
+        _ => prev_kind == Some(kind) && prev_from == to,
+    }
 }
 
 /// Append an activity entry; nothing without an actor (`writeActivity`). A title or description
-/// edit extends the actor's entry of the last [`ACTIVITY_MERGE_MS`] (its `to` and time move).
+/// edit extends the actor's entry of the last [`ACTIVITY_MERGE_MS`] (its `to` and time move); a
+/// change that puts back the actor's own latest one on that field within [`ACTIVITY_CANCEL_MS`]
+/// removes that entry instead.
 pub fn write_activity(
     store: &mut Store,
     actor_id: Option<&str>,
@@ -310,15 +359,23 @@ pub fn write_activity(
     let Some(actor) = actor_id.filter(|a| !a.is_empty()) else {
         return;
     };
-    if kind == "title" || kind == "description" {
-        if let Some(merged) = merge_target(store, actor, task_id, kind, now) {
+    let merged = kind == "title" || kind == "description";
+    if merged {
+        if let Some((id, _)) = own_recent(store, actor, task_id, kind, now, ACTIVITY_MERGE_MS) {
             store.set(
                 EntityKind::Activity,
-                &merged,
+                &id,
                 "to",
                 to.map_or(Value::Null, Value::from),
             );
-            store.set(EntityKind::Activity, &merged, "created_at", now.into());
+            store.set(EntityKind::Activity, &id, "created_at", now.into());
+            return;
+        }
+    } else if let Some((id, prev)) =
+        own_recent(store, actor, task_id, kind, now, ACTIVITY_CANCEL_MS)
+    {
+        if reverses(&prev, kind, to.as_deref()) {
+            store.remove(EntityKind::Activity, &id);
             return;
         }
     }
@@ -566,7 +623,11 @@ fn field_activity(
         "priority" => ("priority", num_string(before), num_string(Some(after))),
         "assignee_id" => ("assignee", str_or_none(before), str_or_none(Some(after))),
         "title" => ("title", text(before), text(Some(after))),
-        "notes" => ("description", text(before), text(Some(after))),
+        "notes" => (
+            "description",
+            text(before),
+            Some(hash_text(after.as_str().unwrap_or(""))),
+        ),
         "label_ids" => {
             let (from, to) = (encode_labels(before), encode_labels(Some(after)));
             if from == to {

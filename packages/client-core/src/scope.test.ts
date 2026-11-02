@@ -612,6 +612,26 @@ describe("locked values", () => {
 });
 
 describe("rescopeTask", () => {
+  it("re-writes only the account's own activity entries when told who it is", () => {
+    const store = sharedStore();
+    const { keyring } = keys();
+    const task = newId();
+    const mine = newId();
+    const theirs = newId();
+    store.applyRemoteBatch([
+      remote("task", task, "title", "Shared", ts(50)),
+      remote("activity", mine, "task_id", task, ts(51)),
+      remote("activity", mine, "actor_id", "me", ts(51, 1)),
+      remote("activity", theirs, "task_id", task, ts(52)),
+      remote("activity", theirs, "actor_id", "bo", ts(52, 1)),
+    ]);
+    store.set("task", task, "project_id", P);
+    rescopeTask(store, keyring, task, null, "me");
+    expect(store.fieldTs("activity", mine, "actor_id")).toEqual(successorHlc(ts(51, 1)));
+    // Re-written by "me", Bo's entry would arrive with an actor that did not push it: dropped.
+    expect(store.fieldTs("activity", theirs, "actor_id")).toEqual(ts(52, 1));
+  });
+
   it("re-writes every field of the task and its children under the new project's key", async () => {
     const store = sharedStore();
     const { dek, pek, keyring } = keys();

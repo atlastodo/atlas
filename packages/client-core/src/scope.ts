@@ -581,12 +581,25 @@ export function rewrapAttachmentKey(
   return wrapAttachmentKey(aek, target.key, target.keyId, target.scope, attachmentId);
 }
 
-/** Re-writes the task, its comments, activity and attachments under the new key. Only `fromProjectId`'s keys and the DEK may unwrap. */
+/**
+ * Whether this account may re-write an activity entry: only its author may (receivers drop an
+ * entry whose `actor_id` was pushed by someone else, see wire.ts). Without `userId`, every entry.
+ */
+function ownActivity(fields: Record<string, unknown>, userId: string | undefined): boolean {
+  return userId === undefined || fields.actor_id === userId;
+}
+
+/**
+ * Re-writes the task, its comments, activity and attachments under the new key. Only
+ * `fromProjectId`'s keys and the DEK may unwrap. With `userId`, only that account's activity
+ * entries are re-written: someone else's would lose their author on the way.
+ */
 export function rescopeTask(
   store: RescopeStore,
   keyring: Keyring | null,
   taskId: string,
   fromProjectId?: string | null,
+  userId?: string,
 ): number {
   const from: KeyScope[] = [PERSONAL];
   if (keyring?.hasKeys() && fromProjectId) {
@@ -596,7 +609,9 @@ export function rescopeTask(
   let written = rewriteEntity(store, "task", taskId);
   for (const kind of ["comment", "activity"] as const) {
     for (const e of store.list(kind)) {
-      if (e.fields.task_id === taskId) written += rewriteEntity(store, kind, e.id);
+      if (e.fields.task_id !== taskId) continue;
+      if (kind === "activity" && !ownActivity(e.fields, userId)) continue;
+      written += rewriteEntity(store, kind, e.id);
     }
   }
   for (const e of store.list("attachment")) {
@@ -613,12 +628,18 @@ export function rescopeSection(
   keyring: Keyring | null,
   sectionId: string,
   fromProjectId?: string | null,
+  userId?: string,
 ): number {
   let written = rewriteEntity(store, "section", sectionId);
   for (const e of store.list("task")) {
     if (e.fields.section_id === sectionId) {
-      written += rescopeTask(store, keyring, e.id, fromProjectId);
+      written += rescopeTask(store, keyring, e.id, fromProjectId, userId);
     }
+  }
+  // The section's own entries (renames, archives), which name it rather than a task.
+  for (const e of store.list("activity")) {
+    if (!e.fields.task_id && e.fields.section_id === sectionId && ownActivity(e.fields, userId))
+      written += rewriteEntity(store, "activity", e.id);
   }
   return written;
 }
@@ -628,6 +649,7 @@ export function rescopeProject(
   store: RescopeStore,
   keyring: Keyring | null,
   projectId: string,
+  userId?: string,
 ): number {
   let written = rewriteEntity(store, "project", projectId);
   for (const e of store.list("section")) {
@@ -635,11 +657,12 @@ export function rescopeProject(
   }
   // Before its first share the project's content was personal: only the DEK unwraps.
   for (const e of store.list("task")) {
-    if (e.fields.project_id === projectId) written += rescopeTask(store, keyring, e.id, null);
+    if (e.fields.project_id === projectId)
+      written += rescopeTask(store, keyring, e.id, null, userId);
   }
   // Project, section and member entries, which name the project rather than a task.
   for (const e of store.list("activity")) {
-    if (!e.fields.task_id && e.fields.project_id === projectId)
+    if (!e.fields.task_id && e.fields.project_id === projectId && ownActivity(e.fields, userId))
       written += rewriteEntity(store, "activity", e.id);
   }
   return written;

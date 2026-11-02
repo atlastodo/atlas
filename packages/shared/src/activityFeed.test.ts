@@ -1,16 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { LocalStore } from "@atlastodo/client-core";
 import {
+  hashText,
   listActivities,
   pruneOwnActivity,
   toActivity,
   writeProjectActivity,
   type Activity,
 } from "./activity";
-import { buildActivityFeed, canUndoActivity, undoActivity } from "./activityFeed";
-import { allTasks, createTask, moveTaskToProject, toggleTask, updateTask } from "./taskOps";
-import { restoreFromTrash, softDelete } from "./trash";
-import { setSectionArchived } from "./sectionOps";
+import { buildActivityFeed, canUndoActivity, isNoOp, undoActivity } from "./activityFeed";
+import {
+  allTasks,
+  createTask,
+  duplicateTask,
+  moveTaskToProject,
+  toggleTask,
+  updateTask,
+} from "./taskOps";
+import { purge, restoreFromTrash, softDelete } from "./trash";
+import { moveSectionToProject, setSectionArchived } from "./sectionOps";
 import type { Comment } from "./comments";
 
 const T0 = 1_800_000_000_000;
@@ -238,5 +246,90 @@ describe("pruneOwnActivity", () => {
     writeProjectActivity(store, ME, { projectId: "p" }, "project_renamed", "c", "d", T0);
     expect(pruneOwnActivity(store, ME, 50, T0)).toBe(1);
     expect(entries().map((a) => a.to)).toEqual(["d", "c"]);
+  });
+});
+
+describe("reversals and the review's fixes", () => {
+  it("an actor putting their own change back within a minute leaves no entry", () => {
+    const { store, task, entries } = setup();
+    const id = createTask(store, { title: "T", due_at: T0 }, "UTC");
+    updateTask(store, task(id), { due_at: T0 + 1 }, ME, T0);
+    updateTask(store, task(id), { due_at: T0 }, ME, T0 + 5_000);
+    expect(entries()).toEqual([]);
+    // Someone else putting it back is a change of its own.
+    updateTask(store, task(id), { due_at: T0 + 1 }, ME, T0 + 10_000);
+    updateTask(store, task(id), { due_at: T0 }, BO, T0 + 15_000);
+    expect(entries().map((a) => a.actor_id)).toEqual([BO, ME]);
+  });
+
+  it("an undo from the feed is recorded even right after the change", () => {
+    const { store, task, entries } = setup();
+    const id = createTask(store, { title: "T" }, "UTC");
+    updateTask(store, task(id), { priority: 1 }, ME, T0);
+    undoActivity(store, ME, entries()[0]!, entries(), T0 + 1_000);
+    expect(entries().map((a) => [a.kind, a.reverts !== null])).toEqual([
+      ["priority", true],
+      ["priority", false],
+    ]);
+  });
+
+  it("a description entry stores a fingerprint, and edits that come back are no-ops", () => {
+    const { store, task, entries } = setup();
+    const id = createTask(store, { title: "T", notes: "a" }, "UTC");
+    updateTask(store, task(id), { notes: "a long text" }, ME, T0);
+    const entry = entries()[0]!;
+    expect(entry).toMatchObject({ from: "a", to: hashText("a long text") });
+    expect(isNoOp(entry)).toBe(false);
+    updateTask(store, task(id), { notes: "a" }, ME, T0 + 1_000);
+    expect(isNoOp(entries()[0]!)).toBe(true);
+  });
+
+  it("undoing an unarchive puts back when it was archived", () => {
+    const { store, entries } = setup();
+    store.set("section", "s1", "project_id", "p1");
+    setSectionArchived(store, "s1", true, T0 - 5 * 60_000, ME);
+    setSectionArchived(store, "s1", false, T0, ME);
+    const unarchive = entries()[0]!;
+    expect(unarchive).toMatchObject({ kind: "section_unarchived", from: String(T0 - 5 * 60_000) });
+    undoActivity(store, ME, unarchive, entries(), T0 + 1_000);
+    expect(store.get("section", "s1")!.archived_at).toBe(T0 - 5 * 60_000);
+  });
+
+  it("purging a section takes its entries; a moved section takes the actor's along", () => {
+    const { store, entries } = setup();
+    store.set("section", "s1", "project_id", "p1");
+    store.set("section", "s1", "name", "Later");
+    writeProjectActivity(
+      store,
+      ME,
+      { projectId: "p1", sectionId: "s1" },
+      "section_renamed",
+      "x",
+      "Later",
+      T0,
+    );
+    writeProjectActivity(
+      store,
+      BO,
+      { projectId: "p1", sectionId: "s1" },
+      "section_renamed",
+      "Later",
+      "Soon",
+      T0 + 1,
+    );
+    moveSectionToProject(store, "s1", "p2", T0 + 2, [], ME);
+    expect(entries().map((a) => [a.actor_id, a.project_id])).toEqual([
+      [BO, "p1"],
+      [ME, "p2"],
+    ]);
+    purge(store, () => {}, "section", "s1");
+    expect(entries()).toEqual([]);
+  });
+
+  it("a duplicate is recorded as created when the actor is known", () => {
+    const { store, task, entries } = setup();
+    const id = createTask(store, { title: "T" }, "UTC");
+    duplicateTask(store, task(id), "UTC", ME);
+    expect(entries().map((a) => a.kind)).toEqual(["created"]);
   });
 });

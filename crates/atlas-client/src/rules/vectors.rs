@@ -290,6 +290,11 @@ fn task_rule_vectors() {
             "written": clean(get(&subject)),
             "spawned": spawned.as_deref().map_or(Value::Null, |id| clean(get(id))),
             "activities": written(EntityKind::Activity).iter().map(|(_, f)| clean(Some(f))).collect::<Vec<_>>(),
+            "removed_activities": ops
+                .iter()
+                .filter(|op| op.entity == EntityKind::Activity && matches!(op.change, Change::Delete))
+                .map(|op| op.entity_id.to_string())
+                .collect::<Vec<_>>(),
             "reminders": written(EntityKind::Reminder).iter().map(|(_, f)| clean(Some(f))).collect::<Vec<_>>(),
         });
         assert_eq!(result, s["result"], "{name}: result");

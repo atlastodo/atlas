@@ -5,9 +5,13 @@ import {
   decodePlace,
   encodeLabels,
   encodePlace,
+  activityKeyOf,
+  hashText,
+  withoutCancel,
   writeActivity,
   writeProjectActivity,
   type Activity,
+  type ProjectActivityKind,
   type ActivityKind,
 } from "./activity";
 import type { Comment } from "./comments";
@@ -99,9 +103,14 @@ export interface FeedQuery {
   limit?: number;
 }
 
-/** A title or description entry whose edits came back to where they started records nothing. */
-function isNoOp(a: Activity): boolean {
-  return (a.kind === "title" || a.kind === "description") && a.from === a.to;
+/**
+ * A title or description entry whose edits came back to where they started records nothing (a
+ * description's `to` is the {@link hashText} of its text).
+ */
+export function isNoOp(a: Activity): boolean {
+  if (a.kind === "title") return a.from === a.to;
+  if (a.kind === "description") return hashText(a.from ?? "") === a.to;
+  return false;
 }
 
 function inScope(a: Activity, scope: FeedScope | undefined): boolean {
@@ -134,43 +143,31 @@ export function buildActivityFeed(q: FeedQuery): { items: FeedItem[]; hasMore: b
 
 /** The field an entry changed, per target: entries sharing it supersede each other. */
 export function activityFieldKey(a: Activity): string | null {
-  switch (a.kind) {
-    case "created":
-    case "deleted":
-    case "restored":
-      return `task:${a.task_id}:trash`;
-    case "project_renamed":
-      return `project:${a.project_id}:name`;
-    case "project_archived":
-    case "project_unarchived":
-      return `project:${a.project_id}:archive`;
-    case "project_deleted":
-    case "project_restored":
-      return `project:${a.project_id}:trash`;
-    case "section_renamed":
-      return `section:${a.section_id}:name`;
-    case "section_archived":
-    case "section_unarchived":
-      return `section:${a.section_id}:archive`;
-    case "section_deleted":
-    case "section_restored":
-      return `section:${a.section_id}:trash`;
-    case "member_invited":
-    case "member_joined":
-    case "member_removed":
-      return null;
-    default:
-      return a.task_id ? `task:${a.task_id}:${a.kind}` : null;
+  return activityKeyOf(a as unknown as Record<string, unknown>);
+}
+
+// The latest entry id per field key, per list of entries (a feed asks once per row).
+const latestIds = new WeakMap<readonly Activity[], Map<string, Activity>>();
+
+function latestByKey(all: readonly Activity[]): Map<string, Activity> {
+  let map = latestIds.get(all);
+  if (!map) {
+    map = new Map();
+    for (const b of all) {
+      const key = activityFieldKey(b);
+      if (!key) continue;
+      const prev = map.get(key);
+      if (!prev || compareActivityNewestFirst(b, prev) < 0) map.set(key, b);
+    }
+    latestIds.set(all, map);
   }
+  return map;
 }
 
 /** Whether no later entry changed the same field. `all` is every entry the store holds. */
 export function isLatestForField(a: Activity, all: readonly Activity[]): boolean {
   const key = activityFieldKey(a);
-  if (!key) return false;
-  return !all.some(
-    (b) => b.id !== a.id && compareActivityNewestFirst(b, a) < 0 && activityFieldKey(b) === key,
-  );
+  return key !== null && latestByKey(all).get(key)?.id === a.id;
 }
 
 const numString = (v: unknown): string | null => (typeof v === "number" ? String(v) : null);
@@ -225,7 +222,7 @@ function stillCurrent(store: LocalStore, a: Activity): boolean {
       case "title":
         return task.title === (a.to ?? "");
       case "description":
-        return task.notes === (a.to ?? "");
+        return hashText(task.notes) === a.to;
       case "move": {
         const from = decodePlace(a.from);
         const to = decodePlace(a.to);
@@ -298,7 +295,8 @@ export function undoActivity(
 ): boolean {
   if (!isLatestForField(a, all) || !stillCurrent(store, a)) return false;
   const before = new Set(store.list("activity").map((e) => e.id));
-  const applied = applyUndo(store, actorId, a, now, timeZone);
+  // The undo's entry records it, even when it reverses the actor's own entry of a moment ago.
+  const applied = withoutCancel(store, () => applyUndo(store, actorId, a, now, timeZone));
   if (!applied) return false;
   for (const e of store.list("activity")) {
     if (!before.has(e.id) && e.fields.actor_id === actorId) {
@@ -341,9 +339,11 @@ function applyUndo(
         // Written directly: through updateTask the entry would merge into the one being undone.
         const field = a.kind === "title" ? "title" : "notes";
         const value = a.from ?? "";
+        const current = a.kind === "title" ? task.title : task.notes;
         store.set("task", task.id, field, value);
         store.set("task", task.id, "updated_at", now);
-        writeActivity(store, actorId, task.id, a.kind, a.to, value, now, { merge: false });
+        const to = a.kind === "title" ? value : hashText(value);
+        writeActivity(store, actorId, task.id, a.kind, current, to, now, { merge: false });
         return true;
       }
       case "move": {
@@ -372,19 +372,19 @@ function applyUndo(
       writeProjectActivity(store, actorId, target, a.kind, a.to, a.from, now);
       return true;
     case "project_archived":
-    case "project_unarchived": {
-      const archive = a.kind === "project_unarchived";
-      store.set("project", projectId, "archived_at", archive ? now : null);
-      const kind = archive ? "project_archived" : "project_unarchived";
-      writeProjectActivity(store, actorId, target, kind, null, a.to, now);
-      return true;
-    }
+    case "project_unarchived":
     case "section_archived":
     case "section_unarchived": {
-      const archive = a.kind === "section_unarchived";
-      store.set("section", sectionId!, "archived_at", archive ? now : null);
-      const kind = archive ? "section_archived" : "section_unarchived";
-      writeProjectActivity(store, actorId, target, kind, null, a.to, now);
+      // An unarchive's `from` is when it had been archived: undoing it restores that time.
+      const entity = a.kind.startsWith("project_") ? "project" : "section";
+      const id = entity === "project" ? projectId : sectionId!;
+      const archive = a.kind.endsWith("_unarchived");
+      const before = store.get(entity, id)?.archived_at;
+      const restored = a.from !== null && Number.isFinite(Number(a.from)) ? Number(a.from) : now;
+      store.set(entity, id, "archived_at", archive ? restored : null);
+      const kind = archive ? `${entity}_archived` : `${entity}_unarchived`;
+      const from = !archive && typeof before === "number" ? String(before) : null;
+      writeProjectActivity(store, actorId, target, kind as ProjectActivityKind, from, a.to, now);
       return true;
     }
     case "project_deleted":

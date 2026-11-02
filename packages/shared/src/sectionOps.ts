@@ -25,8 +25,18 @@ export function moveSectionToProject(
   targetProjectId: string,
   now: number = Date.now(),
   tasks: Task[] = allTasks(store),
+  actorId?: string,
 ): void {
   store.set("section", sectionId, "project_id", targetProjectId);
+  // The section's own entries (the actor's: only an entry's author may re-write it) follow it.
+  if (actorId) {
+    for (const e of store.list("activity")) {
+      if (e.fields.section_id !== sectionId || e.fields.actor_id !== actorId) continue;
+      if (e.fields.project_id !== targetProjectId) {
+        store.set("activity", e.id, "project_id", targetProjectId);
+      }
+    }
+  }
   for (const task of tasks) {
     if (task.section_id === sectionId && task.project_id !== targetProjectId) {
       store.set("task", task.id, "project_id", targetProjectId);
@@ -43,6 +53,7 @@ export function setSectionArchived(
   now: number = Date.now(),
   actorId?: string,
 ): void {
+  const before = store.get("section", sectionId)?.archived_at;
   store.set("section", sectionId, "archived_at", archived ? now : null);
   const fields = store.get("section", sectionId);
   if (typeof fields?.project_id !== "string" || fields.project_id === "") return;
@@ -51,7 +62,8 @@ export function setSectionArchived(
     actorId,
     { projectId: fields.project_id, sectionId },
     archived ? "section_archived" : "section_unarchived",
-    null,
+    // An unarchive keeps when it had been archived, so undoing it restores that time.
+    !archived && typeof before === "number" ? String(before) : null,
     typeof fields.name === "string" ? fields.name : null,
     now,
   );
