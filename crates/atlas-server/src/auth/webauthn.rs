@@ -24,9 +24,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use webauthn_rs::prelude::{
-    CredentialID, DiscoverableAuthentication, DiscoverableKey, Passkey, PasskeyAuthentication,
-    PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential, Url, Webauthn,
-    WebauthnBuilder,
+    CredentialID, DiscoverableAuthentication, Passkey, PasskeyAuthentication, PasskeyRegistration,
+    PublicKeyCredential, RegisterPublicKeyCredential, Url, Webauthn, WebauthnBuilder,
 };
 
 /// Upper bound on a credential id (the spec caps it at 1023 bytes).
@@ -257,11 +256,8 @@ impl RelyingParty {
         exclude: &[String],
         prf_input: &str,
     ) -> Result<(Value, Value)> {
-        let exclude: Vec<CredentialID> = exclude
-            .iter()
-            .filter_map(|id| b64url_decode(id))
-            .map(CredentialID::from)
-            .collect();
+        let exclude: Vec<CredentialID> =
+            exclude.iter().filter_map(|id| b64url_decode(id)).collect();
         let display = if user_display_name.is_empty() {
             user_name
         } else {
@@ -376,11 +372,9 @@ impl RelyingParty {
             Ok(Ceremony::Authentication(state)) => {
                 self.webauthn.finish_passkey_authentication(&cred, &state)?
             }
-            Ok(Ceremony::Discoverable(state)) => self.webauthn.finish_discoverable_authentication(
-                &cred,
-                state,
-                &[DiscoverableKey::from(&stored)],
-            )?,
+            Ok(Ceremony::Discoverable(state)) => self
+                .webauthn
+                .finish_discoverable_authentication_v2(&cred, state, &stored)?,
             _ => return Err(PasskeyError::Malformed("ceremony state")),
         };
         stored.update_credential(&result);
