@@ -146,21 +146,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "atlas-cli"
-version = "0.1.15"
-dependencies = [
- "atlas-client",
- "atlas-core",
- "atlas-server",
- "axum",
- "hex",
- "serde",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "atlas-client"
 version = "0.1.15"
 dependencies = [
@@ -191,21 +176,6 @@ version = "0.1.15"
 dependencies = [
  "serde",
  "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "atlas-secretspec"
-version = "0.1.15"
-dependencies = [
- "async-trait",
- "atlas-client",
- "atlas-server",
- "axum",
- "hex",
- "secretspec-ipc",
- "serde_json",
- "tokio",
  "uuid",
 ]
 
@@ -3242,21 +3212,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "secretspec-ipc"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5b9989b8ab6839adfcf5910a6cb193f9e6097a9de4e8507ebec555caaca967d"
-dependencies = [
- "async-trait",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "zeroize",
-]
-
-[[package]]
 name = "security-framework"
 version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4050,7 +4005,6 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
- "futures-util",
  "libc",
  "pin-project-lite",
  "tokio",

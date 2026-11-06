@@ -250,9 +250,6 @@ jobs:
       - name: client-core
         working-directory: packages/client-core
         run: bunx --bun vitest run
-      - name: shared
-        working-directory: packages/shared
-        run: bunx --bun vitest run
       - name: sdk
         working-directory: packages/sdk
         run: bunx --bun vitest run

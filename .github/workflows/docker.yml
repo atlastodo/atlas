@@ -43,7 +43,7 @@ env:
     org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}/blob/main/docs/self-hosting.md
 
 jobs:
-  # The licences of the third-party code core ships (the server's and the CLI's crates, the core
+  # The licences of the third-party code core ships (the server's crates, the core
   # packages' dependencies), as /usr/share/doc/atlas-todo/THIRD_PARTY_NOTICES.txt. A release also
   # attaches it. The web app's notices come from its own release (docker/Dockerfile puts them in
   # /usr/share/doc/atlas-todo/web/).

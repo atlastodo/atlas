@@ -29,29 +29,26 @@ Try it at [app.atlastodo.dev](https://app.atlastodo.dev) (a test server that may
 - **The sync server** (`crates/atlas-server`): accounts, the encrypted op log, sharing, attachments,
   passkeys and the admin API, shipped as the `ghcr.io/atlastodo/atlas` image (with a pinned
   release of the Atlas Todo web app) and as a NixOS module.
-- **The client core**, in TypeScript (`@atlastodo/client-core`, `@atlastodo/shared`,
-  `@atlastodo/sdk` on npm and on each release) and in Rust (`crates/atlas-client`): the local
-  store, sync client, end-to-end encryption and task rules, kept in agreement by shared test
-  vectors.
-- **The `atlas` CLI** (`crates/atlas-cli`): a static binary per platform on each release, signed
-  in with an API token from Settings, for scripts and tools like n8n. Your data stays end-to-end
-  encrypted. See [docs/integrations.md](./docs/integrations.md).
+- **The client core**, in TypeScript (`@atlastodo/client-core` and `@atlastodo/sdk` on npm and
+  on each release) and in Rust (`crates/atlas-client`): the local store, sync client, end-to-end
+  encryption, app definitions and API-token sessions, kept in agreement by shared test vectors.
+  It is app-agnostic: each app's rules and command line live in the app's repository, on this
+  core (Atlas Todo's `atlas-todo` CLI, Atlas Journal's `atlas-journal`, Atlas Vault's
+  `atlas-vault` and its SecretSpec provider). See [docs/integrations.md](./docs/integrations.md).
 
 ## Architecture
 
 ```mermaid
 flowchart TB
   apps["Atlas Todo apps<br/>(atlastodo/atlas-todo)"]
-  cli["crates/atlas-cli<br/>the atlas CLI"]
+  cli["the apps' CLIs<br/>(atlas-todo, atlas-journal, atlas-vault)"]
   core["packages/client-core<br/>local store (SQLite / IndexedDB), sync client, E2EE"]
-  shared["packages/shared<br/>vault item rules"]
   rclient["crates/atlas-client<br/>Rust client core"]
   server["crates/atlas-server (Axum)"]
   atlascore["crates/atlas-core<br/>pure Rust: HLC and op types"]
   db[("PostgreSQL<br/>op log, per-user state, accounts, wrapped keys")]
 
   apps --> core
-  shared --> core
   cli --> rclient
   core <-->|"HTTPS + WebSocket<br/>(ciphertext ops)"| server
   rclient <-->|"HTTPS<br/>(ciphertext ops)"| server
@@ -155,11 +152,9 @@ There is no telemetry, analytics or crash reporting: the server talks to nothing
 ```
 crates/atlas-core     Rust: HLC and op log types (pure, no I/O)
 crates/atlas-server   Rust: Axum HTTP + WebSocket API over PostgreSQL (sqlx)
-crates/atlas-client   Rust: headless client (E2EE, sync, task rules) at parity with the TS core
-crates/atlas-cli      Rust: the `atlas` command-line tool, one static binary
+crates/atlas-client   Rust: headless client (E2EE, sync, app definitions) at parity with the TS core
 migrations/           sqlx migrations, the source of truth for the schema
 packages/client-core  TS: local store, sync client, E2EE
-packages/shared       TS: Atlas Vault's item rules (todo's are in atlastodo/atlas-todo)
 packages/sdk          TS: headless client for integrations, signed in with an API token
 manifests/            JSON app manifests (entity kinds, plaintext fields), bundled by server and clients
 test-vectors/         JSON fixtures shared by the Rust and TypeScript tests

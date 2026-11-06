@@ -1,10 +1,15 @@
 # Releasing Atlas core
 
-A core release carries the server image, the static `atlas` CLI binaries and the core JS packages
-(`@atlastodo/client-core`, `@atlastodo/shared`, `@atlastodo/sdk`). The todo app (Android, desktop
-and the web app tarball) is released from its own repository,
-[atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo); the server image serves a pinned
-release of its web build (see [Pinning the web app](#pinning-the-web-app)).
+A core release carries the server image and the core JS packages (`@atlastodo/client-core`,
+`@atlastodo/sdk`). The apps are released from their own repositories: the todo app (Android,
+desktop, the web app tarball and the `atlas-todo` CLI) from
+[atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo), the `atlas-journal` CLI from
+[atlastodo/atlas-journal](https://github.com/atlastodo/atlas-journal), the `atlas-vault` CLI and
+`secretspec-provider-atlas` from [atlastodo/atlas-vault](https://github.com/atlastodo/atlas-vault);
+each builds on a core release (its npm packages and its `atlas-client` crate by tag). The server
+image serves a pinned release of the todo web build (see [Pinning the web app](#pinning-the-web-app)).
+Up to 0.1.15 a core release also carried the `atlas` CLI, the SecretSpec provider and
+`@atlastodo/shared`.
 
 ## Versioning
 
@@ -56,20 +61,12 @@ A `v*` tag runs `.github/workflows/release.yml`:
   tags `X.Y.Z`, `X.Y` and `latest`, an SBOM, BuildKit provenance and a GitHub build provenance
   attestation. The image's web app is the `todo` pin in `apps.lock.json`, which
   `docker/Dockerfile` downloads and checks against its SHA-256.
-- **CLI**: the `atlas` binary (`crates/atlas-cli`), one per target, as `atlas-X.Y.Z-<target>`,
-  and the SecretSpec provider (`crates/atlas-secretspec`) next to it as
-  `secretspec-provider-atlas-X.Y.Z-<target>`. Linux x86_64 and aarch64 build against musl with `cargo zigbuild` (zig from PyPI's `ziglang`),
-  so the binaries are static and run on Alpine; each is checked to be statically linked, and the
-  x86_64 one to print the tag's version. macOS (`aarch64-apple-darwin`, `x86_64-apple-darwin`)
-  and Windows (`x86_64-pc-windows-msvc`, static CRT) build on their own hosted runners once the
-  repository is public, where those minutes are free.
-- **Core packages**: `scripts/pack-core-packages.sh` builds the three packages (Bun-bundled ESM in
+- **Core packages**: `scripts/pack-core-packages.sh` builds the two packages (Bun-bundled ESM in
   `dist/`, tsc declarations, the test vectors they ship) and packs them with `bun pm pack` as
-  `atlastodo-client-core-X.Y.Z.tgz`, `atlastodo-shared-X.Y.Z.tgz` and `atlastodo-sdk-X.Y.Z.tgz`.
+  `atlastodo-client-core-X.Y.Z.tgz` and `atlastodo-sdk-X.Y.Z.tgz`.
   Never `npm pack`: only Bun rewrites the `workspace:*` dependencies between them to the release
   version.
-- **GitHub Release**: creates the release, or updates it on a re-run, with the CLI binaries, the
-  package tarballs, `THIRD_PARTY_NOTICES.txt` and `SHA256SUMS.txt`, and a build provenance
+- **GitHub Release**: creates the release, or updates it on a re-run, with the package tarballs, `THIRD_PARTY_NOTICES.txt` and `SHA256SUMS.txt`, and a build provenance
   attestation for the binaries and the packages (`gh attestation verify <file> --repo atlastodo/atlas`).
 - **npm publish**: after the GitHub Release, publishes the same tarballs to npm in dependency
   order, with trusted publishing when the `NPM_TRUSTED_PUBLISHING` variable is `true`, else with
@@ -83,7 +80,7 @@ and never "latest", the image gets only `0.1.4-rc.1` (never `latest`, on Docker 
 gets the `next` dist-tag.
 
 **Third-party notices**: `scripts/third-party-licenses.mjs` lists the licences of the Rust crates
-the server and the CLI ship and of the core packages' JS dependencies. The image carries it as
+the server ships and of the core packages' JS dependencies. The image carries it as
 `/usr/share/doc/atlas-todo/THIRD_PARTY_NOTICES.txt` and the release attaches it. The web app's
 own notices come from its release (`THIRD_PARTY_NOTICES.txt` there, pinned with the web build):
 the image carries them as `/usr/share/doc/atlas-todo/web/THIRD_PARTY_NOTICES.txt`. `lint` and CI
@@ -146,26 +143,25 @@ on, so it works on any origin the server runs at.
 ## Pinning the core packages by release URL
 
 Until a release has published the core packages to npm (or for a version npm lacks), another
-repository pins them to a release's tarballs instead. Each package depends on its siblings at the
-exact release version, which npm cannot resolve yet, so the siblings are pinned through
-`overrides` as well:
+repository pins them to a release's tarballs instead. The SDK depends on client-core at the exact
+release version, which npm cannot resolve yet, so client-core is pinned through `overrides` as
+well:
 
 ```json
 {
   "dependencies": {
     "@atlastodo/client-core": "https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/atlastodo-client-core-X.Y.Z.tgz",
-    "@atlastodo/shared": "https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/atlastodo-shared-X.Y.Z.tgz"
+    "@atlastodo/sdk": "https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/atlastodo-sdk-X.Y.Z.tgz"
   },
   "overrides": {
-    "@atlastodo/client-core": "https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/atlastodo-client-core-X.Y.Z.tgz",
-    "@atlastodo/shared": "https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/atlastodo-shared-X.Y.Z.tgz"
+    "@atlastodo/client-core": "https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/atlastodo-client-core-X.Y.Z.tgz"
   }
 }
 ```
 
-(`@atlastodo/sdk` the same way.) The lockfile records each tarball's integrity hash, so a
-re-uploaded asset fails the install instead of slipping in. Once the packages are on npm, replace
-both blocks with plain versions (`"@atlastodo/shared": "X.Y.Z"`) and drop the overrides.
+The lockfile records each tarball's integrity hash, so a re-uploaded asset fails the install
+instead of slipping in. Once the packages are on npm, replace both blocks with plain versions
+(`"@atlastodo/sdk": "X.Y.Z"`) and drop the overrides.
 
 A consumer imports the built `dist/` (ESM, declarations for `moduleResolution` `bundler`, `node16`
 and `nodenext`) and can assert the shipped fixtures, e.g.

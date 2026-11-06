@@ -1,4 +1,5 @@
-//! `atlas-client`: a headless Atlas client in Rust, for the `atlas` CLI and other integrations.
+//! `atlas-client`: a headless Atlas client in Rust, the engine the apps' CLIs and other
+//! integrations build on (by git tag).
 //!
 //! The apps keep the TypeScript client core (`packages/client-core`); this crate
 //! reimplements what an integration needs at parity with it, and the shared fixtures in
@@ -11,9 +12,10 @@
 //!   with the client's conflict resolution, key scopes, the synced trust state, project key
 //!   hydration, the HTTP API and the sync cycle.
 //! - [`session`]: an API-token session of one app holding all of that.
-//! - [`client`], [`journal`], [`vault`]: what integrations call: the generic client, Atlas Journal's
-//!   entries and Atlas Vault's items. Todo's tasks are the todo app's own crate (`atlas-todo-rules`,
-//!   in atlastodo/atlas-todo), on this one.
+//! - [`client`]: what integrations call, the generic client. Each app's operations are its own
+//!   crate on this one, in the app's repository: todo's tasks (`atlas-todo-rules`, atlastodo/
+//!   atlas-todo), the journal's entries (`atlas-journal-rules`, atlastodo/atlas-journal) and the
+//!   vault's items (`atlas-vault-rules`, atlastodo/atlas-vault).
 //! - [`zoned`]: time-zone-aware day math.
 
 pub mod api;
@@ -23,7 +25,6 @@ pub mod crypto;
 pub mod discovery;
 pub mod error;
 pub mod field_policy;
-pub mod journal;
 pub mod project_keys;
 pub mod scope;
 pub mod session;
@@ -32,7 +33,6 @@ pub mod store;
 pub mod sync;
 pub mod testing;
 pub mod trust;
-pub mod vault;
 pub mod wire;
 pub mod zoned;
 

@@ -1,7 +1,7 @@
 # Contributing to Atlas
 
 Thanks for your interest. This repository is Atlas core: the Rust sync server, the Rust client
-and `atlas` CLI, and the TypeScript client core packages. The todo app itself (the React Native +
+crate, and the TypeScript client core packages. The todo app itself (the React Native +
 Expo UI for Android, the web and the desktop) lives in
 [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo), with its own contributing guide;
 UI bugs and features go there. This guide covers the setup, the checks and how changes get merged.
@@ -101,7 +101,6 @@ The devenv scripts are short shell in `devenv.nix`. Without devenv, `test:all` a
 # test:all (PostgreSQL running, TEST_DATABASE_URL set)
 cargo nextest run --workspace
 (cd packages/client-core && bunx --bun vitest run)
-(cd packages/shared && bunx --bun vitest run)
 (cd packages/sdk && bunx --bun vitest run)
 
 # lint
@@ -141,7 +140,7 @@ builtin.
 `test:all` runs, in order and stopping at the first failure:
 
 1. `cargo nextest run --workspace`
-2. vitest in `packages/client-core`, `packages/shared` and `packages/sdk`
+2. vitest in `packages/client-core` and `packages/sdk`
 
 `lint` runs `cargo fmt --check`, `cargo clippy --workspace --all-targets --no-deps -D warnings`,
 `tsc --noEmit` for every core package, `oxlint .`, `prettier --check .` and the licence check.
@@ -150,7 +149,7 @@ builtin.
 Each package has its own runner. To run one test:
 
 - Rust: `cargo nextest run -p atlas-server <name>`
-- `packages/*`: `cd packages/shared && bunx --bun vitest run src/foo.test.ts`
+- `packages/*`: `cd packages/sdk && bunx --bun vitest run src/foo.test.ts`
 
 Where the tests live:
 

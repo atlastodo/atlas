@@ -16,9 +16,9 @@ Atlas Todo has one maintainer, who reads every report.
 
 - **Within 7 days:** an acknowledgement in the advisory.
 - **Within 14 days:** an assessment: whether it is a vulnerability, how severe (CVSS), and a plan.
-- **The fix** ships in a patch release (a new Docker tag, CLI binaries and packages here; an APK
-  and desktop tarball from [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo) when
-  the app is affected). The advisory
+- **The fix** ships in a patch release (a new Docker tag and packages here; an APK, desktop
+  tarball or CLI from the app's repository, such as
+  [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo), when an app is affected). The advisory
   is then published on GitHub, with a CVE requested through GitHub when it applies, and linked
   from the release notes. Self-hosters learn of it there and from GitHub's security alerts.
 - **Disclosure:** please keep the details private until the fix is released, or for 90 days from
@@ -33,15 +33,18 @@ The design and the code have not had an independent security audit.
 
 ## Verifying a release
 
-Release files (the CLI binaries and the package tarballs) and the container image carry GitHub
-build provenance attestations, which show they were built by this repository's release workflow
-from the tagged commit. The app files (APK, AAB, desktop tarball, web tarball) are released and
-attested by the app repository:
+Release files (the package tarballs) and the container image carry GitHub build provenance
+attestations, which show they were built by this repository's release workflow from the tagged
+commit. The apps' files (APK, AAB, desktop tarball, web tarball and the apps' CLIs:
+`atlas-todo`, `atlas-journal`, `atlas-vault`, `secretspec-provider-atlas`) are released and
+attested by each app's repository; core releases up to 0.1.15 attested the `atlas` CLI and the
+SecretSpec provider here:
 
 ```sh
 gh attestation verify oci://ghcr.io/atlastodo/atlas:X.Y.Z --repo atlastodo/atlas
-gh attestation verify atlas-X.Y.Z-x86_64-unknown-linux-musl --repo atlastodo/atlas
+gh attestation verify atlastodo-sdk-X.Y.Z.tgz --repo atlastodo/atlas
 gh attestation verify atlas-todo-X.Y.Z.apk --repo atlastodo/atlas-todo
+gh attestation verify atlas-vault-X.Y.Z-x86_64-unknown-linux-musl --repo atlastodo/atlas-vault
 ```
 
 The attestation is on the GitHub Container Registry image; the Docker Hub mirror is the same
@@ -57,7 +60,7 @@ released between the rename and the split with `atlastodo/atlas`. Each release a
 - The server (`crates/atlas-server`): authentication and sessions, key distribution, sync,
   attachments and the admin API.
 - The client core: local stores, the sync client and the encryption (`packages/client-core`,
-  `crates/atlas-client`), and the `atlas` CLI.
+  `crates/atlas-client`).
 - The apps (`apps/mobile`, `apps/electron` in
   [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo)): report them there, or here if
   you are not sure which side a problem is on.

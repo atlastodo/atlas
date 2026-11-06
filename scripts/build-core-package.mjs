@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
-// Builds a publishable core package (packages/client-core, packages/shared, packages/sdk) into the
-// shape its tarball ships: run from the package directory as its `build` script (`bun run build`;
+// Builds a publishable core package (packages/client-core, packages/sdk) into the shape its
+// tarball ships: run from the package directory as its `build` script (`bun run build`;
 // scripts/pack-core-packages.sh builds each package, in dependency order, before it packs it; a
-// `prepack` hook could not keep that order, since shared's declarations need client-core's).
+// `prepack` hook could not keep that order, since the SDK's declarations need client-core's).
 //
 //   dist/<entry>.js     the entry points of the package's `exports`, bundled by Bun into ESM with
 //                       every dependency left external (relative modules and JSON are inlined,

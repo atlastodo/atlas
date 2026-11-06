@@ -1,4 +1,4 @@
-# Integrations: API tokens, the `atlas` CLI and n8n
+# Integrations: API tokens, the apps' CLIs and n8n
 
 Atlas Todo stores your tasks end-to-end encrypted, and the server cannot read them. So an
 integration cannot just call a REST endpoint with a token: whatever reads or writes tasks has to
@@ -6,11 +6,11 @@ decrypt them itself. Atlas does this with three pieces:
 
 - An **API token** carries a key as well as a credential. You create it in the app, which wraps a
   copy of your account keys under a secret the server never sees.
-- The **`atlas` CLI** (and the todo app's **`atlas-todo`**) signs in with the token, downloads your
-  account, decrypts it on the machine it runs on, and reads or changes it as JSON.
-- **n8n** (or cron, a shell script, Home Assistant, …) runs the CLI.
+- **The apps' CLIs** (`atlas-todo`, `atlas-journal`, `atlas-vault`) sign in with the token,
+  download your account, decrypt it on the machine they run on, and read or change it as JSON.
+- **n8n** (or cron, a shell script, Home Assistant, …) runs the CLIs.
 
-The server stays zero-knowledge. It sees ciphertext from the CLI, exactly as it does from the app.
+The server stays zero-knowledge. It sees ciphertext from a CLI, exactly as it does from the app.
 
 ## Create a token
 
@@ -29,11 +29,20 @@ Revoke a token in the same settings section. Anything using it stops on its next
 server deletes its copy of your wrapped keys. Recovering your account with the recovery phrase,
 or scheduling its deletion, revokes every token. Changing your password does not.
 
-## The `atlas` CLI
+## The apps' CLIs
 
-The CLI is one static binary with nothing to install beside it: no Node.js, no system TLS library
-and no time zone database (it carries its own). Each release attaches one per platform, named
-`atlas-X.Y.Z-<target>`:
+Each app of the suite ships its own command line, released from the app's repository and built on
+core's Rust client (`crates/atlas-client`). Core keeps no app's rules, so it has no CLI of its own:
+
+| App           | CLI                                                                    | Repository                                                            | Commands                                            |
+| ------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------- |
+| Atlas Todo    | `atlas-todo`                                                           | [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo)       | `tasks`, `projects`, `labels`, `changes`            |
+| Atlas Journal | `atlas-journal`                                                        | [atlastodo/atlas-journal](https://github.com/atlastodo/atlas-journal) | `entries`                                           |
+| Atlas Vault   | `atlas-vault`, and the SecretSpec provider `secretspec-provider-atlas` | [atlastodo/atlas-vault](https://github.com/atlastodo/atlas-vault)     | `list`, `get`, `add`, `update`, `delete`, `folders` |
+
+Each is one static binary with nothing to install beside it: no Node.js, no system TLS library and
+no time zone database (it carries its own). Each release of the app attaches one per platform,
+named `<cli>-X.Y.Z-<target>`, with `SHA256SUMS.txt` and a build provenance attestation:
 
 | Platform                                | Target                                          |
 | --------------------------------------- | ----------------------------------------------- |
@@ -42,26 +51,8 @@ and no time zone database (it carries its own). Each release attaches one per pl
 | macOS, Apple silicon or Intel           | `aarch64-apple-darwin`, `x86_64-apple-darwin`   |
 | Windows x86_64                          | `x86_64-pc-windows-msvc` (the file ends `.exe`) |
 
-```sh
-VERSION=X.Y.Z
-TARGET=x86_64-unknown-linux-musl
-BASE=https://github.com/atlastodo/atlas/releases/download/v$VERSION
-curl -fLO "$BASE/atlas-$VERSION-$TARGET"
-curl -fLO "$BASE/SHA256SUMS.txt"
-sha256sum --check --ignore-missing SHA256SUMS.txt
-install -m 755 "atlas-$VERSION-$TARGET" /usr/local/bin/atlas
-atlas --help
-```
-
-Each file also carries a build provenance attestation:
-`gh attestation verify atlas-$VERSION-$TARGET --repo atlastodo/atlas` (the repository was
-`atlastodo/atlas-todo` until its rename: releases signed before that verify with
-`--repo atlastodo/atlas-todo`). Earlier releases
-shipped the CLI as a JavaScript file (`atlas-cli-X.Y.Z.mjs`, and `@atlastodo/cli` on npm); the
-binary takes the same commands and environment and prints the same output.
-
-It is configured through the environment. The token is never passed as a flag, because flags show
-up in process listings and shell history.
+They share one configuration, through the environment. The token is never passed as a flag,
+because flags show up in process listings and shell history.
 
 | Variable          | What it is                                                 |
 | ----------------- | ---------------------------------------------------------- |
@@ -71,264 +62,26 @@ up in process listings and shell history.
 | `ATLAS_STATE_DIR` | optional: a directory to keep the account in between runs  |
 
 Every command prints JSON. A failure prints `{"error": …, "code": …}` on stderr and exits with
-code 1, or 2 for a usage error.
+code 1, or 2 for a usage error. A command needs a token that includes its app (see
+[App-scoped tokens](#app-scoped-tokens)) and a server that offers it (`ATLAS_APPS`): otherwise it
+fails with `app_not_in_token` or `server_incompatible`. Each app's README documents its commands
+and its fields.
 
-### Atlas Todo: the `atlas-todo` CLI
-
-Atlas Todo's commands (`tasks`, `projects`, `labels`, `changes`) moved with the todo app's rules
-to the app's repository: they are the `atlas-todo` CLI, released there as
-`atlas-todo-X.Y.Z-<target>` binaries (https://github.com/atlastodo/atlas-todo/releases), with the
-same environment, commands and output the `atlas` CLI had (`atlas-todo tasks list`,
-`atlas-todo tasks quick "Pay rent every month on the 1st #Home p1 @bills"`, `atlas-todo changes
---since 1234`). `atlas tasks …` now exits with a usage error that points there. Core keeps no
-app's rules: an app's kinds, links and rules are its own (see "App definitions" in
-[architecture.md](./architecture.md#app-definitions)).
-
-### Atlas Journal
-
-On a server that offers Atlas Journal (`ATLAS_APPS=todo,journal`), the CLI also reads and writes
-journal entries. Journal commands always start with `journal`, and they need a token that
-includes Atlas Journal (see [App-scoped tokens](#app-scoped-tokens)):
-
-```sh
-atlas journal entries list [--from DAY] [--to DAY] [--tag T] [--search TEXT]
-atlas journal entries get 0192…
-atlas journal entries add --title "Harbour walk" --body "Fog over the water." --mood 4 --tag walks
-atlas journal entries add --json '{"date": "2026-10-16", "body": "From a form", "tags": ["n8n"]}'
-atlas journal entries update 0192… --date yesterday --mood none
-atlas journal entries delete 0192…   # to the trash: deleted_at is set, list leaves it out
-```
-
-`DAY` is `YYYY-MM-DD`, `today`, `yesterday` or `tomorrow` (in `ATLAS_TZ`). `list` shows entries
-outside the trash, newest date first; `--from` and `--to` are inclusive, `--tag` is
-case-insensitive and `--search` matches the title or body. `add` and `update` take flags or a
-`--json` object with the same keys (`date`, `title`, `body`, `mood`, `tags`); a flag wins over
-`--json`. `--tag` may be repeated, and on `update` it replaces the list. `--mood none` (or
-`"mood": null`) clears the mood, `"tags": []` the tags.
-
-An entry (`journal.entry`) is printed, and stored, with these fields:
-
-| Field        | Value                                                          |
-| ------------ | -------------------------------------------------------------- |
-| `id`         | the entry's id (a UUID)                                        |
-| `date`       | the day the entry is about, `YYYY-MM-DD`; today when not given |
-| `title`      | text, may be empty                                             |
-| `body`       | text, may be empty; an entry needs a title or a body           |
-| `mood`       | 1 (awful) to 5 (great), or `null`                              |
-| `tags`       | a list of strings, trimmed, without repeats (case-insensitive) |
-| `created_at` | unix milliseconds                                              |
-| `updated_at` | unix milliseconds of the last change                           |
-| `deleted_at` | unix milliseconds once in the trash, else `null`               |
-
-Every field is end-to-end encrypted: `manifests/journal.json` lists no plaintext field for
-`journal.entry`, so the server sees only ids and ciphertext. A journal command on a token without
-Atlas Journal fails with `{"error": "this API token is not for Atlas Journal …", "code":
-"app_not_in_token"}`, as does a todo command on a journal-only token; a server that does not offer
-journal fails with `server_incompatible`. With `ATLAS_STATE_DIR` each app keeps its own file
-there.
-
-### Atlas Vault
-
-On a server that offers Atlas Vault (`ATLAS_APPS=todo,vault`), the CLI reads and writes vault
-items, for CI jobs and scripts that need a secret. Vault commands always start with `vault`, and
-they need a token that includes Atlas Vault (see [Vault tokens for CI](#vault-tokens-for-ci)):
-
-```sh
-atlas vault list [--folder F] [--type T] [--tag T] [--search TEXT]   # no secret values
-atlas vault get "Deploy key"                     # the item, secrets included
-atlas vault get "Deploy key" --field token       # one value, as plain text
-DEPLOY_TOKEN="$(atlas vault get 'Deploy key' --field token)"
-atlas vault add --name "Deploy key" --type api_key --hidden token=… --folder CI --tag prod
-atlas vault add --json - < item.json             # the object from stdin: no secret in argv
-atlas vault update "Deploy key" --hidden token=… --remove-field old --favorite true
-atlas vault delete "Deploy key"                  # to the trash
-atlas vault folders list
-atlas vault folders add CI
-```
-
-`ITEM` and `F` are names (case-insensitive, outside the trash) or ids; a name two items share is
-refused with `ambiguous_vault_item`, so use the id. `list` and every write print items without
-their field values, notes or history, so a CI log does not end up holding a secret; `get` prints
-everything, and `get ITEM --field NAME` prints only that field's value (case-insensitive name)
-followed by a newline. A flag on the command line is visible in the process list: pass secrets
-with `--json -` on stdin. Field flags add or replace one field (`--username`, `--password` and
-`--totp` name theirs; `--text` and `--hidden` take `NAME=VALUE`), and on `update` leave the item's
-other fields alone; `--json` takes the keys below, and on `update` also `set_fields` (fields to
-add or replace) and `remove_fields` (names) in place of a whole `fields` list. `--folder none`
-clears the folder.
-
-An item (`vault.item`) is printed, and stored, with these fields:
-
-| Field        | Value                                                                                            |
-| ------------ | ------------------------------------------------------------------------------------------------ |
-| `id`         | the item's id (a UUID)                                                                           |
-| `type`       | `login` (the default), `note`, `card`, `identity`, `ssh_key` or `api_key` (any other secret)     |
-| `name`       | text, required                                                                                   |
-| `fields`     | `[{name, kind, value}]`, names unique (case-insensitive)                                         |
-| `urls`       | a list of URLs, trimmed, without repeats                                                         |
-| `notes`      | text                                                                                             |
-| `tags`       | a list of strings, trimmed, without repeats (case-insensitive)                                   |
-| `folder`     | a folder's id, or `null`; `folder_name` is printed next to it                                    |
-| `favorite`   | `true` or `false`                                                                                |
-| `history`    | earlier values of secret fields, `{field, value, changed_at}`, newest first, 5 per field at most |
-| `created_at` | unix milliseconds                                                                                |
-| `updated_at` | unix milliseconds of the last change                                                             |
-| `deleted_at` | unix milliseconds once in the trash, else `null`                                                 |
-
-A field's `kind` is `text` (the default), `hidden` (a secret), `totp` (a TOTP seed: an
-`otpauth://` URI, or a base32 secret stored upper-case without spaces), `email`, `url` or `phone`.
-Changing or removing a `hidden` or `totp` field keeps its old value in `history`. A folder
-(`vault.folder`) has a `name` and the same timestamps. Every field of both is end-to-end
-encrypted: `manifests/vault.json` lists no plaintext field, so the server sees only ids and
-ciphertext, not even an item's type or name. The rules are shared with the TypeScript SDK
-(`VaultClient` in `@atlastodo/sdk`, `packages/shared/src/vault.ts`) through
-`test-vectors/vault_item_vectors.json`.
-
-Each run signs in, downloads and decrypts the account, then exits. That takes about a second for
-a typical account, and longer for a very large one. With `ATLAS_STATE_DIR` set, a run keeps the
-account there and the next one downloads only what changed. The file is encrypted under a key
-derived from the token, so only the token opens it, but it holds your tasks: keep the directory
-as private as the token. Token sign-ins share the per-IP `/auth/*`
+Each run signs in, downloads and decrypts the app's data, then exits. That takes about a second
+for a typical account, and longer for a very large one. With `ATLAS_STATE_DIR` set, a run keeps
+the account there and the next one downloads only what changed. The file is encrypted under a key
+derived from the token, so only the token opens it, but it holds your data: keep the directory as
+private as the token. Each app keeps its own file there. Token sign-ins share the per-IP `/auth/*`
 rate limit (`AUTH_RATE_LIMIT_MAX`, 30 a minute by default), so space out bursts of CLI calls from
 one machine, or raise the limit on your own server.
 
-## SecretSpec
-
-[SecretSpec](https://secretspec.dev) (0.21 or newer) declares the secrets a project needs in
-`secretspec.toml` and resolves them from a provider. `secretspec-provider-atlas` is a provider for
-Atlas Vault, an external one in SecretSpec's terms (its Secret Provider Protocol): SecretSpec runs
-it for every provider URI with the `atlas` scheme, and it signs in with a vault token, decrypts the
-vault on the machine it runs on and answers SecretSpec over a private pipe. Every release attaches
-it next to the CLI, as `secretspec-provider-atlas-X.Y.Z-<target>`. Put it somewhere only you can
-write and register it once per user (or, with `--system`, per machine):
-
-```sh
-install -m 755 secretspec-provider-atlas-X.Y.Z-x86_64-unknown-linux-musl ~/.local/bin/secretspec-provider-atlas
-secretspec-provider-atlas register    # writes ~/.config/secretspec/providers.d/atlas.secretspec.json
-```
-
-The registration names the binary and the environment SecretSpec passes it (`ATLAS_URL`,
-`ATLAS_TOKEN`, `ATLAS_STATE_DIR`; SecretSpec gives an external provider nothing else of the
-caller's environment). SecretSpec refuses a registration or binary that others can write, and it
-does not look for providers on `PATH`. `register --print` prints the registration instead.
-
-### Where secrets live
-
-A provider URI is `atlas://` (the server in `ATLAS_URL`) or `atlas://HOST[:PORT][/PATH]` (HTTPS;
-HTTP for `localhost`). It carries no token. SecretSpec's names map onto the vault like this:
-
-| SecretSpec                            | Atlas Vault                                                |
-| ------------------------------------- | ---------------------------------------------------------- |
-| project (`[project] name`)            | a folder of that name                                      |
-| profile (`development`, `production`) | an item of that name in the folder                         |
-| secret (`DATABASE_URL`)               | a field of that name in the item (`hidden` when set by it) |
-| `ref = { item, field }`               | the item of that name (or id) anywhere in the vault, field |
-| `ref = { vault, item, field }`        | the item of that name in the folder `vault`, field         |
-
-So the secrets of project `payments` are the folder **payments**, with an item per profile
-(**production**, **staging**) holding one field per secret, and you can keep them in the app or
-with the CLI:
-
-```sh
-atlas vault folders add payments
-atlas vault add --json - <<'EOF'
-{"name": "production", "type": "api_key", "folder": "payments",
- "fields": [{"name": "DATABASE_URL", "kind": "hidden", "value": "postgres://…"}]}
-EOF
-```
-
-Names match case-insensitively and must be unique: two items of one name in a folder (or, for a
-`ref` without `vault`, in the vault) fail with `conflict` rather than picking one. A missing
-folder, item or field is a missing secret, which `secretspec check` reports as such. A `ref` needs
-a `field`; `section` and `version` are refused. `secretspec set` (with a token that may write)
-replaces the field's value, keeping the old one in the item's history as any change of a hidden
-field does, or adds the field, creating the folder and the item (an `api_key` item tagged
-`secretspec`) when they are missing.
-
-### Tokens
-
-Make a vault token as for any CI job (see [Vault tokens for CI](#vault-tokens-for-ci)): it
-expires (within a year) and reads only unless made with writes. The provider takes it from
-`ATLAS_TOKEN`, or, when that is not set, asks SecretSpec for its credential `token`, which
-`secretspec config provider login` stores in the system keyring or an alias's `credentials`
-table names. A read-only token resolves secrets and is refused `secretspec set` with
-`permission_denied` before you are asked for the value; keep a token with writes for whoever
-stores the secrets. `ATLAS_STATE_DIR` caches the vault between runs, as for the CLI.
-
-SecretSpec shows an external provider's errors by kind only, so `secretspec-provider-atlas status
-[URI]` signs in as SecretSpec would and says what is wrong in words (and, when nothing is, the
-server, whether the token may write and when it expires):
-
-| SecretSpec says        | Meaning                                                                     |
-| ---------------------- | --------------------------------------------------------------------------- |
-| `interaction required` | no token, or it expired, was revoked or is not an Atlas API token: make one |
-| `permission denied`    | a write with a read-only token, or a token that is not for Atlas Vault      |
-| `conflict`             | two folders or items share the name the secret maps to                      |
-| `invalid params`       | a bad URI (a token in it, no server) or a `ref` without `field`             |
-| `unavailable`          | the server did not answer, or rate-limited the sign-in (retried)            |
-| `operation failed`     | anything else, e.g. a server without Atlas Vault: run `status`              |
-
-### Examples
-
-```toml
-# secretspec.toml
-[project]
-name = "payments"
-revision = "1.0"
-
-[providers]
-atlas_vault = "atlas://app.atlastodo.dev"
-
-[defaults]
-providers = ["atlas_vault"]
-
-[profiles.default]
-DATABASE_URL = { description = "Postgres", required = true }
-DEPLOY_TOKEN = { description = "Deploy key", required = true, ref = { item = "Deploy key", field = "token" } }
-
-[profiles.production]
-DATABASE_URL = { required = true }
-```
-
-```sh
-secretspec check --profile production
-secretspec run --profile production -- ./deploy.sh
-```
-
-In CI, give the job a read-only vault token as a secret variable, install and register the
-provider, and run the same commands:
-
-```yaml
-# .github/workflows/deploy.yml (excerpt)
-- run: |
-    curl -fsSLo /usr/local/bin/secretspec-provider-atlas \
-      https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/secretspec-provider-atlas-X.Y.Z-x86_64-unknown-linux-musl
-    chmod 755 /usr/local/bin/secretspec-provider-atlas
-    secretspec-provider-atlas register
-    secretspec run --profile production -- ./deploy.sh
-  env:
-    ATLAS_TOKEN: ${{ secrets.ATLAS_VAULT_TOKEN }}
-```
-
-With [devenv](https://devenv.sh), whose SecretSpec integration loads the declared secrets into the
-shell, select the provider and profile in `devenv.yaml` (devenv 2.4 embeds SecretSpec 0.21, the
-first to run external providers; register the provider as above):
-
-```yaml
-# devenv.yaml
-secretspec:
-  enable: true
-  provider: atlas://app.atlastodo.dev
-  profile: development
-```
-
-```nix
-# devenv.nix
-{ config, ... }:
-{
-  env.DATABASE_URL = config.secretspec.secrets.DATABASE_URL or "";
-}
-```
+Core releases up to 0.1.15 shipped an `atlas` CLI (`atlas-X.Y.Z-<target>`) with the journal and
+vault commands, and the SecretSpec provider next to it; earlier ones had todo's too, and before
+that a JavaScript CLI (`atlas-cli-X.Y.Z.mjs`, `@atlastodo/cli` on npm). They moved with the apps'
+rules: `atlas journal entries …` is now `atlas-journal entries …`, `atlas vault …` is
+`atlas-vault …` (the old forms, with the app first, still work, e.g. `atlas-vault vault list`),
+with the same environment and output, and `secretspec-provider-atlas` is released from
+atlastodo/atlas-vault.
 
 ## n8n
 
@@ -375,17 +128,20 @@ services:
 `packages/sdk` (`@atlastodo/sdk`) is the TypeScript side: `TokenSession.connect` opens an API-token
 session, syncs the account into memory and loads the shared projects' keys; an app's own client
 sits on top of it after registering the app's definition (`registerApp` in
-`@atlastodo/client-core`). It also has the Atlas Vault client (`VaultClient`). Todo's client
-(`AtlasClient`: `tasks()`, `createTask()`, `completeTask()`, `changes()`, …) moved to the todo
-app's repository with the todo rules (`@atlastodo/todo-core`). The `atlas` CLI is built on
+`@atlastodo/client-core`). The apps' clients live with their rules: todo's `AtlasClient`
+(`tasks()`, `createTask()`, `completeTask()`, `changes()`, …) in `@atlastodo/todo-core`
+(atlastodo/atlas-todo), the vault's `VaultClient` in `@atlastodo/vault-core/client`
+(atlastodo/atlas-vault; until core 0.1.15 it was the SDK's). The apps' CLIs are built on
 `crates/atlas-client`, the same engine in Rust (`AtlasClient::connect`, `atlas_client::apps`);
 the fixtures in `test-vectors/` hold the two at parity.
 
-Every release attaches the SDK and the packages it builds on as npm tarballs
-(`atlastodo-sdk-X.Y.Z.tgz`, `atlastodo-shared-X.Y.Z.tgz`, `atlastodo-client-core-X.Y.Z.tgz`: ESM
-with type declarations, for Node and bundlers), and publishes them to npm as `@atlastodo/sdk`
-and so on once publishing is on (`npm install @atlastodo/sdk`; an rc under the `next` tag). For a
-version not on npm, install the release tarballs, with `overrides` for the two the SDK depends on:
+Every release attaches the SDK and the package it builds on as npm tarballs
+(`atlastodo-sdk-X.Y.Z.tgz`, `atlastodo-client-core-X.Y.Z.tgz`: ESM with type declarations, for
+Node and bundlers), and publishes them to npm as `@atlastodo/sdk` and `@atlastodo/client-core`
+once publishing is on (`npm install @atlastodo/sdk`; an rc under the `next` tag). For a version
+not on npm, install the release tarballs, with an `override` for the one the SDK depends on.
+(`@atlastodo/shared`, the vault's item rules, was published up to 0.1.15; they are
+`@atlastodo/vault-core`'s now.)
 
 ```json
 {
@@ -393,14 +149,15 @@ version not on npm, install the release tarballs, with `overrides` for the two t
     "@atlastodo/sdk": "https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/atlastodo-sdk-X.Y.Z.tgz"
   },
   "overrides": {
-    "@atlastodo/client-core": "https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/atlastodo-client-core-X.Y.Z.tgz",
-    "@atlastodo/shared": "https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/atlastodo-shared-X.Y.Z.tgz"
+    "@atlastodo/client-core": "https://github.com/atlastodo/atlas/releases/download/vX.Y.Z/atlastodo-client-core-X.Y.Z.tgz"
   }
 }
 ```
 
-`@atlastodo/sdk/testing` exports the in-memory `FakeServer` the SDK's own tests run against. The
-Rust client is not published on its own; use it from this repository, or run the CLI.
+`@atlastodo/sdk/testing` exports the in-memory `FakeServer` the SDK's own tests run against (and the
+apps' tests too). The Rust client is not published on crates.io: depend on it by git tag
+(`atlas-client = { git = "https://github.com/atlastodo/atlas", tag = "vX.Y.Z" }`), as the apps'
+CLIs do; `atlas_client::testing::FakeServer` is its in-memory server.
 
 ## How it works
 
@@ -434,9 +191,8 @@ enabled it:
 slot]`; `test-vectors/api_token_vectors.json` has a journal entry).
 - A client syncs one app per session and names it in the `x-atlas-sync-apps` header of every
   `/sync/*` request ([sync-protocol.md](./sync-protocol.md#app-scope)); naming an app the token
-  is not for is 403 `app_not_enabled`, scope `token`. The CLI sends `todo` for its todo commands
-  and `journal` for its journal commands, and checks the session's `apps` first, so a token
-  without the app fails before any sync.
+  is not for is 403 `app_not_enabled`, scope `token`. Each app's CLI sends its app, and checks the
+  session's `apps` first, so a token without the app fails before any sync.
 - In a journal session the journal app key does what the DEK does for todo: each field value is a
   personal-scope sealed envelope (`{"__enc": 3, "kid": "dek", …}`) under the journal key, on a
   `journal.sealed` op whose field is an opaque tag; the kind (`journal.entry`) and the field name
@@ -454,12 +210,12 @@ capability:
 - **It expires.** `POST /auth/api-tokens` needs `expires_at` (unix ms), in the future and at most
   365 days after the token is made; otherwise 400 `api_token_expiry_required`,
   `api_token_expiry_in_past` or `api_token_expiry_too_far`. Past it, the exchange and every request
-  of a session it opened answer 401 `api_token_expired` (the CLI prints that code and exits 1), and
+  of a session it opened answer 401 `api_token_expired` (`atlas-vault` prints that code and exits 1), and
   the access token a session gets ends no later than the token.
 - **It reads only, unless made with `"write": true`.** A read-only token's sessions reach the read
   routes (`GET`, and the sync socket's ticket); a push or any other write is 403
-  `api_token_read_only`. The CLI and SDK check the session's `write` first and refuse the write
-  without sending anything.
+  `api_token_read_only`. The vault's CLI and `VaultClient` check the session's `write` first and
+  refuse the write without sending anything.
 - **It is revoked like any token** (`DELETE /auth/api-tokens/:id`, or account recovery): its
   wrapped keys are dropped and its sessions end on their next request. An expired token stays in
   the list (with `expires_at`) until it is revoked, but no longer counts against the 25; within the

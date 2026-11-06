@@ -23,12 +23,10 @@ pinned release of its web build (`apps.lock.json`).
 | `crates/atlas-server`  | Rust (Axum, sqlx)     | HTTP and WebSocket API over PostgreSQL: accounts, sync, sharing, key distribution, attachments, admin. Also serves the web app.                                              |
 | `migrations/`          | SQL                   | The schema. Applied by the server at startup.                                                                                                                                |
 | `packages/client-core` | TypeScript            | Local store, persistence, sync client, realtime, end-to-end encryption, API client, app definitions and the scope engine.                                                    |
-| `packages/shared`      | TypeScript            | Atlas Vault's item rules (todo's moved to the todo app's repository, `@atlastodo/todo-core`).                                                                                |
 | `apps/mobile`          | React Native + Expo   | The only UI. Runs natively on Android and iOS and in the browser through react-native-web.                                                                                   |
 | `apps/electron`        | TypeScript (Electron) | Desktop shell that loads the web export from an `app://` origin.                                                                                                             |
-| `crates/atlas-client`  | Rust                  | The same engine for integrations: API-token sessions, end-to-end encryption, sync, app definitions; Journal's and the Vault's rules. At parity by `test-vectors/`.           |
-| `crates/atlas-cli`     | Rust                  | The `atlas` command line (journal, vault) over `atlas-client`, one static binary per platform; todo's is `atlas-todo`, in its repository.                                    |
-| `test-vectors/`        | JSON                  | Shared fixtures (crypto, conflicts, field policy, scope rules, vault items, CLI runs), read by both the Rust and the TypeScript tests.                                       |
+| `crates/atlas-client`  | Rust                  | The same engine for integrations: API-token sessions, end-to-end encryption, sync, app definitions. At parity by `test-vectors/`; the apps' CLIs build on it.                |
+| `test-vectors/`        | JSON                  | Shared fixtures (crypto, conflicts, field policy, scope rules, API tokens), read by both the Rust and the TypeScript tests.                                                  |
 
 ## How the clients share code
 
@@ -108,9 +106,11 @@ Enablement has two levels:
 The release bundles `todo`, `journal` (Atlas Journal: `journal.entry`, `journal.preference`,
 every field encrypted) and `vault` (Atlas Vault: `vault.item`, `vault.folder`,
 `vault.preference`, every field encrypted). Their clients are separate apps; this repository
-ships their manifests, the server rules, the client-core helpers, the vault and journal rules
-(`packages/shared/src/vault.ts`, `crates/atlas-client/src/vault.rs`, `journal.rs`) and the CLI and
-SDK commands; those are to move to the apps' repositories as todo's did.
+ships their manifests and the server rules (the token policy), and their rules, CLIs and clients
+live in the apps' repositories, as todo's do: atlastodo/atlas-journal (`atlas-journal-rules`, the
+`atlas-journal` CLI) and atlastodo/atlas-vault (`atlas-vault-rules`, the `atlas-vault` CLI,
+`secretspec-provider-atlas`, and `itemRules.ts` and `VaultClient` in `@atlastodo/vault-core`).
+Both are personal, so they register no app definition beyond their manifests.
 
 A manifest may also carry an `api_tokens` policy (`expiry_required`, `max_lifetime_days`,
 `write_by_default`, `exclusive`; `TokenPolicy` in `atlas-core`, `tokenPolicyFor` in client-core) that the
