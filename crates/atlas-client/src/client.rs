@@ -1,7 +1,7 @@
 //! A headless client for an app, signed in with an API token: the session that holds the decrypted
-//! account in memory, the clock and the zone its rules read. The apps' own operations sit on top
-//! (Atlas Journal's entries in [`crate::journal`], Atlas Vault's items in [`crate::vault`]; todo's
-//! tasks in the todo app's repository). Every write is pushed before the call returns.
+//! account in memory, the clock and the zone its rules read. The apps' own operations sit on top,
+//! in their repositories (todo's `TodoClient`, the journal's `JournalClient`, the vault's
+//! `VaultClient` each wrap this one).
 
 use jiff::tz::TimeZone;
 

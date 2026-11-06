@@ -27,7 +27,7 @@ in
   # Atlas core development environment.
   #
   # Provides every tool needed to build and test core reproducibly:
-  #   - Rust (atlas-core, atlas-server, atlas-client, atlas-cli, atlas-secretspec)
+  #   - Rust (atlas-core, atlas-server, atlas-client)
   #   - Node + Bun (packages/{client-core,shared,sdk})
   #   - PostgreSQL (server database, run as a devenv service)
   #   - assorted quality/tooling
@@ -141,7 +141,6 @@ in
     cargo nextest run --workspace
     # `--bun` runs vitest itself under Bun's runtime (supported since Bun 1.4), matching CI.
     (cd packages/client-core && bunx --bun vitest run)
-    (cd packages/shared && bunx --bun vitest run)
     (cd packages/sdk && bunx --bun vitest run)
   '';
   # Typecheck, oxlint (`.oxlintrc.json`) and `prettier --check` cover the TypeScript packages, as

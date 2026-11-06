@@ -25,13 +25,11 @@ cat >"$work/package.json" <<EOF
   "type": "module",
   "dependencies": {
     "@atlastodo/client-core": "$(tgz client-core)",
-    "@atlastodo/shared": "$(tgz shared)",
     "@atlastodo/sdk": "$(tgz sdk)",
     "typescript": "$TS"
   },
   "overrides": {
-    "@atlastodo/client-core": "$(tgz client-core)",
-    "@atlastodo/shared": "$(tgz shared)"
+    "@atlastodo/client-core": "$(tgz client-core)"
   }
 }
 EOF
@@ -39,15 +37,13 @@ EOF
 
 cat >"$work/src/main.ts" <<'EOF'
 import { generateDek, registerApp } from "@atlastodo/client-core";
-import { VAULT_FIELD_KINDS } from "@atlastodo/shared";
 import { TokenSession } from "@atlastodo/sdk";
 import { FakeServer } from "@atlastodo/sdk/testing";
 import kdf from "@atlastodo/client-core/test-vectors/password_kdf_vectors.json" with { type: "json" };
 
 const dek: Uint8Array = generateDek();
 registerApp({ app: "todo", kinds: { smoke_note: { scope: [{ field: "task_id", kind: "task" }] } } });
-const kinds: readonly string[] = VAULT_FIELD_KINDS;
-console.log(dek.length, kinds.length, typeof TokenSession, typeof FakeServer, Object.keys(kdf).length > 0);
+console.log(dek.length, typeof TokenSession, typeof FakeServer, Object.keys(kdf).length > 0);
 EOF
 for mode in nodenext:nodenext esnext:bundler; do
   cat >"$work/tsconfig.json" <<EOF
@@ -69,7 +65,7 @@ EOF
 done
 
 out="$(cd "$work" && node --input-type=module -e '
-  const entries = ["@atlastodo/client-core", "@atlastodo/shared", "@atlastodo/sdk", "@atlastodo/sdk/testing"];
+  const entries = ["@atlastodo/client-core", "@atlastodo/sdk", "@atlastodo/sdk/testing"];
   for (const e of entries) {
     const m = await import(e);
     if (Object.keys(m).length === 0) throw new Error(`${e} exports nothing`);

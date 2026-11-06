@@ -1,8 +1,9 @@
-//! A cache of the synced account between runs (`ATLAS_STATE_DIR` of the CLI), so a run pulls only
+//! A cache of the synced account between runs (`ATLAS_STATE_DIR` of the apps' CLIs), so a run pulls only
 //! what changed since the last one instead of the whole snapshot.
 //!
 //! The file holds the decrypted state, so it is sealed: AES-256-GCM under a key HKDF derives from
-//! the token's secret (`atlas-cli-state-v1`), bound to the token id and the server. Only the token's
+//! the token's secret (`atlas-cli-state-v1`, named when the `atlas` CLI was its only user; kept so
+//! existing state files open), bound to the token id and the server. Only the token's
 //! holder opens it; a file that does not open (another token, another server, tampering, an older
 //! format) is ignored and the run syncs from scratch.
 

@@ -1,7 +1,7 @@
 {
   "name": "@atlastodo/sdk",
-  "version": "0.1.15",
-  "description": "Headless Atlas client for integrations: API-token sessions that sync an account into memory, and the Atlas Vault client",
+  "version": "0.1.16",
+  "description": "Headless Atlas client for integrations: API-token sessions that sync an account into memory (the apps' own clients, such as the vault's VaultClient, sit on top)",
   "license": "AGPL-3.0-only",
   "homepage": "https://github.com/atlastodo/atlas/tree/main/packages/sdk",
   "repository": {
@@ -47,11 +47,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@atlastodo/client-core": "workspace:*",
-    "@atlastodo/shared": "workspace:*"
+    "@atlastodo/client-core": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
   }

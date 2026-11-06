@@ -1,27 +1,14 @@
-## v0.1.15
+## v0.1.16
 
 ### Breaking changes
-- Core is now an app-agnostic sync engine: an app registers its app definition (`registerApp`) and keeps its rules in its own repository. Todo's rules, models, UI catalogs and SDK client moved to atlastodo/atlas-todo (`@atlastodo/todo-core`).
-- The `atlas` CLI no longer has Atlas Todo's commands (`tasks`, `projects`, `labels`, `changes`): use the `atlas-todo` CLI from https://github.com/atlastodo/atlas-todo/releases (same environment, commands and output).
-- `@atlastodo/shared` keeps only Atlas Vault's rules; `@atlastodo/client-core` no longer exports the todo models (`Task`, `Project`, …) and `EntityKind` is an open string; the SDK's `AtlasClient` is gone (`TokenSession` is its generic base).
+- Atlas Journal's and Atlas Vault's rules moved to their own repositories, as todo's did. Core no longer releases the `atlas` CLI or `secretspec-provider-atlas`: use `atlas-journal` from https://github.com/atlastodo/atlas-journal/releases and `atlas-vault` and `secretspec-provider-atlas` from https://github.com/atlastodo/atlas-vault/releases (same environment, commands and output; `atlas journal entries list` is `atlas-journal entries list`, `atlas vault get X` is `atlas-vault get X`, and the old app-first forms still work).
+- `@atlastodo/shared` is retired: the vault item rules are in `@atlastodo/vault-core`. The SDK's `VaultClient` is now `@atlastodo/vault-core/client`; `atlas_client::journal` and `atlas_client::vault` are `atlas-journal-rules` and `atlas-vault-rules`.
 
 ### Features
-- App definitions, so core needs no change for an app's kinds and rules
-- Instance activity retention, enforced by the clients
-- Record every task change as activity, plus project, section and member events, with undo
-- Pin the newest app web build automatically
+- Move Atlas Journal's and Atlas Vault's rules out of core
 
 ### Fixes
-- Stricter app definitions, and no sync without a sharing app's definition
-- Review fixes for the activity feed
-- Native-speaker review of the Italian catalog
-- Fall back to nix run when devenv is not on PATH
-
-### Documentation
-- Never mention AI in commits, PRs or releases
+- Adapt passkeys to webauthn-rs 0.6
 
 ### Maintenance
-- 3 dependency updates, 4 maintenance commits (CI, build, tests) ([full list](https://github.com/atlastodo/atlas/compare/v0.1.14...v0.1.15))
-
-### Thanks
-- @mrCabez
+- 4 dependency updates, 2 maintenance commits (CI, build, tests) ([full list](https://github.com/atlastodo/atlas/compare/v0.1.15...v0.1.16))
