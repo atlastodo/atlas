@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Packs the publishable core packages into npm tarballs: atlastodo-client-core-X.Y.Z.tgz,
-# atlastodo-shared-X.Y.Z.tgz and atlastodo-sdk-X.Y.Z.tgz in OUT_DIR (default: dist-packages/).
+# Packs the publishable core packages into npm tarballs: atlastodo-client-core-X.Y.Z.tgz and
+# atlastodo-sdk-X.Y.Z.tgz in OUT_DIR (default: dist-packages/).
 # The release attaches them to the GitHub Release (and publishes them to npm when NPM_TOKEN is set);
 # locally it is the `packages:pack` devenv script.
 #
@@ -19,7 +19,7 @@ mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 
 VERSION="$(node -p 'require(process.argv[1]).version' "$ROOT/package.json")"
-for pkg in client-core shared sdk; do
+for pkg in client-core sdk; do
   dir="$ROOT/packages/$pkg"
   [[ "$(node -p 'require(process.argv[1]).version' "$dir/package.json")" == "$VERSION" ]] || {
     echo "error: packages/$pkg is not at $VERSION; run version:bump" >&2

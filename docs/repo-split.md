@@ -1,5 +1,11 @@
 # Splitting the repository: core and the todo app
 
+> This page records the split as it was planned and done. Since then the journal's and the vault's
+> rules left core the same way (issue #114): the `atlas` CLI, `crates/atlas-secretspec` and
+> `packages/shared` (`@atlastodo/shared`) are gone from core, and their successors (the
+> `atlas-journal` and `atlas-vault` CLIs, `secretspec-provider-atlas`, `@atlastodo/vault-core`)
+> are released from atlastodo/atlas-journal and atlastodo/atlas-vault.
+
 This repository is going to become two:
 
 - **core**: this repository, renamed from `atlastodo/atlas-todo` to `atlastodo/atlas`. It keeps

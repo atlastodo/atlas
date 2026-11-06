@@ -2,12 +2,12 @@
 // The third-party code Atlas core ships, and its licences.
 //
 // The JavaScript side is every package reachable through `dependencies` (and installed peer and
-// optional dependencies) from the core packages (client-core, shared, sdk). Dev dependencies
+// optional dependencies) from the core packages (client-core, sdk). Dev dependencies
 // (build tools, tests) are not shipped or listed. The apps keep their own notices: the todo app's
 // release (atlastodo/atlas-todo) attaches its THIRD_PARTY_NOTICES.txt, which the server image
 // carries next to the web build (docker/Dockerfile). The
-// Rust side is the normal (non-dev, non-build) dependency closure of atlas-server, atlas-cli and
-// atlas-secretspec for Linux, from `cargo metadata`.
+// Rust side is the normal (non-dev, non-build) dependency closure of atlas-server for Linux, from
+// `cargo metadata` (the apps' CLIs ship their own notices, from their repositories).
 //
 // Usage:
 //   node scripts/third-party-licenses.mjs --check          # fail on a JS licence outside ALLOW
@@ -21,7 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-const WORKSPACES = ["packages/shared", "packages/client-core", "packages/sdk"];
+const WORKSPACES = ["packages/client-core", "packages/sdk"];
 
 // deny.toml's list, and the permissive licences the shipped JS tree adds (each checked by hand).
 const ALLOW = new Set([
@@ -129,8 +129,8 @@ function rustPackages() {
   );
   const byId = new Map(meta.packages.map((p) => [p.id, p]));
   const nodes = new Map(meta.resolve.nodes.map((n) => [n.id, n]));
-  // The Rust programs a release ships: the server, the `atlas` CLI and the SecretSpec provider.
-  const shipped = ["atlas-server", "atlas-cli", "atlas-secretspec"];
+  // The Rust program a release ships: the server.
+  const shipped = ["atlas-server"];
   const roots = meta.packages.filter((p) => shipped.includes(p.name));
   const seen = new Set();
   const queue = roots.map((p) => p.id);
@@ -199,7 +199,7 @@ function writeNotices(file, withRust) {
     }
   };
   section("JavaScript packages (the core packages' dependencies)", jsPackages());
-  if (withRust) section("Rust crates (the server and the atlas CLI)", rustPackages());
+  if (withRust) section("Rust crates (the server)", rustPackages());
   fs.writeFileSync(file, out.join("\n"));
   console.log(`Wrote ${file} (${(fs.statSync(file).size / 1024).toFixed(0)} KiB)`);
 }

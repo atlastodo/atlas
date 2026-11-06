@@ -15,7 +15,6 @@
 {
   "@atlastodo/client-core" = copyPathToStore ../packages/client-core;
   "@atlastodo/sdk" = copyPathToStore ../packages/sdk;
-  "@atlastodo/shared" = copyPathToStore ../packages/shared;
   "@jridgewell/resolve-uri@3.1.2" = fetchurl {
     url = "https://registry.npmjs.org/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz";
     hash = "sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==";
