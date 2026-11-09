@@ -3,6 +3,7 @@
   lib,
   rustPlatform,
   version,
+  aws-lc,
   openssl,
   pkg-config,
 }:
@@ -32,9 +33,14 @@ rustPlatform.buildRustPackage {
 
   # Vendored from Cargo.lock (no git dependencies, so no outputHashes).
   cargoLock.lockFile = root + "/Cargo.lock";
-  # webauthn-rs (passkey verification) links OpenSSL.
+  # webauthn-rs (passkey verification) links OpenSSL. aws-lc-sys (rustls' crypto, via sqlx,
+  # reqwest and object_store) links AWS-LC: nixpkgs' cargo setup hook sets
+  # AWS_LC_SYS_USE_SYSTEM=1 for every Rust build, so the library must be here.
   nativeBuildInputs = [ pkg-config ];
-  buildInputs = [ openssl ];
+  buildInputs = [
+    aws-lc
+    openssl
+  ];
   cargoBuildFlags = [
     "-p"
     "atlas-server"
