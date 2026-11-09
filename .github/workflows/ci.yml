@@ -46,6 +46,7 @@ jobs:
       pull-requests: read
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
+      nix: ${{ steps.filter.outputs.nix }}
       lint_ts: ${{ steps.filter.outputs.lint_ts }}
       test_ts: ${{ steps.filter.outputs.test_ts }}
       deps: ${{ steps.filter.outputs.deps }}
@@ -61,7 +62,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          set_all() { for k in rust lint_ts test_ts deps; do echo "$k=$1" >>"$GITHUB_OUTPUT"; done; }
+          set_all() { for k in rust nix lint_ts test_ts deps; do echo "$k=$1" >>"$GITHUB_OUTPUT"; done; }
           case "$EVENT" in
             schedule)
               set_all false
@@ -86,6 +87,8 @@ jobs:
           ci='^(\.github/workflows/ci\.yml|\.bun-version)$'
           rust="^(crates/|migrations/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|\.config/nextest\.toml$|deny\.toml$)|$ci"
           shared="^(packages/|package\.json$|bun\.lock$|test-vectors/|manifests/)|$ci"
+          # The flake's packages build from the Rust tree with the flake's nixpkgs.
+          nix="^(flake\.(nix|lock)$|nix/)|$rust|^manifests/|^test-vectors/|^apps\.lock\.json$"
           deps="^(Cargo\.(toml|lock)|deny\.toml|bun\.lock|package\.json|crates/[^/]+/Cargo\.toml|packages/[^/]+/package\.json)$|$ci"
           has() { if grep -qE "$1" <<<"$files"; then echo true; else echo false; fi; }
           # Prettier checks Markdown, YAML and JSON too, so anything outside the Rust tree lints.
@@ -94,6 +97,7 @@ jobs:
             # The server compiles manifests/ in, and the Rust client asserts test-vectors/; kept out of
             # $rust so Prettier still lints them.
             echo "rust=$(has "$rust|^manifests/|^test-vectors/")"
+            echo "nix=$(has "$nix")"
             echo "lint_ts=$(lints)"
             echo "test_ts=$(has "$shared|^scripts/(build|pack|smoke)-core-packages?\.")"
             echo "deps=$(has "$deps")"
@@ -179,6 +183,26 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
       - run: cargo check --workspace --all-targets --locked
+
+  # The flake's packages, as NixOS hosts build them: rustPlatform's hooks and the pinned nixpkgs
+  # differ from the rustup build above, so a flake.lock bump can break this one alone. Build only;
+  # the server-vm test (`nix flake check`) stays local. Both architectures, as docker.yml: arm64
+  # hosted runners are free only for public repositories.
+  nix:
+    name: Nix (${{ matrix.arch }})
+    needs: changes
+    if: ${{ needs.changes.outputs.nix == 'true' }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.event.repository.private && '[{"arch":"x86_64","runner":"ubuntu-24.04"}]' || '[{"arch":"x86_64","runner":"ubuntu-24.04"},{"arch":"aarch64","runner":"ubuntu-24.04-arm"}]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      - run: nix build -L --no-link .#atlas-server .#web-dist
 
   test-rust:
     name: Test (Rust)
