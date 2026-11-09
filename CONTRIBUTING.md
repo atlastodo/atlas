@@ -47,7 +47,7 @@ so please don't start on them without asking:
 ## Development environment
 
 The environment is defined with [devenv](https://devenv.sh) (Nix). It pins Rust, Node 26,
-Bun 1.4.2, PostgreSQL, sqlx-cli and the other tools.
+Bun 1.4.4, PostgreSQL, sqlx-cli and the other tools.
 
 ```sh
 git clone https://github.com/<you>/atlas.git
@@ -74,7 +74,7 @@ dev                    # the server on :8080 with live reload, serving the pinne
 ### Without Nix
 
 devenv is the supported setup, but nothing requires it. You need Rust 1.94 or later, Node 26,
-Bun 1.4.2, PostgreSQL 16 or later and [cargo-nextest](https://nexte.st). The server applies its
+Bun 1.4.4, PostgreSQL 16 or later and [cargo-nextest](https://nexte.st). The server applies its
 migrations when it starts, so sqlx-cli is optional.
 
 ```sh

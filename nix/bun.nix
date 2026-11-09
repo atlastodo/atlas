@@ -419,9 +419,9 @@
     url = "https://registry.npmjs.org/std-env/-/std-env-4.3.0.tgz";
     hash = "sha512-OtU/EgQ1kIm5KwqQpBC6ZEMXrZRui11w8zgfTWp8cdO9B8OaPsbA8bTHO2P+HNo1VlUTGMVBwPhydu6poeXiag==";
   };
-  "tinybench@6.2.2" = fetchurl {
-    url = "https://registry.npmjs.org/tinybench/-/tinybench-6.2.2.tgz";
-    hash = "sha512-nIZ2N2dFpjBsg2hgitKu7mA+FvsIJuGJOwysRngmVRRmWgR/UyPjwJj8c/fT/dhm8EkHnF5EOogRf+0Z2qrimA==";
+  "tinybench@6.2.3" = fetchurl {
+    url = "https://registry.npmjs.org/tinybench/-/tinybench-6.2.3.tgz";
+    hash = "sha512-Al01C2JIBnO2CXCAPbpAl6sUiOZHeThGtHYNTa51JRw9PyWOCdr+9Ong05R4qg/Sk3+H645E8ov1h2c58ityNw==";
   };
   "tinyexec@1.3.1" = fetchurl {
     url = "https://registry.npmjs.org/tinyexec/-/tinyexec-1.3.1.tgz";
@@ -439,9 +439,9 @@
     url = "https://registry.npmjs.org/undici-types/-/undici-types-8.9.0.tgz";
     hash = "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==";
   };
-  "vite@8.3.5" = fetchurl {
-    url = "https://registry.npmjs.org/vite/-/vite-8.3.5.tgz";
-    hash = "sha512-z1YpjieJ9g0ebTmQpLBv/oq9E3F9EIlOe+7LahW8SrE3LTiG3udBRUXQOlYXP9b+IC2q2phHeVxj9xGlw34OEQ==";
+  "vite@8.3.6" = fetchurl {
+    url = "https://registry.npmjs.org/vite/-/vite-8.3.6.tgz";
+    hash = "sha512-UI7dK29NnS54Fk+mmo7o+jI6U8Fp7hDl+X5Q1k45WH+d4dSlbLVUETGQ+hfkNgvLQGyoElPj837nZyv4MBc0VA==";
   };
   "vitest@5.0.5" = fetchurl {
     url = "https://registry.npmjs.org/vitest/-/vitest-5.0.5.tgz";
