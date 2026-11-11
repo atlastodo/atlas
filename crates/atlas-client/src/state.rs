@@ -6,6 +6,10 @@
 //! existing state files open), bound to the token id and the server. Only the token's
 //! holder opens it; a file that does not open (another token, another server, tampering, an older
 //! format) is ignored and the run syncs from scratch.
+//!
+//! A password session ([`crate::session::Session::login`]) has no token: its file is
+//! `session-<device id>.state`, sealed under a key HKDF derives from the account's app key and bound
+//! to that device id ([`StateKey::for_device`]).
 
 use std::path::{Path, PathBuf};
 
@@ -36,16 +40,36 @@ struct Sealed {
     ct: String,
 }
 
-fn key(parts: &ApiTokenParts) -> [u8; 32] {
-    let salt = hex::decode(parts.id.replace('-', "")).unwrap_or_default();
-    hkdf32(&parts.secret, Some(&salt), "atlas-cli-state-v1")
+/// What names and seals a state file: a token's, or a password session's device's.
+pub struct StateKey {
+    id: String,
+    key: [u8; 32],
 }
 
-fn aad(parts: &ApiTokenParts, server: &str, app: &str) -> Vec<u8> {
+impl StateKey {
+    pub fn for_token(parts: &ApiTokenParts) -> Self {
+        let salt = hex::decode(parts.id.replace('-', "")).unwrap_or_default();
+        Self {
+            id: parts.id.clone(),
+            key: hkdf32(&parts.secret, Some(&salt), "atlas-cli-state-v1"),
+        }
+    }
+
+    /// A password session's: its device id (from the server) and the app key it opened.
+    pub fn for_device(device_id: &str, app_key: &[u8; 32]) -> Self {
+        let salt = hex::decode(device_id.replace('-', "")).unwrap_or_default();
+        Self {
+            id: format!("session-{device_id}"),
+            key: hkdf32(app_key, Some(&salt), "atlas-session-state-v1"),
+        }
+    }
+}
+
+fn aad(key: &StateKey, server: &str, app: &str) -> Vec<u8> {
     let mut aad = vec![
         Value::from("atlas-cli-state"),
         Value::from(VERSION),
-        Value::from(parts.id.as_str()),
+        Value::from(key.id.as_str()),
         Value::from(server.trim_end_matches('/')),
     ];
     // Todo's state predates app scopes; every other app's is bound to its app.
@@ -58,16 +82,25 @@ fn aad(parts: &ApiTokenParts, server: &str, app: &str) -> Vec<u8> {
 /// The state file of a token and app in `dir`: `<token id>.state` for todo, `<token id>.<app>.state`
 /// for another app (a token for several apps syncs each in its own scope).
 pub fn state_path(dir: &Path, parts: &ApiTokenParts, app: &str) -> PathBuf {
+    keyed_path(dir, &StateKey::for_token(parts), app)
+}
+
+fn keyed_path(dir: &Path, key: &StateKey, app: &str) -> PathBuf {
     if app == TODO_APP {
-        dir.join(format!("{}.state", parts.id))
+        dir.join(format!("{}.state", key.id))
     } else {
-        dir.join(format!("{}.{app}.state", parts.id))
+        dir.join(format!("{}.{app}.state", key.id))
     }
 }
 
 /// The cached state of `app`, if there is one this token opens for this server.
 pub fn load(dir: &Path, parts: &ApiTokenParts, server: &str, app: &str) -> Option<CachedState> {
-    let bytes = std::fs::read(state_path(dir, parts, app)).ok()?;
+    load_keyed(dir, &StateKey::for_token(parts), server, app)
+}
+
+/// [`load`] for any [`StateKey`].
+pub fn load_keyed(dir: &Path, key: &StateKey, server: &str, app: &str) -> Option<CachedState> {
+    let bytes = std::fs::read(keyed_path(dir, key, app)).ok()?;
     let sealed: Sealed = serde_json::from_slice(&bytes).ok()?;
     if sealed.v != VERSION {
         return None;
@@ -76,7 +109,7 @@ pub fn load(dir: &Path, parts: &ApiTokenParts, server: &str, app: &str) -> Optio
         iv: sealed.iv,
         ct: sealed.ct,
     };
-    let plain = decrypt_aes_gcm(&key(parts), &payload, &aad(parts, server, app)).ok()?;
+    let plain = decrypt_aes_gcm(&key.key, &payload, &aad(key, server, app)).ok()?;
     serde_json::from_slice(&plain).ok()
 }
 
@@ -89,9 +122,20 @@ pub fn save(
     app: &str,
     state: &CachedState,
 ) -> std::io::Result<()> {
+    save_keyed(dir, &StateKey::for_token(parts), server, app, state)
+}
+
+/// [`save`] for any [`StateKey`].
+pub fn save_keyed(
+    dir: &Path,
+    key: &StateKey,
+    server: &str,
+    app: &str,
+    state: &CachedState,
+) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let plain = serde_json::to_vec(state).expect("JSON");
-    let p = encrypt_aes_gcm(&key(parts), &plain, &aad(parts, server, app))
+    let p = encrypt_aes_gcm(&key.key, &plain, &aad(key, server, app))
         .map_err(|e| std::io::Error::other(e.to_string()))?;
     let sealed = serde_json::to_vec(&Sealed {
         v: VERSION,
@@ -99,7 +143,7 @@ pub fn save(
         ct: p.ct,
     })
     .expect("JSON");
-    let target = state_path(dir, parts, app);
+    let target = keyed_path(dir, key, app);
     let tmp = target.with_extension(format!("state.{}.tmp", std::process::id()));
     {
         let mut options = std::fs::OpenOptions::new();

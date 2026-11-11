@@ -9,8 +9,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::crypto::{
-    is_encrypted_envelope, ApiTokenAppWraps, ApiTokenWrap, EncryptedPayload, FieldLocation,
-    KeyScope, Keyring, WrappedProjectKey, DEK_KEY_ID, TODO_APP,
+    is_encrypted_envelope, ApiTokenAppWraps, ApiTokenWrap, AppKeyRow, EncryptedPayload,
+    FieldLocation, KeyScope, Keyring, RootKeyWrap, WrappedProjectKey, DEK_KEY_ID, TODO_APP,
 };
 use crate::discovery::{parse_discovery, ServerDiscovery, LEGACY_DISCOVERY};
 use crate::error::{Error, Result};
@@ -111,6 +111,60 @@ impl Transport for UreqTransport {
             body,
             retry_after,
         })
+    }
+}
+
+/// `GET /auth/salt`: what derives an account's credential from its password.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SaltResponse {
+    pub salt: String,
+    #[serde(default)]
+    pub kdf_version: Value,
+    #[serde(default)]
+    pub kdf_params: Value,
+}
+
+/// `user` in an auth response.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AuthUser {
+    pub id: String,
+    pub email: String,
+}
+
+/// `POST /auth/login` and `POST /auth/refresh`: a session's tokens and the account's wrapped keys.
+#[derive(Clone, Deserialize)]
+pub struct AuthResponse {
+    pub access_token: String,
+    pub refresh_token: String,
+    #[serde(default)]
+    pub expires_in: i64,
+    pub device_id: String,
+    pub user: AuthUser,
+    #[serde(default)]
+    pub public_key: Option<String>,
+    /// The DEK and identity under the MEK, from before root keys.
+    #[serde(default)]
+    pub encrypted_dek: Option<EncryptedPayload>,
+    #[serde(default)]
+    pub encrypted_private_key: Option<EncryptedPayload>,
+    #[serde(default)]
+    pub signing_public_key: Option<String>,
+    #[serde(default)]
+    pub encrypted_signing_key: Option<EncryptedPayload>,
+    /// The root key under the MEK (its password slot), absent until the account migrates.
+    #[serde(default)]
+    pub encrypted_root_key: Option<RootKeyWrap>,
+    /// The app keys under the root.
+    #[serde(default)]
+    pub app_keys: Vec<AppKeyRow>,
+}
+
+impl std::fmt::Debug for AuthResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthResponse")
+            .field("device_id", &self.device_id)
+            .field("user", &self.user)
+            .finish_non_exhaustive()
     }
 }
 
@@ -373,6 +427,57 @@ impl ApiClient {
             "/auth/api-token/session",
             Some(&json!({ "token_id": token_id, "auth": auth })),
         )
+    }
+
+    /// `GET /auth/salt`. Every address answers (an unknown one with a stand-in), so this says
+    /// nothing about whether the account exists.
+    pub fn get_salt(&self, email: &str) -> Result<SaltResponse> {
+        self.typed(
+            "GET",
+            &format!("/auth/salt?email={}", encode_uri_component(email)),
+            None,
+        )
+    }
+
+    /// `POST /auth/login` with the auth hash the password derives (never the password itself).
+    /// `install_key` names this installation: the server ends its older sessions.
+    pub fn login(
+        &self,
+        email: &str,
+        auth_hash: &str,
+        device_name: Option<&str>,
+        install_key: Option<&str>,
+    ) -> Result<AuthResponse> {
+        self.typed(
+            "POST",
+            "/auth/login",
+            Some(&json!({
+                "email": email,
+                "password": auth_hash,
+                "device_name": device_name,
+                "install_key": install_key,
+            })),
+        )
+    }
+
+    /// `POST /auth/refresh`: a new access token, and a new refresh token in place of this one
+    /// (which the server revokes; using it again ends the session).
+    pub fn refresh(&self, refresh_token: &str) -> Result<AuthResponse> {
+        self.typed(
+            "POST",
+            "/auth/refresh",
+            Some(&json!({ "refresh_token": refresh_token })),
+        )
+    }
+
+    /// `POST /auth/logout`: end the session this refresh token belongs to.
+    pub fn logout(&self, refresh_token: &str) -> Result<()> {
+        self.request(
+            "POST",
+            "/auth/logout",
+            Some(&json!({ "refresh_token": refresh_token })),
+        )
+        .map(|_| ())
     }
 
     pub fn list_project_keys(&self) -> Result<ProjectKeysResponse> {

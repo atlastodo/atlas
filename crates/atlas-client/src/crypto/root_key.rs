@@ -218,3 +218,129 @@ pub fn unwrap_app_private_key(
         "private key",
     )
 }
+
+/// An app's row of the account (`AppKeyRow`): its key under the root, and its X25519 identity
+/// under that key (absent for todo on accounts whose identity predates root keys).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppKeyRow {
+    pub app: String,
+    pub wrapped_key: RootKeyWrap,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wrapped_private_key: Option<RootKeyWrap>,
+}
+
+/// Which wraps opened the account's keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccountKeySource {
+    /// The root key's password slot and the todo app key.
+    Root,
+    /// The DEK and identity under the MEK, from before root keys.
+    Legacy,
+}
+
+/// The account's todo keys (`AccountKeys`): the todo app key, which is the DEK, and the X25519
+/// identity.
+pub struct AccountKeys {
+    pub dek: [u8; 32],
+    pub private_key: [u8; 32],
+    /// The root key, when the password slot opened; never persisted.
+    pub root_key: Option<[u8; 32]>,
+    pub source: AccountKeySource,
+}
+
+fn key32(bytes: Vec<u8>, what: &str) -> CryptoResult<[u8; 32]> {
+    bytes
+        .try_into()
+        .map_err(|_| CryptoError::new(format!("{what} must be 32 bytes")))
+}
+
+/// The todo key and identity of an app row under `root` (`openTodoAppKey`); the identity is `None`
+/// when the row has none.
+pub fn open_todo_app_key(
+    root: &[u8; 32],
+    user_id: &str,
+    app_keys: &[AppKeyRow],
+) -> CryptoResult<([u8; 32], Option<[u8; 32]>)> {
+    let row = app_keys
+        .iter()
+        .find(|k| k.app == TODO_APP)
+        .ok_or_else(|| CryptoError::new("the account has no todo app key"))?;
+    let dek = unwrap_app_key(&row.wrapped_key, root, user_id, TODO_APP)?;
+    let private_key = row
+        .wrapped_private_key
+        .as_ref()
+        .map(|w| unwrap_app_private_key(w, &dek, user_id, TODO_APP))
+        .transpose()?;
+    Ok((dek, private_key))
+}
+
+/// The account's keys from a sign-in response and the MEK the password derives
+/// (`openAccountKeys`): through the root key's password slot when the account has one, else (or
+/// when that slot is stale or damaged) the legacy wraps under the MEK. Fails when neither opens,
+/// which for a correct auth hash means the account's keys are not wrapped for this password.
+pub fn open_account_keys(
+    user_id: &str,
+    mek: &[u8; 32],
+    encrypted_root_key: Option<&RootKeyWrap>,
+    app_keys: &[AppKeyRow],
+    encrypted_dek: Option<&EncryptedPayload>,
+    encrypted_private_key: Option<&EncryptedPayload>,
+) -> CryptoResult<AccountKeys> {
+    let mut root_key = None;
+    if let Some(wrap) = encrypted_root_key {
+        let opened = (|| -> CryptoResult<Option<AccountKeys>> {
+            let root = unwrap_root_key(wrap, mek, user_id, "password")?;
+            root_key = Some(root);
+            let (dek, private_key) = open_todo_app_key(&root, user_id, app_keys)?;
+            let private_key = match (private_key, encrypted_private_key) {
+                (Some(k), _) => Some(k),
+                (None, Some(legacy)) => {
+                    Some(key32(super::unwrap_key(legacy, mek)?, "private key")?)
+                }
+                (None, None) => None,
+            };
+            Ok(private_key.map(|private_key| AccountKeys {
+                dek,
+                private_key,
+                root_key: Some(root),
+                source: AccountKeySource::Root,
+            }))
+        })();
+        // A stale or damaged root slot: the legacy wraps still hold the same keys.
+        if let Ok(Some(keys)) = opened {
+            return Ok(keys);
+        }
+    }
+    let (Some(dek), Some(private_key)) = (encrypted_dek, encrypted_private_key) else {
+        return Err(CryptoError::new(
+            "the account's keys are not wrapped for this password",
+        ));
+    };
+    Ok(AccountKeys {
+        dek: key32(super::unwrap_key(dek, mek)?, "DEK")?,
+        private_key: key32(super::unwrap_key(private_key, mek)?, "private key")?,
+        root_key,
+        source: AccountKeySource::Legacy,
+    })
+}
+
+/// Another app's key and identity under the root (`openAppKey`); fails when the account has no
+/// row for it, or no identity in it.
+pub fn open_app_keys(
+    root: &[u8; 32],
+    user_id: &str,
+    app: &str,
+    app_keys: &[AppKeyRow],
+) -> CryptoResult<([u8; 32], [u8; 32])> {
+    let row = app_keys
+        .iter()
+        .find(|k| k.app == app)
+        .ok_or_else(|| CryptoError::new(format!("the account has no {app} app key")))?;
+    let wrapped_private_key = row
+        .wrapped_private_key
+        .as_ref()
+        .ok_or_else(|| CryptoError::new(format!("the account's {app} key has no identity")))?;
+    let app_key = unwrap_app_key(&row.wrapped_key, root, user_id, app)?;
+    let private_key = unwrap_app_private_key(wrapped_private_key, &app_key, user_id, app)?;
+    Ok((app_key, private_key))
+}
