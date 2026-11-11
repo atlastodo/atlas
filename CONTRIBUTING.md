@@ -68,8 +68,9 @@ dev                    # the server on :8080 with live reload, serving the pinne
   The dev database is `atlas_dev`, the test database is `atlas_test`, and the user and password
   are both `atlas`.
 - The server refuses to start without `DATABASE_URL` and a valid `JWT_SECRET`.
-- `dev` serves the web app pinned in `apps.lock.json` (`nix build .#web-dist`), unless
-  `STATIC_DIR` is set. To work on the app against this server, run it from the app repository.
+- `dev` serves the API alone, plus a web app when `STATIC_DIR` points at one (e.g.
+  `STATIC_DIR=$(nix build --print-out-paths github:atlastodo/atlas-todo#web-dist)`). To work on
+  an app against this server, run it from the app's repository.
 
 ### Without Nix
 
