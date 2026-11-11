@@ -1,4 +1,5 @@
-# Self-hosting stack: Postgres + the unified Atlas Todo container (API + static web frontend).
+# Self-hosting stack: Postgres + the Atlas server (the API alone). Atlas Todo's compose file
+# (atlastodo/atlas-todo) is this stack with its image, which adds the web app.
 #
 # Usage, from the repo root (the root compose.yaml includes this file, so the root .env is read):
 #   cp .env.example .env      # set POSTGRES_PASSWORD and JWT_SECRET
@@ -6,6 +7,8 @@
 #
 # Every server setting is read from that .env (see .env.example for the full list); the
 # `environment:` block below only holds what compose itself must decide.
+# The project name stays atlas-todo: it names the attachments volume (atlas-todo_atlas_data), so
+# renaming it would start existing installs on an empty one. Atlas Todo's compose file uses it too.
 name: atlas-todo
 
 services:
@@ -28,7 +31,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Unified container: atlas-server (Axum) serving the React Native Web export from /app/dist.
+  # atlas-server (Axum): the API, plus a web app if STATIC_DIR points at a mounted one.
   # `docker compose up -d --build` builds it from this checkout; `docker compose pull` fetches the
   # published image named below instead.
   server:

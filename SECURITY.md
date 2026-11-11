@@ -47,9 +47,10 @@ gh attestation verify atlas-todo-X.Y.Z.apk --repo atlastodo/atlas-todo
 gh attestation verify atlas-vault-X.Y.Z-x86_64-unknown-linux-musl --repo atlastodo/atlas-vault
 ```
 
-The attestation is on the GitHub Container Registry image; the Docker Hub mirror is the same
-image but carries none. The web app inside the image is a release of the app repository, pinned
-by its SHA-256 in `apps.lock.json`. This repository was `atlastodo/atlas-todo` until it was
+The attestation is on the GitHub Container Registry image; images are published to GHCR only
+(the Docker Hub mirror `atlastodo/atlas` gets no new tags). The image is the server alone: the
+Atlas Todo image, `ghcr.io/atlastodo/atlas-todo`, adds the web app on top of it and is attested
+by `atlastodo/atlas-todo`. This repository was `atlastodo/atlas-todo` until it was
 renamed to `atlastodo/atlas`. `--repo` names the repository that built the file: anything
 released before the rename verifies with `atlastodo/atlas-todo`, and an app file this repository
 released between the rename and the split with `atlastodo/atlas`. Each release also lists

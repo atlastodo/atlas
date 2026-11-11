@@ -37,13 +37,7 @@
       # Cargo.toml in lockstep with package.json, so no bump step is needed here.
       version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
 
-      # The pinned app web build (the "todo" pin of apps.lock.json, which docker/Dockerfile reads
-      # too): a release asset of atlastodo/atlas-todo, set with scripts/pin-app-web.mjs.
-      todoWebPin =
-        (builtins.fromJSON (builtins.readFile ./apps.lock.json)).todo
-          or (throw "apps.lock.json has no todo pin: run scripts/pin-app-web.mjs <version>");
-
-      # Adds atlas-server and atlas-web-dist to a package set.
+      # Adds atlas-server to a package set.
       overlay = final: _prev: {
         atlas-server = final.callPackage ./nix/packages/atlas-server.nix {
           inherit version;
@@ -61,7 +55,6 @@
               rustc = toolchain;
             };
         };
-        atlas-web-dist = final.callPackage ./nix/packages/web-dist-pinned.nix { pin = todoWebPin; };
       };
 
       pkgsFor = system: nixpkgs.legacyPackages.${system}.extend overlay;
@@ -88,9 +81,9 @@
           pkgs = pkgsFor system;
         in
         {
+          # The server alone: an app's web build (services.atlas.staticDir) comes from that app's
+          # flake, e.g. github:atlastodo/atlas-todo's web-dist.
           inherit (pkgs) atlas-server;
-          # What a services.atlas.staticDir points at.
-          web-dist = pkgs.atlas-web-dist;
           default = pkgs.atlas-server;
         }
       );
@@ -119,13 +112,14 @@
           pkgs = pkgsFor system;
         in
         {
-          inherit (self.packages.${system}) atlas-server web-dist;
+          inherit (self.packages.${system}) atlas-server;
 
           # Boots a VM with the server module and exercises it end to end.
           server-vm = pkgs.testers.runNixOSTest (
             import ./nix/tests/server.nix {
               module = self.nixosModules.default;
-              webDist = self.packages.${system}.web-dist;
+              # A stub web app: core ships none, the test checks staticDir is served.
+              webDist = pkgs.writeTextDir "index.html" "<!doctype html><html><title>atlas-vm-test</title></html>";
             }
           );
 

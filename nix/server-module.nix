@@ -140,12 +140,12 @@ in
       type = lib.types.nullOr lib.types.path;
       default = null;
       example = lib.literalExpression ''
-        "''${inputs.atlas.packages.''${system}.web-dist}"'';
+        inputs.atlas-todo.packages.''${pkgs.stdenv.hostPlatform.system}.web-dist'';
       description = ''
-        Optional directory of the exported web SPA to serve (the `STATIC_DIR`
-        env var) — for example this flake's `web-dist` package, the pinned
-        Atlas Todo web build, which calls the API at `/api` on the page's own
-        origin. Without it the server is API-only.
+        Optional directory of an exported web app to serve (the `STATIC_DIR`
+        env var), e.g. the Atlas Todo flake's `web-dist`
+        (`github:atlastodo/atlas-todo`). The API answers at both `/` and
+        `/api`. Without it the server is API-only.
       '';
     };
 

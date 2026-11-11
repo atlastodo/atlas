@@ -1,17 +1,22 @@
-# Self-hosting Atlas Todo
+# Self-hosting Atlas
 
-This guide covers installing, configuring, backing up and upgrading an Atlas Todo server. For a
+This guide covers installing, configuring, backing up and upgrading an Atlas server. For a
 quick start, see the [README](../README.md#self-hosting).
+
+**Running Atlas Todo?** Its image, `ghcr.io/atlastodo/atlas-todo`, is this server with the todo
+web app added, and its compose file is this stack with that image: see the app repository's
+[self-hosting guide](https://github.com/atlastodo/atlas-todo/blob/main/docs/self-hosting.md).
+Everything else (settings, reverse proxy, backups, upgrades) is on this page and applies as is.
 
 ## What you run
 
 - PostgreSQL 16 holds the accounts, the sync op log and the encrypted data.
-- One server container (`atlas-server`) serves the API, the WebSocket for live sync, and the
-  web app. It listens on port 8080 and runs as the non-root user `atlas` (uid and gid 10001).
+- One server container (`atlas-server`) serves the API and the WebSocket for live sync, and an
+  app's web build when it has one (`STATIC_DIR`; the Atlas Todo image does). It listens on port 8080 and runs as the non-root user `atlas` (uid and gid 10001).
 - Two volumes hold the database and `/app/data`, which holds the encrypted attachment blobs.
 
 The server applies database migrations every time it starts. The API answers at both `/` and
-`/api`; the web app uses `/api`.
+`/api`; the Atlas Todo web app uses `/api`.
 
 ## Install
 
@@ -43,9 +48,13 @@ Run all `docker compose` commands from the repository root. The root `compose.ya
 every variable in it. A `docker/.env` is read too, if it exists, for tools that run
 `docker compose -f docker/docker-compose.yml` and write their env file there.
 
-In production, pin a version: `ATLAS_IMAGE=ghcr.io/atlastodo/atlas:X.Y.Z`. The same image is
-on Docker Hub as `atlastodo/atlas`. It is built for linux/amd64 and linux/arm64 (a 64-bit OS
+In production, pin a version: `ATLAS_IMAGE=ghcr.io/atlastodo/atlas:X.Y.Z`. Images are published
+to the GitHub Container Registry only. It is built for linux/amd64 and linux/arm64 (a 64-bit OS
 on a Raspberry Pi works; 32-bit ARM does not).
+
+This image is the server alone. `ATLAS_IMAGE=ghcr.io/atlastodo/atlas-todo:X.Y.Z` runs the same
+stack with the Atlas Todo web app (the todo app's releases publish it, on the core release they
+pin), or use the app repository's compose file, which is this one with that image.
 
 To try unreleased changes, `ATLAS_IMAGE=ghcr.io/atlastodo/atlas:dev` follows the `dev` branch:
 it is rebuilt after every change there that passes CI. Use it with a database you can lose or
@@ -53,23 +62,26 @@ restore. A `dev` image may apply database migrations that no release has yet, an
 refuses to start against a database with a migration it does not know, so going back means waiting
 for the next release that includes it, or restoring a backup taken before switching.
 
-### Image renamed
+### Image names
 
 The repository was renamed from `atlastodo/atlas-todo` to `atlastodo/atlas`, and the image with
-it: it is now `ghcr.io/atlastodo/atlas` (Docker Hub: `atlastodo/atlas`). The old names,
-`ghcr.io/atlastodo/atlas-todo` and `atlastodo/atlas-todo`, keep receiving the same tags for a
-deprecation period, then stop getting new ones. Switch now:
+it: the server is `ghcr.io/atlastodo/atlas`. Up to 0.1.16 that image also carried the Atlas Todo
+web app, and core mirrored it under `ghcr.io/atlastodo/atlas-todo` and on Docker Hub
+(`atlastodo/atlas`, `atlastodo/atlas-todo`). Since then:
 
-- Set `ATLAS_IMAGE=ghcr.io/atlastodo/atlas:latest` (or a pinned `X.Y.Z`) in `.env` if you set
-  it to the old name; the compose default already uses the new one.
-- Point an existing clone at the new repository, because `atlastodo/atlas-todo` will hold the
-  todo app rather than the server:
+- `ghcr.io/atlastodo/atlas` is the server alone, and core pins no app.
+- `ghcr.io/atlastodo/atlas-todo` is published by the todo app's repository: this server plus its
+  web app. To keep the web app, run that image (`ATLAS_IMAGE=ghcr.io/atlastodo/atlas-todo:X.Y.Z`,
+  or the app repository's compose file, which uses the same project and volume names).
+- Docker Hub gets no new tags. Switch an `ATLAS_IMAGE=atlastodo/...` to its `ghcr.io/` name.
+- Point an existing clone at the new repository, because `atlastodo/atlas-todo` holds the todo
+  app rather than the server:
   `git remote set-url origin https://github.com/atlastodo/atlas.git`.
 - On NixOS, change the flake input to `github:atlastodo/atlas` (or
   `git+https://github.com/atlastodo/atlas.git`), import `nixosModules.atlas` and rename
   `services.atlas-todo` to `services.atlas`. The old option and module names still evaluate,
   with a deprecation warning, and the service keeps its unit, user, data directory and database
-  (all still called `atlas-todo`).
+  (all still called `atlas-todo`). The web app comes from the app's flake ([NixOS](#nixos)).
 
 ## NixOS
 
@@ -103,7 +115,7 @@ services.atlas = {
 
 - Names: the option is `services.atlas` and the module `nixosModules.atlas`. The pre-rename
   `services.atlas-todo` and `nixosModules.atlas-todo` still work, with a deprecation warning
-  ([Image renamed](#image-renamed)). The system names below stay `atlas-todo`, so a rename never
+  ([Image names](#image-names)). The system names below stay `atlas-todo`, so a rename never
   moves the data.
 - Database: by default the module creates the `atlas-todo` database and user on the host's
   `services.postgresql`, which is additive: an existing cluster keeps its version and settings.
@@ -116,14 +128,12 @@ services.atlas = {
 - Every other setting passes through `settings` with the env names from the table below; the
   module adds no defaults of its own. Secrets never go there, because env values land in the nix
   store, and `JWT_SECRET` in `settings` is rejected explicitly.
-- The web app: `staticDir` points the server at a web export and it serves SPA and API on
-  one port, like the container. The repository flake provides it as `packages.<system>.web-dist`
-  (`staticDir = inputs.atlas.packages.${pkgs.system}.web-dist;`): the same released Atlas Todo
-  web build the image serves, pinned by version and hash in `apps.lock.json`, so a flake update
-  ships the server and its matching web app together. It calls the API at `/api` on its own
-  origin, which the server serves. The app itself is built in
-  [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo); the desktop app's NixOS and
-  Home Manager modules (`programs.atlas-desktop`) moved to that repository's flake.
+- A web app: `staticDir` points the server at a web export and it serves SPA and API on one
+  port. This flake has none; the Atlas Todo web app is the app flake's `web-dist`
+  (`staticDir = inputs.atlas-todo.packages.${pkgs.stdenv.hostPlatform.system}.web-dist;`, with
+  `inputs.atlas-todo.url = "github:atlastodo/atlas-todo"`), built from the app's source at the
+  locked commit. The desktop app's NixOS and Home Manager modules (`programs.atlas-desktop`) are
+  in that flake too.
 - The service runs as the system user `atlas-todo` with a hardened unit (`ProtectSystem=strict`,
   only `dataDir` writable). It listens on 0.0.0.0:8080 by default (`bindAddress`, `port`);
   `openFirewall` opens the port when nothing proxies in front.
@@ -195,7 +205,7 @@ Compose builds `DATABASE_URL` from the `POSTGRES_*` values and pins `PORT=8080` 
 | `PORT`                                                          | `8080`                                                  | Listening port.                                                                                                                                                                                                                                                                                                            |
 | `BIND_ADDR`                                                     | `0.0.0.0`                                               | Listening address, any IPv4 or IPv6 address: `127.0.0.1` for localhost only, `::` for every interface (IPv4 too, unless the host sets `net.ipv6.bindv6only`). Pinned to `0.0.0.0` under compose; use `PORT_BIND` there.                                                                                                    |
 | `RUST_LOG`                                                      | `info` in the image, `atlas_server=info,warn` otherwise | Log filter, in `tracing` EnvFilter syntax.                                                                                                                                                                                                                                                                                 |
-| `STATIC_DIR`                                                    | `/app/dist` if that directory exists                    | The web app to serve. The image sets it. Without it the server is API only.                                                                                                                                                                                                                                                |
+| `STATIC_DIR`                                                    | `/app/dist` if that directory exists                    | The web app to serve. Core's image has none; the Atlas Todo image sets it. Without it the server is API only.                                                                                                                                                                                                              |
 | `CORS_ALLOWED_ORIGINS`                                          | any origin                                              | Comma-separated exact origins. Auth uses a bearer header, not cookies, so any origin is safe. If you set a list, include `app://atlas-todo` for the desktop app.                                                                                                                                                           |
 | `ACCESS_TOKEN_TTL_SECONDS`                                      | `900`                                                   | Access token lifetime (15 minutes).                                                                                                                                                                                                                                                                                        |
 | `REFRESH_TOKEN_TTL_SECONDS`                                     | `2592000`                                               | Refresh token lifetime (30 days).                                                                                                                                                                                                                                                                                          |
@@ -325,27 +335,15 @@ Switching backends does not move existing blobs. Copy them across first: the buc
 under the prefix is the same as the directory layout under `BLOB_DIR`, so for example
 `rclone copy /app/data/blobs remote:atlas-todo/<S3_PREFIX>` works. Skip the `.tmp-*` files.
 
-### Image build arguments
+### Serving a web app
 
-Only for `docker compose up -d --build` or `docker build`:
-
-The image does not build the web app: it serves a released Atlas Todo web build (an
-`atlas-todo-web-X.Y.Z.tar.gz` asset of [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo/releases)),
-downloaded during the build and checked against its SHA-256. By default that is the `todo` pin in
-`apps.lock.json`, together with that release's `THIRD_PARTY_NOTICES.txt` (in the image as
-`/usr/share/doc/atlas-todo/web/THIRD_PARTY_NOTICES.txt`). The arguments serve another build:
-
-| Argument                  | Default           | Notes                                                                                              |
-| ------------------------- | ----------------- | -------------------------------------------------------------------------------------------------- |
-| `TODO_WEB_URL`            | the pin's URL     | An `atlas-todo-web-X.Y.Z.tar.gz` (one top-level directory of static files with an `index.html`).   |
-| `TODO_WEB_SHA256`         | the pin's SHA-256 | That file's SHA-256, required with `TODO_WEB_URL`; the build fails on a mismatch.                  |
-| `TODO_WEB_NOTICES_URL`    | the pin's notices | With `TODO_WEB_URL`: the web build's third-party notices, optional (left out, the image has none). |
-| `TODO_WEB_NOTICES_SHA256` | the pin's SHA-256 | That file's SHA-256, required with `TODO_WEB_NOTICES_URL`.                                         |
-
-The released web build calls its API at `/api` on its own origin. A build with another API URL,
-or of modified app code, is built in the app repository (`scripts/web-release-tarball.sh`) and passed
-here; if you run modified code, its About screen should link to that code, since the AGPL asks you
-to offer your users its source.
+The image serves no web app. `STATIC_DIR` (default `/app/dist` when that directory exists) points
+the server at one, served at `/` next to the API: mount a directory into the container and set
+it, or use an app's own image (`ghcr.io/atlastodo/atlas-todo`, which adds the Atlas Todo web app at
+`/app/web`). An Atlas Todo web build is the `atlas-todo-web-X.Y.Z.tar.gz` asset of each
+[app release](https://github.com/atlastodo/atlas-todo/releases); it calls the API at `/api` on
+its own origin. If you serve modified app code, its About screen should link to that code, since
+the AGPL asks you to offer your users its source.
 
 ## Reverse proxy
 
@@ -492,6 +490,10 @@ Migrations run when the new server starts. Read the release notes before a minor
 they list any manual steps. A client that is too old for the server is refused with
 `426 Upgrade Required` and asks the user to update.
 
+From 0.1.17, the image is the server alone (see [Image names](#image-names)): before pulling it,
+set `ATLAS_IMAGE=ghcr.io/atlastodo/atlas-todo:latest` (or a pinned version) in `.env` to keep the
+Atlas Todo web app.
+
 From 0.1.10, compose publishes the port on localhost only. If clients reach port 8080 directly
 rather than through a proxy on the same host, set `PORT_BIND=8080` in `.env` before upgrading.
 
@@ -500,8 +502,8 @@ rather than through a proxy on the same host, set `PORT_BIND=8080` in `.env` bef
 Sync protocol 7 ([decision 0006](./decisions/0006-opaque-sync-metadata.md)) stops sending item kinds,
 field names and links in plaintext. A server that speaks it refuses older clients, so update the
 apps (Android, desktop, journal, vault, and the CLIs: `atlas-todo`, `atlas-journal`,
-`atlas-vault`, or core's `atlas` up to 0.1.15) together with the server; the web app it
-serves is the one its image pins. Nothing has to be migrated by hand: the data stays where it is,
+`atlas-vault`, or core's `atlas` up to 0.1.15) together with the server; the web app comes with
+the Atlas Todo image of a matching release. Nothing has to be migrated by hand: the data stays where it is,
 and each client re-encodes what its account holds on its first sync, then drops the old rows. Until
 every member of a shared project has synced once, that member's copy keeps its old metadata.
 
@@ -567,14 +569,14 @@ The container and the NixOS module are the supported setups; the parts are ordin
 
 ```sh
 cargo build --release -p atlas-server            # the server binary
-curl -fsSLo web.tar.gz "$(jq -r .todo.url apps.lock.json)"     # the pinned web app
-echo "$(jq -r .todo.sha256 apps.lock.json)  web.tar.gz" | sha256sum -c -
-mkdir web && tar -xzf web.tar.gz -C web --strip-components=1
+# Optionally a web app, e.g. an Atlas Todo release (check it against the release's SHA256SUMS.txt):
+curl -fsSLO https://github.com/atlastodo/atlas-todo/releases/download/vX.Y.Z/atlas-todo-web-X.Y.Z.tar.gz
+mkdir web && tar -xzf atlas-todo-web-X.Y.Z.tar.gz -C web --strip-components=1
 ```
 
 The server links OpenSSL (for passkey verification): building needs its headers and
 `pkg-config` (`libssl-dev` on Debian and Ubuntu), and running needs the library (`libssl3`).
 
-Run `target/release/atlas-server` with `DATABASE_URL`, `JWT_SECRET` and
-`STATIC_DIR=web`, and set `BLOB_DIR` to a directory the server can write. The
+Run `target/release/atlas-server` with `DATABASE_URL`, `JWT_SECRET` (and `STATIC_DIR=web` for
+the web app), and set `BLOB_DIR` to a directory the server can write. The
 project is tested against PostgreSQL 16.

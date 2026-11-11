@@ -1,7 +1,7 @@
-## v0.1.17
+## v0.1.18
 
-### Fixes
-- Link AWS-LC in the server package and build the flake in CI
+### Features
+- The server image and flake no longer pin the todo web app
 
 ### Maintenance
-- 1 dependency update ([full list](https://github.com/atlastodo/atlas/compare/v0.1.16...v0.1.17))
+- 1 maintenance commit (CI, build, tests) ([full list](https://github.com/atlastodo/atlas/compare/v0.1.17...v0.1.18))

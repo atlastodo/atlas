@@ -3,9 +3,8 @@
 //
 // The JavaScript side is every package reachable through `dependencies` (and installed peer and
 // optional dependencies) from the core packages (client-core, sdk). Dev dependencies
-// (build tools, tests) are not shipped or listed. The apps keep their own notices: the todo app's
-// release (atlastodo/atlas-todo) attaches its THIRD_PARTY_NOTICES.txt, which the server image
-// carries next to the web build (docker/Dockerfile). The
+// (build tools, tests) are not shipped or listed. The apps keep their own notices, in their
+// releases and images (the todo app's image adds its web app's notices on top of this one). The
 // Rust side is the normal (non-dev, non-build) dependency closure of atlas-server for Linux, from
 // `cargo metadata` (the apps' CLIs ship their own notices, from their repositories).
 //
@@ -177,9 +176,6 @@ function writeNotices(file, withRust) {
     "Atlas is licensed under the GNU Affero General Public License v3.0 only. It includes the",
     "third-party software below, each under its own licence. Packages with identical licence texts",
     "share one copy of the text.",
-    "",
-    "The Atlas Todo web app in the server image is a release of https://github.com/atlastodo/atlas-todo",
-    "with its own notices: web/THIRD_PARTY_NOTICES.txt next to this file, also attached to that release.",
     "",
   ];
   const section = (title, pkgs) => {

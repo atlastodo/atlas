@@ -1,6 +1,5 @@
 # The moving `dev` Docker tag: every push to the dev branch runs CI (only the jobs whose files
-# changed, as on main) and, if it passes, publishes the image as `dev` on GHCR and the Docker Hub
-# mirror. Release commits (`chore(release): ...`) are skipped: their tag's release run builds them.
+# changed, as on main) and, if it passes, publishes the image as `dev` on GHCR. Release commits (`chore(release): ...`) are skipped: their tag's release run builds them.
 # Docs-only pushes change nothing in the image and are skipped too.
 name: Dev image
 
@@ -39,6 +38,5 @@ jobs:
       packages: write
       id-token: write
       attestations: write
-    secrets: inherit
     with:
       tags: type=raw,value=dev
