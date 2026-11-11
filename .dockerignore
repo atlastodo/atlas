@@ -13,9 +13,6 @@
 !LICENSE
 !THIRD_PARTY_NOTICES.txt
 
-# The pinned web build the image serves
-!apps.lock.json
-
 # Sources the image is built from
 !crates
 !migrations

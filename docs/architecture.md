@@ -13,8 +13,9 @@ records why the main choices were made.
 
 The apps (`apps/mobile`, `apps/electron`) live in their own repository,
 [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo), on the core packages of this one;
-every `apps/` path on this page is in that repository. The server image and the flake serve a
-pinned release of its web build (`apps.lock.json`).
+every `apps/` path on this page is in that repository. Core pins nothing of the apps: the todo
+app pins a core release, and its image (`ghcr.io/atlastodo/atlas-todo`) is this server image plus
+its web build.
 
 | Path                   | Language              | Role                                                                                                                                                                         |
 | ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

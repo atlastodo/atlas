@@ -21,14 +21,16 @@ with other people on the same server.
 **Looking for the app?** The to-do app (web, Android and the Linux desktop), its screenshots,
 features and downloads live in [atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo).
 Try it at [app.atlastodo.dev](https://app.atlastodo.dev) (a test server that may be reset), or
-[self-host it](#self-hosting): the server image here serves the web app too. Website:
+self-host it with its image, `ghcr.io/atlastodo/atlas-todo` (this server plus the web app; see
+its [self-hosting guide](https://github.com/atlastodo/atlas-todo/blob/main/docs/self-hosting.md)). Website:
 [atlastodo.dev](https://atlastodo.dev).
 
 ## What is in this repository
 
 - **The sync server** (`crates/atlas-server`): accounts, the encrypted op log, sharing, attachments,
-  passkeys and the admin API, shipped as the `ghcr.io/atlastodo/atlas` image (with a pinned
-  release of the Atlas Todo web app) and as a NixOS module.
+  passkeys and the admin API, shipped as the `ghcr.io/atlastodo/atlas` image and as a NixOS
+  module. It serves no app of its own: an app's web build is served by pointing `STATIC_DIR` at
+  it, which the Atlas Todo image does.
 - **The client core**, in TypeScript (`@atlastodo/client-core` and `@atlastodo/sdk` on npm and
   on each release) and in Rust (`crates/atlas-client`): the local store, sync client, end-to-end
   encryption, app definitions and API-token sessions, kept in agreement by shared test vectors.
@@ -78,9 +80,12 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Open <http://localhost:8080> and create an account. One container serves the web app and the
-API, and applies database migrations when it starts. Run compose commands from the repository
-root so it reads the root `.env`.
+This runs the server alone: the API on <http://localhost:8080>, for the apps and the CLIs to sign
+in to. It applies database migrations when it starts. Run compose commands from the repository
+root so it reads the root `.env`. For Atlas Todo with its web app, run the
+[atlastodo/atlas-todo](https://github.com/atlastodo/atlas-todo/blob/main/docs/self-hosting.md)
+compose file instead: the same stack with the `ghcr.io/atlastodo/atlas-todo` image (its settings
+are the ones documented here).
 
 The port is published on localhost only. To use it from other devices, put a TLS reverse proxy in
 front ([Caddy takes three lines](./docs/self-hosting.md#caddy)), or set `PORT_BIND=8080` in
@@ -92,7 +97,8 @@ Signing up never makes anyone an admin. Create your account, then promote it:
 docker compose exec server atlas-server promote you@example.com
 ```
 
-The admin panel is the Admin section of Settings, shown to admins only.
+The admin panel is the Admin section of the todo web app's Settings, shown to admins only; the
+admin API is in [docs/self-hosting.md](./docs/self-hosting.md#accounts-and-admins).
 
 [docs/self-hosting.md](./docs/self-hosting.md) has the full settings reference, reverse-proxy
 examples, backups, upgrades and closing registration.
@@ -122,7 +128,7 @@ devenv shell           # enter the environment
 cp .env.example .env   # then set JWT_SECRET
 devenv up              # start PostgreSQL (in its own terminal)
 db:migrate
-dev                    # the server with live reload, serving the pinned web app
+dev                    # the server with live reload (STATIC_DIR=<dir> also serves a web app)
 test:all               # all test suites
 lint                   # rustfmt, clippy and TypeScript checks
 ```
@@ -158,7 +164,6 @@ packages/client-core  TS: local store, sync client, E2EE
 packages/sdk          TS: headless client for integrations, signed in with an API token
 manifests/            JSON app manifests (entity kinds, plaintext fields), bundled by server and clients
 test-vectors/         JSON fixtures shared by the Rust and TypeScript tests
-apps.lock.json        the pinned Atlas Todo web build the image and the flake serve
 docker/               Dockerfile and the compose stack (included by compose.yaml)
 nix/                  Nix packages, the NixOS server module and its VM test
 docs/                 Self-hosting, architecture, integration and release guides

@@ -1,10 +1,10 @@
 # Release on a v* tag (pushed after `version:bump` + the `chore(release): vX.Y.Z` commit):
-# full CI, then the Docker image (the server plus the pinned todo web build, apps.lock.json) and
+# full CI, then the server's Docker image (ghcr.io/atlastodo/atlas) and
 # the core JS packages as npm tarballs (atlastodo-<pkg>-X.Y.Z.tgz), then a GitHub Release
 # carrying the tag's RELEASE_NOTES.md section, every artifact, the third-party notices, their build
 # provenance attestations and SHA256SUMS.txt, then the npm publish of the packages.
-# The todo app (APK/AAB, desktop tarball, web tarball, the atlas-todo CLI) is released from
-# atlastodo/atlas-todo; the atlas-journal CLI from atlastodo/atlas-journal; the atlas-vault CLI
+# The todo app (APK/AAB, desktop tarball, web tarball, its server image ghcr.io/atlastodo/atlas-todo
+# on top of this one, the atlas-todo CLI) is released from atlastodo/atlas-todo; the atlas-journal CLI from atlastodo/atlas-journal; the atlas-vault CLI
 # and secretspec-provider-atlas from atlastodo/atlas-vault.
 # A tag with a "-" (vX.Y.Z-rc.N, tagged by hand on the dev branch) is a pre-release: a GitHub
 # prerelease that is never "latest", the Docker tag X.Y.Z-rc.N (never latest) and the npm dist-tag
@@ -99,7 +99,6 @@ jobs:
       packages: write
       id-token: write
       attestations: write
-    secrets: inherit
     with:
       tags: |
         type=semver,pattern={{version}}

@@ -1,5 +1,5 @@
 # NixOS VM test for services.atlas: a fresh host with the local Postgres,
-# the auto-generated JWT secret and the web export served from staticDir.
+# the auto-generated JWT secret and a (stub) web app served from staticDir.
 { module, webDist }:
 {
   name = "atlas-todo-server";
@@ -20,7 +20,7 @@
     machine.wait_for_open_port(8080)
 
     machine.succeed("curl -sf http://localhost:8080/health")
-    machine.succeed("curl -sf http://localhost:8080/ | grep -qi '<html'")
+    machine.succeed("curl -sf http://localhost:8080/ | grep -q atlas-vm-test")
     machine.succeed("curl -sf http://localhost:8080/discovery | grep -q '\"id\":\"todo\"'")
 
     # The generated secret survives a restart (sessions stay valid).

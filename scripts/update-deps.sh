@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Refreshes every dependency Dependabot can't reach, so nothing sits on an old version:
 #   flake.lock(s) and devenv.lock (nixpkgs, shared by the two: Node, Bun, …); the Bun pin
-#   (.bun-version) and the docs, which follow the Bun that nixpkgs ships; the core pin (in the apps)
-#   and the app web pins (apps.lock.json, in core); the whole bun.lock, transitive dependencies and
-#   overrides included; each Expo app's SDK-managed packages (`expo install --fix`); Cargo.lock;
-#   and nix/bun.nix. Steps for files a repo doesn't have are skipped. Run by
+#   (.bun-version) and the docs, which follow the Bun that nixpkgs ships; the core pin (in the apps);
+#   the whole bun.lock, transitive dependencies and overrides included; each Expo app's SDK-managed
+#   packages (`expo install --fix`); Cargo.lock; and nix/bun.nix. Steps for files a repo doesn't have are skipped. Run by
 #   `.github/workflows/deps-refresh.yml` weekly, or locally as `deps:update`.
 #
 # npm releases must be at least DEPS_MIN_AGE seconds old (default 3 days), a buffer against
@@ -117,19 +116,6 @@ if [[ -n "$core_old" ]]; then
   else
     echo "core stays at $core_old"
   fi
-fi
-
-# The app web builds core's image and flake serve (apps.lock.json) follow each app's newest
-# release, rc or stable, and never move back (`pin-app-web.mjs --latest`, which also checks the build
-# and its notices against the release's sums). app-web-pin.yml does the same hourly.
-if [[ -f apps.lock.json && -f scripts/pin-app-web.mjs ]]; then
-  step "apps.lock.json"
-  while read -r app repo; do
-    node scripts/pin-app-web.mjs --latest --repo "$repo" --app "$app"
-  done < <(bun -e '
-    const lock = await Bun.file("apps.lock.json").json();
-    for (const [app, pin] of Object.entries(lock))
-      if (pin?.url) console.log(app, new URL(pin.url).pathname.split("/").slice(1, 3).join("/"))')
 fi
 
 if [[ -f bun.lock ]]; then

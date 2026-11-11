@@ -59,8 +59,8 @@ A `v*` tag runs `.github/workflows/release.yml`:
   GitHub's arm64 runners are free only there), each pushed by digest with its build cache in a
   `buildcache-<arch>` tag, then merged into the multi-arch `ghcr.io/<owner>/<repo>` with the
   tags `X.Y.Z`, `X.Y` and `latest`, an SBOM, BuildKit provenance and a GitHub build provenance
-  attestation. The image's web app is the `todo` pin in `apps.lock.json`, which
-  `docker/Dockerfile` downloads and checks against its SHA-256.
+  attestation. The image is the server alone; the todo app's repository publishes
+  `ghcr.io/atlastodo/atlas-todo` on top of it, pinned to a core release.
 - **Core packages**: `scripts/pack-core-packages.sh` builds the two packages (Bun-bundled ESM in
   `dist/`, tsc declarations, the test vectors they ship) and packs them with `bun pm pack` as
   `atlastodo-client-core-X.Y.Z.tgz` and `atlastodo-sdk-X.Y.Z.tgz`.
@@ -76,23 +76,21 @@ A `v*` tag runs `.github/workflows/release.yml`:
   release runs in.
 
 A tag that contains `-` (`v0.1.4-rc.1`) is a prerelease: the GitHub Release is marked prerelease
-and never "latest", the image gets only `0.1.4-rc.1` (never `latest`, on Docker Hub too), and npm
+and never "latest", the image gets only `0.1.4-rc.1` (never `latest`), and npm
 gets the `next` dist-tag.
 
 **Third-party notices**: `scripts/third-party-licenses.mjs` lists the licences of the Rust crates
 the server ships and of the core packages' JS dependencies. The image carries it as
-`/usr/share/doc/atlas-todo/THIRD_PARTY_NOTICES.txt` and the release attaches it. The web app's
-own notices come from its release (`THIRD_PARTY_NOTICES.txt` there, pinned with the web build):
-the image carries them as `/usr/share/doc/atlas-todo/web/THIRD_PARTY_NOTICES.txt`. `lint` and CI
+`/usr/share/doc/atlas/THIRD_PARTY_NOTICES.txt` and the release attaches it. `lint` and CI
 fail when a shipped JS package has a licence outside the allow-list.
 
 **GHCR visibility**: the first push to GHCR creates the package as private, so `docker pull` needs
 a login until it is made public (Package settings → Danger Zone → Change visibility). That cannot
 be undone, and it publishes every tag, including the `buildcache-*` tags, which hold the source
 tree. To check the package from the CLI, first run
-`gh auth refresh -s read:packages,write:packages`. With `DOCKERHUB_IMAGE` and the two
-`DOCKERHUB_*` secrets set, the same tags also go to Docker Hub, but only from a public
-repository, because Docker Hub creates a new repository as public.
+`gh auth refresh -s read:packages,write:packages`. Images go to GHCR only; the Docker Hub mirror
+(`atlastodo/atlas`) and the `ghcr.io/atlastodo/atlas-todo` alias were dropped after 0.1.16 (the
+alias name now belongs to the todo app's image).
 
 ## Secrets and variables
 
@@ -100,18 +98,12 @@ Set these under Settings → Secrets and variables → Actions. `GITHUB_TOKEN` i
 automatically and is used for GHCR and the release. A ruleset keeps `v*` tags from being moved or
 deleted, and the `release` environment is limited to `v*` tags.
 
-| Secret               | Required | What it is                                                                                                                |
-| -------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `DOCKERHUB_USERNAME` | no       | the Docker Hub user for the mirror (see `DOCKERHUB_IMAGE`)                                                                |
-| `DOCKERHUB_TOKEN`    | no       | a Docker Hub access token with Read & Write scope                                                                         |
-| `NPM_TOKEN`          | no       | a granular npm publish token for the `@atlastodo` scope that bypasses 2FA; unused when `NPM_TRUSTED_PUBLISHING` is `true` |
-
-The `DOCKERHUB_*` secrets stay repository secrets, since the `dev` image pushes use them.
+| Secret      | Required | What it is                                                                                                                |
+| ----------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `NPM_TOKEN` | no       | a granular npm publish token for the `@atlastodo` scope that bypasses 2FA; unused when `NPM_TRUSTED_PUBLISHING` is `true` |
 
 | Variable                 | Default | What it does                                                                                |
 | ------------------------ | ------- | ------------------------------------------------------------------------------------------- |
-| `DOCKERHUB_IMAGE`        | unset   | also push the server image to Docker Hub as this name, e.g. `atlastodo/atlas`               |
-| `IMAGE_ALIASES`          | unset   | more names for the server image (`ghcr.io/…` or `docker.io/…`, space-separated)             |
 | `NPM_TRUSTED_PUBLISHING` | unset   | `true`: publish the core packages with npm trusted publishing (OIDC) instead of `NPM_TOKEN` |
 
 The app's signing and store secrets (`ANDROID_*`, `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`) and
@@ -119,26 +111,11 @@ variables (`ATLAS_APP_ID`, `ATLAS_EAS_PROJECT_ID`, `PLAY_STORE_TRACK`,
 `PLAY_STORE_PRERELEASE_TRACK`, `EXPO_PUBLIC_API_URL`) belong to atlastodo/atlas-todo; core no
 longer reads them.
 
-## Pinning the web app
+## The apps
 
-The server image and the flake's `web-dist` serve a released web build of the todo app, never a
-build from source. The pin is the `todo` entry of `apps.lock.json`: the version, the URL and
-SHA-256 of `atlas-todo-web-X.Y.Z.tar.gz`, and the same for that release's
-`THIRD_PARTY_NOTICES.txt`.
-
-It moves by itself: `app-web-pin.yml` checks the app's releases hourly and, when there is a newer
-one (rc or stable; the pin never moves back), opens a PR to `dev` from `chore/app-web-pin`, which
-`deps-automerge.yml` merges once CI passes. `deps:update` does the same weekly. To move it by hand:
-
-```sh
-node scripts/pin-app-web.mjs X.Y.Z    # downloads both, checks them against its SHA256SUMS.txt
-node scripts/pin-app-web.mjs --latest # the newest release, if newer than the pin
-```
-
-Review the `apps.lock.json` diff and commit it (`chore: pin the todo web build to atlas-todo
-vX.Y.Z`). The next image (the `dev` tag on a push to `dev`) and `nix build .#web-dist` then serve
-that build. The asset is built with `EXPO_PUBLIC_API_URL=/api`, the path the server serves its API
-on, so it works on any origin the server runs at.
+Core pins nothing of the apps and builds none of them. Each app pins a core release (its
+`@atlastodo/*` packages, the `atlas-client` git tag and, for the todo app, the base of its image)
+and moves it with its `deps:update`; a core release reaches an app through that.
 
 ## Pinning the core packages by release URL
 
@@ -174,6 +151,6 @@ and checks them; locally, `packages:pack` writes them to `dist-packages/`.
 ## Releasing from a fork
 
 The image goes to `ghcr.io/<your account>/<repo>` and the release to your repository without any
-setting. Leave `DOCKERHUB_IMAGE`, `NPM_TOKEN` and `NPM_TRUSTED_PUBLISHING` unset unless you
+setting. Leave `NPM_TOKEN` and `NPM_TRUSTED_PUBLISHING` unset unless you
 publish under your own names; the packages' `repository.url` must name your repository for npm
 provenance.

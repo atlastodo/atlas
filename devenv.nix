@@ -113,17 +113,13 @@ in
   };
 
   # --- Scripts (developer entry points) --------------------------------------
-  # `dev` -- the sync server with reload (cargo watch) on :8080, serving the pinned todo web build
-  # (the flake's web-dist, apps.lock.json) unless STATIC_DIR is set. Needs Postgres (`devenv up`).
-  # Work on the app itself happens in atlastodo/atlas-todo, against this server.
+  # `dev` -- the sync server with reload (cargo watch) on :8080: the API alone, or also a web app
+  # when STATIC_DIR points at one (e.g. `nix build github:atlastodo/atlas-todo#web-dist`). Needs
+  # Postgres (`devenv up`). Work on the apps happens in their repositories, against this server.
   scripts.dev.exec = ''
     set -euo pipefail
     cd "$DEVENV_ROOT"
-    if [ -z "''${STATIC_DIR:-}" ]; then
-      STATIC_DIR="$(nix build --no-link --print-out-paths .#web-dist)"
-      export STATIC_DIR
-    fi
-    echo ">> atlas-server on http://localhost:''${PORT:-8080}, web app from $STATIC_DIR"
+    echo ">> atlas-server on http://localhost:''${PORT:-8080}''${STATIC_DIR:+, web app from $STATIC_DIR}"
     sqlx migrate run --source migrations
     exec ${pkgs.cargo-watch}/bin/cargo-watch -x 'run -p atlas-server'
   '';
