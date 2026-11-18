@@ -260,6 +260,10 @@ pub fn decode_ops(
                 scope: scope.map(str::to_owned),
                 envelope,
                 ts,
+                pushed_by: w
+                    .get("pushed_by")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
             });
             continue;
         };
@@ -404,6 +408,45 @@ mod tests {
         moved["field"] = json!("0".repeat(32));
         let (ops, aside) = decode_ops(&[moved], &keyring, &store, Some);
         assert!(ops.is_empty() && aside.sealed.len() == 1);
+    }
+
+    #[test]
+    fn a_revived_activity_actor_must_be_its_pusher() {
+        crate::testing::register_test_app();
+        let (_, _, project) = keys();
+        // The project's key is not here yet: both stay sealed.
+        let mut keyring = Keyring::new([7u8; 32], [8u8; 32], None);
+        let mut store = Store::new(Uuid::nil());
+        let (forged, real) = (Uuid::new_v4(), Uuid::new_v4());
+        let actor = |id: Uuid, pushed_by: &str| {
+            let mut op = encode_op(
+                &set(EntityKind::Activity, id, "actor_id", json!("me")),
+                &project,
+            )
+            .unwrap();
+            op["pushed_by"] = json!(pushed_by);
+            op
+        };
+        let (_, aside) = decode_ops(
+            &[actor(forged, "someone else"), actor(real, "me")],
+            &keyring,
+            &store,
+            Some,
+        );
+        assert_eq!(aside.sealed.len(), 2);
+        for pending in aside.sealed {
+            store.add_sealed(pending);
+        }
+        keyring.set_project_key("p1", [9u8; 32]);
+        crate::scope::revive_locked_values(&mut store, &keyring, Some("me"), true);
+
+        let actor_of = |id: Uuid| {
+            store
+                .get(EntityKind::Activity, &id.to_string())
+                .and_then(|f| f.get("actor_id").cloned())
+        };
+        assert_eq!(actor_of(real), Some(json!("me")));
+        assert_eq!(actor_of(forged), None);
     }
 
     #[test]
