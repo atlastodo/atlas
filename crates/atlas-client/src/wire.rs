@@ -415,7 +415,11 @@ mod tests {
         crate::testing::register_test_app();
         let (_, _, project) = keys();
         // The project's key is not here yet: both stay sealed.
-        let mut keyring = Keyring::new([7u8; 32], [8u8; 32], None);
+        let mut keyring = Keyring::new(
+            crate::crypto::random_bytes(),
+            crate::crypto::random_bytes(),
+            None,
+        );
         let mut store = Store::new(Uuid::nil());
         let (forged, real) = (Uuid::new_v4(), Uuid::new_v4());
         let actor = |id: Uuid, pushed_by: &str| {
