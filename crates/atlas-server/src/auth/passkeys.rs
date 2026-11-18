@@ -634,25 +634,57 @@ pub async fn login_options(
         None => (Vec::new(), Vec::new()),
     };
     if passkeys.is_empty() {
-        // No passkey to name: a discoverable ceremony that names a stand-in credential, shaped
-        // like a real one, so the answer does not tell whether the account exists. No passkey
-        // answers for it, and any other assertion is held to an account of `None`, like a
-        // discoverable sign-in.
-        let mut h = Sha256::new();
-        h.update(state.config.jwt_secret.as_slice());
-        h.update(b"passkey-dummy");
-        h.update(email.as_bytes());
-        let id = b64url(&h.finalize()[..16]);
+        // No passkey to name: a discoverable ceremony that names stand-in credentials, shaped like
+        // a real answer (`email_first_shape`), so it does not tell whether the account exists. No
+        // passkey answers for them, and any other assertion is held to an account of `None`, like
+        // a discoverable sign-in.
         let (mut options, ceremony) = rp.discoverable_options(&prf_input()).map_err(internal)?;
-        options["allowCredentials"] = serde_json::json!([{ "type": "public-key", "id": id, "transports": ["internal", "hybrid"] }]);
-        options["extensions"]["prf"]["evalByCredential"] =
-            serde_json::json!({ id: { "first": prf_input() } });
+        email_first_shape(&mut options, &state.config.jwt_secret, &email);
         return issue_challenge(&state, "login", None, (options, ceremony)).await;
     }
-    let ceremony = rp
+    let (mut options, ceremony) = rp
         .request_options(&passkeys, &prf_input(), &prf)
         .map_err(internal)?;
-    issue_challenge(&state, "login", user_id, ceremony).await
+    email_first_shape(&mut options, &state.config.jwt_secret, &email);
+    issue_challenge(&state, "login", user_id, (options, ceremony)).await
+}
+
+/// Credentials an email-first answer names at least: an account's own, padded with stand-ins.
+const LISTED_CREDENTIALS: usize = 4;
+
+/// Give an email-first answer one shape whether the account exists and however many passkeys it
+/// has (up to [`LISTED_CREDENTIALS`]): entries carry no transports, stand-in ids (stable per
+/// email, matched by no authenticator) pad the list, and the list is sorted.
+fn email_first_shape(options: &mut Value, secret: &[u8], email: &str) {
+    let mut ids: Vec<String> = options["allowCredentials"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|c| c["id"].as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut n = 0u8;
+    while ids.len() < LISTED_CREDENTIALS {
+        let mut h = Sha256::new();
+        h.update(secret);
+        h.update(b"passkey-dummy");
+        h.update(email.as_bytes());
+        h.update([n]);
+        ids.push(b64url(&h.finalize()[..16]));
+        n += 1;
+    }
+    ids.sort();
+    options["allowCredentials"] = Value::Array(
+        ids.iter()
+            .map(|id| serde_json::json!({ "type": "public-key", "id": id }))
+            .collect(),
+    );
+    options["extensions"]["prf"]["evalByCredential"] = Value::Object(
+        ids.iter()
+            .map(|id| (id.clone(), serde_json::json!({ "first": prf_input() })))
+            .collect(),
+    );
 }
 
 /// The stored passkey an assertion names, once verified: its slot.
