@@ -115,7 +115,7 @@ pub async fn purge_once(pool: &PgPool, days: i64) -> AppResult<PurgeStats> {
     // `stale` is materialized once so both deletes act on the same keys, and only picks
     // tombstones with work left (a kept scope link is none) so kept ones cannot starve the batch. It runs under the
     // sync-write lock: a push landing mid-statement could resurrect the entity.
-    let mut tx = crate::sync::begin_sync_write(pool).await?;
+    let mut tx = crate::sync::begin_sync_write(pool, None).await?;
     let tombstones = sqlx::query(
         "WITH stale AS MATERIALIZED (
              SELECT t.user_id, t.entity, t.entity_id,
@@ -156,7 +156,7 @@ pub async fn purge_once(pool: &PgPool, days: i64) -> AppResult<PurgeStats> {
     )
     .bind(days.clamp(1, i64::from(MAX_RETENTION_DAYS)) as i32)
     .bind(PURGE_BATCH)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
     tx.commit().await?;
 

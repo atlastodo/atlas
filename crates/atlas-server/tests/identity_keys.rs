@@ -281,3 +281,70 @@ async fn the_signing_key_routes_need_a_session() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
+
+/// Installing the account's first signing key needs the credential again, unless the session just
+/// signed in. A token refreshed from an old session (as from a stolen refresh token) keeps its
+/// sign-in time, so it does not count as fresh.
+#[tokio::test]
+async fn a_first_signing_key_needs_a_fresh_sign_in_or_the_password() {
+    let router = setup().await;
+    let email = unique_email();
+    let created = signup(&router, &email, json!({})).await;
+
+    // Make the session an old one, then refresh it: still old.
+    let pool = sqlx::PgPool::connect(&test_database_url()).await.unwrap();
+    sqlx::query(
+        "UPDATE refresh_tokens SET signed_in_at = now() - interval '1 hour'
+          WHERE user_id = (SELECT id FROM users WHERE email = $1)",
+    )
+    .bind(&email)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (status, refreshed) = send(
+        &router,
+        "POST",
+        "/auth/refresh",
+        None,
+        json!({ "refresh_token": created["refresh_token"] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{refreshed}");
+    let token = refreshed["access_token"].as_str().unwrap();
+
+    let (status, body) = put_signing_key(&router, token, &"cd".repeat(32), wrapped("k")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(
+        signing_key(&router, token).await["signing_public_key"],
+        Value::Null
+    );
+
+    // A wrong password is refused; the right one installs it.
+    let with = |password: &str| {
+        json!({
+            "signing_public_key": "cd".repeat(32), "encrypted_signing_key": wrapped("k"),
+            "current_password": password,
+        })
+    };
+    let (status, _) = send(
+        &router,
+        "PUT",
+        "/auth/signing-key",
+        Some(token),
+        with("nope"),
+    )
+    .await;
+    assert_ne!(status, StatusCode::NO_CONTENT);
+    let (status, body) = send(
+        &router,
+        "PUT",
+        "/auth/signing-key",
+        Some(token),
+        with(PASSWORD),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    // Repeating the stored key needs nothing more.
+    let (status, _) = put_signing_key(&router, token, &"cd".repeat(32), wrapped("k")).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}

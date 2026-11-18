@@ -476,7 +476,7 @@ pub(crate) async fn deliver_to_members(
         return Ok(());
     }
     // Same serialization as push: this inserts into `operations` and hands out cursors.
-    let mut tx = begin_sync_write(&state.pool).await?;
+    let mut tx = begin_sync_write(&state.pool, None).await?;
     let batches = apply_to_members(&mut tx, members, ops).await?;
     tx.commit().await?;
     publish_batches(state, batches);

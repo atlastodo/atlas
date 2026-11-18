@@ -462,7 +462,7 @@ impl BlobStore {
                     .bind(sha)
                     .execute(&mut *tx)
                     .await?;
-                    bind_blobs(&mut tx, uploader, &[], &[sha.to_owned()]).await?;
+                    bind_blobs(&mut tx, uploader, &[], &[], &[sha.to_owned()]).await?;
                 }
                 tx.commit().await?;
                 return Ok(PutOutcome::Existing);
@@ -491,7 +491,7 @@ impl BlobStore {
         .execute(&mut *tx)
         .await?;
         // Metadata may have been pushed before this upload finished; bind to it now.
-        bind_blobs(&mut tx, uploader, &[], &[sha.to_owned()]).await?;
+        bind_blobs(&mut tx, uploader, &[], &[], &[sha.to_owned()]).await?;
         tx.commit().await?;
         Ok(PutOutcome::Stored)
     }
@@ -594,6 +594,7 @@ async fn put_blob(
     headers: HeaderMap,
     body: Body,
 ) -> AppResult<(StatusCode, Json<serde_json::Value>)> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let sha = validate_sha256(&sha)?;
     let store = blob_store(&state)?;
     let max = state.config.max_blob_bytes;
@@ -635,6 +636,7 @@ async fn get_blob(
     Path(sha): Path<String>,
     user: AuthUser,
 ) -> AppResult<Response> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let sha = validate_sha256(&sha)?;
     let sql = "SELECT b.sha256 IS NOT NULL, (b.sha256 IS NOT NULL AND ".to_owned()
         + COUNTING_REFERENCE
@@ -823,23 +825,39 @@ fn referenced_sql() -> String {
 
 /// Bind blobs to the project their attachments now live in, as `caller` sees it after a write.
 ///
-/// Considers the caller's current attachments among `entity_ids` (written or moved), and the
-/// attachments, current or legacy, naming one of `shas`. A current attachment's project is its
-/// scope (`entity_scopes`), a legacy one's its task's `project_id`. A blob is rebound only when the
-/// caller may already read it, so a stranger's blob can never be handed to a project of the
-/// caller's choosing. Legacy references go first, so a current one wins.
+/// Considers the caller's current attachments among `written` and `moved` (entities this push
+/// wrote a blob field of, or moved), and the attachments, current or legacy, naming one of
+/// `shas`. A current attachment's project is its scope (`entity_scopes`), a legacy one's its
+/// task's `project_id`. Legacy references go first, so a current one wins.
+///
+/// A reference counts only if the caller wrote it (rows fanned in from co-members do not steer the
+/// binding) or moved its entity in this push, and only toward no project or one the caller is an
+/// active member of. The binding then moves only:
+/// - for the uploader, while the blob's project is not shared (no member rows): the first binding,
+///   and keeping a private attachment's blob with it;
+/// - for an editor or owner of the blob's project, through a move push authorized (`moved`).
+///
+/// So a removed uploader, a commenter or a co-member of another project cannot take a shared
+/// project's blob away from its members.
 pub(crate) async fn bind_blobs(
     conn: &mut PgConnection,
     caller: Uuid,
-    entity_ids: &[Uuid],
+    written: &[Uuid],
+    moved: &[Uuid],
     shas: &[String],
 ) -> AppResult<()> {
     const MAY_REBIND: &str = concat!(
         " WHERE b.sha256 = src.sha",
         "   AND b.project_id IS DISTINCT FROM src.project_id",
-        "   AND (b.uploader_id = $1 OR EXISTS (",
-        "     SELECT 1 FROM project_members m",
-        "      WHERE m.project_id = b.project_id AND m.user_id = $1 AND m.state = 'active'))"
+        "   AND (src.project_id IS NULL OR EXISTS (",
+        "     SELECT 1 FROM project_members d",
+        "      WHERE d.project_id = src.project_id AND d.user_id = $1 AND d.state = 'active'))",
+        "   AND ((b.uploader_id = $1 AND NOT EXISTS (",
+        "         SELECT 1 FROM project_members s WHERE s.project_id = b.project_id))",
+        "     OR (src.moved AND EXISTS (",
+        "         SELECT 1 FROM project_members m",
+        "          WHERE m.project_id = b.project_id AND m.user_id = $1 AND m.state = 'active'",
+        "            AND m.role IN ('editor', 'owner'))))"
     );
     if !shas.is_empty() {
         let legacy = concat!(
@@ -847,7 +865,7 @@ pub(crate) async fn bind_blobs(
             "  FROM (",
             "    SELECT DISTINCT ON (r.value #>> '{}') r.value #>> '{}' AS sha, ",
             uuid_or_null!("(tp.value #>> '{}')"),
-            " AS project_id",
+            " AS project_id, FALSE AS moved",
             "      FROM entity_fields r",
             "      JOIN entity_fields tl",
             "        ON tl.user_id = r.user_id AND tl.entity = 'attachment'",
@@ -873,13 +891,15 @@ pub(crate) async fn bind_blobs(
     let current = concat!(
         "UPDATE blobs b SET project_id = src.project_id",
         "  FROM (",
-        "    SELECT DISTINCT ON (r.value #>> '{}') r.value #>> '{}' AS sha, es.scope AS project_id",
+        "    SELECT DISTINCT ON (r.value #>> '{}') r.value #>> '{}' AS sha, es.scope AS project_id,",
+        "           r.entity_id = ANY($4) AS moved",
         "      FROM entity_fields r",
         "      LEFT JOIN entity_scopes es",
         "        ON es.user_id = r.user_id AND es.entity = r.entity AND es.entity_id = r.entity_id",
         "     WHERE r.user_id = $1 AND r.entity = 'todo.sealed'",
         "       AND r.field IN ('blob_sha', 'thumb_sha')",
-        "       AND (r.entity_id = ANY($3) OR (r.value #>> '{}') = ANY($2))",
+        "       AND (r.entity_id = ANY($3) OR r.entity_id = ANY($4) OR (r.value #>> '{}') = ANY($2))",
+        "       AND (r.pushed_by = $1 OR r.entity_id = ANY($4))",
         "     ORDER BY r.value #>> '{}', r.hlc_wall_ms DESC, r.hlc_counter DESC, r.hlc_node DESC",
         "  ) src"
     )
@@ -888,7 +908,8 @@ pub(crate) async fn bind_blobs(
     sqlx::query(sqlx::AssertSqlSafe(current))
         .bind(caller)
         .bind(shas)
-        .bind(entity_ids)
+        .bind(written)
+        .bind(moved)
         .execute(conn)
         .await?;
     Ok(())

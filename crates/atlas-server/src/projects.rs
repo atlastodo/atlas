@@ -111,6 +111,7 @@ async fn put_project_key(
     Path(project_id): Path<Uuid>,
     Json(req): Json<ProjectKeyPayload>,
 ) -> AppResult<StatusCode> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     validate_key_id(&req.key_id)?;
     let pool = &state.pool;
     let allowed = members::membership(pool, project_id, user.user_id)
@@ -178,6 +179,7 @@ async fn put_member_project_key(
     Path((project_id, member_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<ProjectKeyPayload>,
 ) -> AppResult<StatusCode> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     validate_key_id(&req.key_id)?;
     let signature = validate_signature(req.signature.as_deref())?;
     let pool = &state.pool;
@@ -248,6 +250,7 @@ async fn list_project_keys(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> AppResult<Json<ProjectKeysResponse>> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let keys = sqlx::query_as::<_, ProjectKeyRow>(
         "SELECT pk.project_id, pk.key_id, pk.kind, pk.encrypted_pek, pk.signature, pk.signed_by,
                 s.public_key AS signer_public_key, s.signing_public_key AS signer_signing_key
@@ -300,6 +303,7 @@ async fn list_missing_keys(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> AppResult<Json<Vec<MissingKey>>> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let rows = sqlx::query_as::<_, MissingKey>(sqlx::AssertSqlSafe(format!(
         "WITH wanted AS (
              SELECT c.project_id, c.key_id, 0 AS rank FROM ({CANONICAL_KEYS}) c
@@ -339,6 +343,7 @@ async fn list_rotations(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> AppResult<Json<Vec<PendingRotation>>> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let rows = sqlx::query_as::<_, PendingRotation>(
         "SELECT s.project_id, s.rotation_requested AS request
            FROM project_key_state s
@@ -371,6 +376,7 @@ async fn complete_rotation(
     Path(project_id): Path<Uuid>,
     Json(req): Json<CompleteRotation>,
 ) -> AppResult<StatusCode> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     validate_key_id(&req.key_id)?;
     let pool = &state.pool;
     match members::membership(pool, project_id, user.user_id).await? {

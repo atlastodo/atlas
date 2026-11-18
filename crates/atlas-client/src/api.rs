@@ -209,6 +209,32 @@ pub struct PushResult {
 /// Re-opens a token session when the access token expired (no refresh token exists for one).
 pub type Reauthenticate = Box<dyn Fn(&ApiClient) -> Result<String> + Send + Sync>;
 
+/// Whether `operations` carry a current key-trust op, opened with the DEK, that marks the account's
+/// legacy migration done.
+fn page_says_legacy_migrated(operations: &[Value], keyring: &Keyring, store: &Store) -> bool {
+    let trust_ops: Vec<Value> = operations
+        .iter()
+        .filter(|w| {
+            w.get("entity_id").and_then(Value::as_str) == Some(KEY_TRUST_ID)
+                && w.get("op").and_then(Value::as_str) == Some("set")
+                && !w
+                    .get("entity")
+                    .and_then(Value::as_str)
+                    .is_some_and(crate::field_policy::is_legacy_wire_kind)
+        })
+        .cloned()
+        .collect();
+    if trust_ops.is_empty() {
+        return false;
+    }
+    let (decoded, _) = crate::wire::decode_ops(&trust_ops, keyring, store, |_| None);
+    decoded.iter().any(|d| {
+        matches!(d.opened, Some((_, KeyScope::Personal)))
+            && matches!(&d.op.change, Change::Set { field, value }
+                if field == "legacy_migrated" && *value == Value::Bool(true))
+    })
+}
+
 pub struct ApiClient {
     base_url: String,
     token: std::sync::Mutex<Option<String>>,
@@ -507,7 +533,11 @@ impl ApiClient {
             .and_then(Value::as_u64)
             .ok_or_else(malformed)?;
         let from = payload.get("from").and_then(Value::as_u64);
-        let legacy = !self.is_legacy_migrated(store);
+        // A fresh device learns that the account finished the legacy migration from the key-trust
+        // state the server delivers. It may sit later in this very page than a forged plaintext
+        // value, so a DEK-sealed `legacy_migrated` in the page closes the gate for the whole page.
+        let legacy = !self.is_legacy_migrated(store)
+            && !page_says_legacy_migrated(operations, keyring, store);
         // Legacy rows (protocol 6) carry their links in plaintext, so their scopes resolve first.
         let legacy_ops: Vec<Operation> = operations
             .iter()

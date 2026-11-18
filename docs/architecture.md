@@ -439,6 +439,12 @@ transaction, allocation order equals commit order. The allocated but uncommitted
 a contiguous suffix above every committed one, so a cursor can never skip one. That also makes
 the cursors in push responses and live pushes safe.
 
+Waiting for the lock happens in the server process, not in Postgres: a sync write waits for an
+in-process turn before it checks out a pool connection, so queued writes never hold the
+connections every other request needs. Each account's writes also queue behind each other, so
+one busy account has at most one write competing for the turn. A write that waits more than 30
+seconds is refused with 429.
+
 A lock per caller would not be enough, because a partition also receives rows fanned out from
 other users' transactions, so two pushers who share a project can interleave inside one target
 partition. Locking every partition a transaction might write, in sorted order, would work but
@@ -638,7 +644,11 @@ the recovery key (`users.recovery_encrypted_dek`, `users.recovery_encrypted_priv
 - Each shared project has a random 256-bit project key (PEK).
 - Each account has an X25519 key (deliveries are sealed to it) and an Ed25519 signing key,
   created at signup and wrapped under the DEK, so password changes and recovery leave them
-  alone. Accounts that predate the signing key get one on their first unlock.
+  alone. Accounts that predate the signing key get one on their first unlock. That upload is
+  permanent and co-members pin the key, so `PUT /auth/signing-key` takes it only from a session
+  that signed in with a credential in the last 10 minutes, or with `current_password` or
+  `reauth_token`. A token refreshed from an old session keeps that session's sign-in time
+  (`refresh_tokens.signed_in_at`).
 - A password change re-wraps the root key (and the deprecated DEK and private key wraps) under the
   new MEK on the device. Neither the root nor the DEK changes.
 
@@ -911,6 +921,21 @@ field's encryption binds the value to its name.
 | `legacy_shares_recorded`        |                              | Shares joined before invites were recorded here were recorded as accepted.                                                                                             |
 | `keys_initialized`              |                              | The baseline was recorded. Before it, an upgraded account loads keys as it used to.                                                                                    |
 | `legacy_migrated`               |                              | The account's own old-format values were rewritten, so plaintext in an encrypted field, or a version 1 value under the personal key, can only be a forgery.            |
+
+The server can withhold this state, but it cannot forge or erase it:
+
+- A served delete of the entity is dropped. No device deletes it, as facts are cleared field by
+  field.
+- A page that carries `legacy_migrated` closes the plaintext gate for the whole page, so a forgery
+  served ahead of it on a fresh device is dropped.
+- Once the device knows the account is migrated, the legacy pass only drops covered keys. It never
+  re-encodes what it holds, which on a fresh device may be a forgery accepted before the state
+  arrived.
+
+What withholding still does is make an account look like one from before the state existed. A
+device that never receives the entity loads keys as an upgraded account used to, and reads
+plaintext as old-client content. Closing that needs the facts in key material the server must hand
+over, which is not done yet.
 
 Loading a sealed key follows these rules (`projectKeys.ts`):
 

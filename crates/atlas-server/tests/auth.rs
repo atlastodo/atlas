@@ -3071,3 +3071,154 @@ async fn a_revoked_sessions_access_token_stops_working_at_once() {
     let (status, _) = send(&router, "GET", "/auth/me", Some(&access_a), Value::Null).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn overlong_email_is_refused_before_the_failure_limiter() {
+    let router = setup().await;
+    // One byte over the 254-byte cap that signup enforces: no account can have it.
+    let email = format!("{}@example.com", "a".repeat(255 - "@example.com".len()));
+    for uri in ["/auth/login", "/auth/account/cancel-deletion"] {
+        let (status, _) = send(
+            &router,
+            "POST",
+            uri,
+            None,
+            json!({ "email": email, "password": "x".repeat(129) }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn auth_routes_refuse_oversized_bodies() {
+    let router = setup().await;
+    let email = format!("{}@example.com", "a".repeat(80 * 1024));
+    let request = Request::builder()
+        .method("POST")
+        .uri("/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "email": email, "password": "x" })).unwrap(),
+        ))
+        .unwrap();
+    let response = router.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn a_session_revoked_before_the_deletion_does_not_regain_the_export() {
+    let router = setup().await;
+    let (email, signup) = signup_account(&router).await;
+    let kept = signup["access_token"].as_str().unwrap().to_string();
+    let (_, other) = send(
+        &router,
+        "POST",
+        "/auth/login",
+        None,
+        json!({ "email": email, "password": PASSWORD }),
+    )
+    .await;
+    let revoked = other["access_token"].as_str().unwrap().to_string();
+    let (status, _) = send(
+        &router,
+        "POST",
+        "/auth/logout",
+        None,
+        json!({ "refresh_token": other["refresh_token"] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Schedule the deletion as the handler does: then end the sessions still live.
+    let pool = test_pool().await;
+    sqlx::query("UPDATE users SET deletion_scheduled_at = now() WHERE email = $1")
+        .bind(&email)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE refresh_tokens SET revoked_at = now()
+          WHERE user_id = (SELECT id FROM users WHERE email = $1) AND revoked_at IS NULL",
+    )
+    .bind(&email)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (status, _) = send(&router, "GET", "/auth/export", Some(&kept), Value::Null).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the session the deletion ended keeps the export"
+    );
+    let (status, _) = send(&router, "GET", "/auth/export", Some(&revoked), Value::Null).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "a device signed out before stays out"
+    );
+}
+
+/// A todo API token carries the account's X25519 private key, which answers a version-1 recovery
+/// challenge. An account without a recovery key cannot make one, and one that ever had one (live,
+/// revoked or expired) is not recovered by version 1.
+#[tokio::test]
+async fn a_todo_token_holder_cannot_recover_an_account_without_a_recovery_key() {
+    let router = setup().await;
+    let account = E2eeAccount::new();
+    let signup = account.signup_unmigrated(&router).await;
+    let access = signup["access_token"].as_str().unwrap().to_string();
+
+    let (status, body) = send(
+        &router,
+        "POST",
+        "/auth/api-tokens",
+        Some(&access),
+        json!({
+            "id": Uuid::new_v4(), "name": "ci", "auth": hex::encode(random_bytes::<32>()),
+            "wrapped_dek": wrapped_key(), "wrapped_private_key": wrapped_key(),
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body:?}");
+
+    // A version-1 challenge issued before the token below.
+    let earlier = recovery_keys(&router, &account.email).await;
+    assert_eq!(earlier["recovery_key_version"], 1);
+
+    // A todo token made before this rule, since revoked: its holder may still have the key.
+    sqlx::query(
+        "INSERT INTO api_tokens (id, user_id, name, auth_hash, revoked_at)
+         SELECT $1, id, 'old', $2, now() FROM users WHERE email = $3",
+    )
+    .bind(Uuid::new_v4())
+    .bind(hex::encode(random_bytes::<32>()))
+    .bind(&account.email)
+    .execute(&test_pool().await)
+    .await
+    .unwrap();
+
+    let keys = recovery_keys(&router, &account.email).await;
+    assert_eq!(
+        keys["recovery_key_version"], 2,
+        "answers like an unrecoverable account"
+    );
+    // The earlier challenge, answered with the device key, is refused.
+    let (status, _) = send(
+        &router,
+        "POST",
+        "/auth/recover",
+        None,
+        recover_body(
+            &account.email,
+            &earlier["challenge"],
+            &answer_challenge(&earlier["challenge"], &account.secret),
+            &hex::encode(random_bytes::<32>()),
+            &wrapped_key(),
+            &wrapped_key(),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}

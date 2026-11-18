@@ -870,3 +870,24 @@ async fn the_recovery_lookup_does_not_tell_a_migrated_account_or_its_slot_form()
         assert_eq!(dummy[field], again[field], "{field} is deterministic");
     }
 }
+
+/// A taken client-chosen id answers the same whether or not the email has an account, so it
+/// cannot be used to probe emails without creating an account or spending an invite.
+#[tokio::test]
+async fn a_taken_user_id_does_not_reveal_whether_the_email_is_taken() {
+    let router = setup().await;
+    let (_, body) = signup(&router, true).await;
+    let (other, _) = signup(&router, true).await;
+
+    let probe = |email: &str| {
+        let mut b = body.clone();
+        b["email"] = json!(email);
+        b
+    };
+    let (taken_status, taken) =
+        send(&router, "POST", "/auth/signup", None, probe(&other.email)).await;
+    let free_email = format!("free-{}@example.com", Uuid::now_v7());
+    let (free_status, free) = send(&router, "POST", "/auth/signup", None, probe(&free_email)).await;
+    assert_eq!(taken_status, StatusCode::CONFLICT);
+    assert_eq!((taken_status, &taken), (free_status, &free));
+}

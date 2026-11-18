@@ -183,10 +183,17 @@ async fn ensure_can_manage(pool: &PgPool, project_id: Uuid, caller: Uuid) -> App
 /// caller whether an email has an account, and lands in that account's invite list.
 pub fn routes(invite_rl: UserRateLimitState) -> Router<AppState> {
     let invite = post(invite_member).layer(axum::middleware::from_fn_with_state(
+        invite_rl.clone(),
+        ratelimit::enforce_per_user,
+    ));
+    // Looking up a public key by email shows whether it has an account, as an invite does: the
+    // two share one per-user budget.
+    let lookup = get(crate::auth::get_public_key).layer(axum::middleware::from_fn_with_state(
         invite_rl,
         ratelimit::enforce_per_user,
     ));
     Router::new()
+        .route("/users/public-key", lookup)
         .route("/invites", get(list_invites))
         .route("/projects/{id}/members", get(list_members).merge(invite))
         .route("/projects/{id}/accept", post(accept_invite))
@@ -209,7 +216,7 @@ async fn broadcast_members(
     changed: &[Uuid],
     joined: Option<Uuid>,
 ) -> AppResult<()> {
-    let mut tx = crate::sync::begin_sync_write(&state.pool).await?;
+    let mut tx = crate::sync::begin_sync_write(&state.pool, None).await?;
     let rows = member_list_rows(&mut tx, state, project_id, changed, joined).await?;
     let rows: Vec<(Uuid, &WireOperation)> = rows.iter().map(|(member, op)| (*member, op)).collect();
     let batches = crate::sync::apply_to_partitions(&mut tx, &rows).await?;
@@ -345,6 +352,7 @@ async fn list_invites(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> AppResult<Json<Vec<InviteView>>> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let rows = sqlx::query_as::<_, InviteRow>(
         "WITH inv AS (
              SELECT pm.project_id, pm.role, pm.created_at, pm.invite_preview,
@@ -465,10 +473,15 @@ async fn list_members(
     user: AuthUser,
     Path(project_id): Path<Uuid>,
 ) -> AppResult<Json<Vec<MemberView>>> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     match membership(&state.pool, project_id, user.user_id).await? {
         Some((_, MemberState::Active)) => {}
+        // The creator of a project nobody else has joined, as for `ensure_can_manage`: a creator
+        // who left or was removed from a shared project reads no more of it.
         _ => {
-            if !is_project_creator(&state.pool, project_id, user.user_id).await? {
+            if is_shared(&state.pool, project_id).await?
+                || !is_project_creator(&state.pool, project_id, user.user_id).await?
+            {
                 return Err(AppError::NotFound);
             }
         }
@@ -503,6 +516,7 @@ async fn invite_member(
     Path(project_id): Path<Uuid>,
     Json(req): Json<InviteRequest>,
 ) -> AppResult<(StatusCode, Json<MemberView>)> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let role = Role::parse(req.role.trim())?;
     if req
         .preview
@@ -605,6 +619,7 @@ async fn accept_invite(
     user: AuthUser,
     Path(project_id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let pending: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM project_members
                          WHERE project_id = $1 AND user_id = $2 AND state = 'pending')",
@@ -625,7 +640,7 @@ async fn accept_invite(
         None => None,
     };
 
-    let mut tx = state.pool.begin().await?;
+    let mut tx = crate::sync::SyncTx::begin_unlocked(&state.pool, Some(user.user_id)).await?;
     // Before the lock: this row is not one a lock holder waits on.
     let n = sqlx::query(
         "UPDATE project_members SET state = 'active', updated_at = now()
@@ -633,13 +648,13 @@ async fn accept_invite(
     )
     .bind(project_id)
     .bind(user.user_id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?
     .rows_affected();
     if n == 0 {
         return Err(AppError::NotFound);
     }
-    crate::sync::take_sync_write_lock(&mut tx).await?;
+    tx.lock().await?;
 
     let owner = backfill_owner(&mut tx, project_id, owner).await?;
     let backfill = match (owner, read) {
@@ -681,6 +696,7 @@ async fn decline_invite(
     user: AuthUser,
     Path(project_id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let mut tx = state.pool.begin().await?;
     // An invitee already sent the key could open it: the project rotates it.
     crate::projects::request_rotations(&mut *tx, Some(project_id), &[user.user_id]).await?;
@@ -728,6 +744,7 @@ async fn update_role(
     Path((project_id, target)): Path<(Uuid, Uuid)>,
     Json(req): Json<UpdateRoleRequest>,
 ) -> AppResult<Json<MemberView>> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     require_role(&state.pool, project_id, user.user_id, Role::Owner).await?;
     let role = Role::parse(req.role.trim())?;
     let mut tx = state.pool.begin().await?;
@@ -757,6 +774,7 @@ async fn remove_member(
     user: AuthUser,
     Path((project_id, target)): Path<(Uuid, Uuid)>,
 ) -> AppResult<StatusCode> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     if target != user.user_id {
         require_role(&state.pool, project_id, user.user_id, Role::Owner).await?;
     }
@@ -812,7 +830,7 @@ async fn remove_member(
 /// Re-deliver each active member's own membership row after a key rotation: a client reloads
 /// project keys when its own row changes, which tells it to write under the new key.
 pub(crate) async fn announce_key_change(state: &AppState, project_id: Uuid) -> AppResult<()> {
-    let mut tx = crate::sync::begin_sync_write(&state.pool).await?;
+    let mut tx = crate::sync::begin_sync_write(&state.pool, None).await?;
     let rows: Vec<(Uuid, String, String, String, bool)> = sqlx::query_as(
         "SELECT pm.user_id, u.email::text AS email, u.display_name, pm.role,
                 (u.deletion_scheduled_at IS NOT NULL) AS deletion_scheduled
@@ -820,7 +838,7 @@ pub(crate) async fn announce_key_change(state: &AppState, project_id: Uuid) -> A
          WHERE pm.project_id = $1 AND pm.state = 'active'",
     )
     .bind(project_id)
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut **tx)
     .await?;
     let ops: Vec<(Uuid, WireOperation)> = rows
         .iter()
@@ -853,6 +871,7 @@ async fn claim_ownership(
     user: AuthUser,
     Path(project_id): Path<Uuid>,
 ) -> AppResult<Json<MemberView>> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let (caller_role, caller_state) = membership(&state.pool, project_id, user.user_id)
         .await?
         .ok_or_else(|| AppError::Forbidden("not a member of this project".into()))?;

@@ -109,6 +109,10 @@ pub struct SealedPending {
     pub scope: Option<String>,
     pub envelope: FieldEnvelope,
     pub ts: Hlc,
+    /// Who pushed the op, as the server said: an entry's writer field must name them once opened.
+    /// Absent in state saved before it was kept, which then fails that check.
+    #[serde(default)]
+    pub pushed_by: Option<String>,
 }
 
 /// A sealed value opened by [`Store::revive_sealed`]'s callback.

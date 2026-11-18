@@ -2035,3 +2035,82 @@ async fn the_object_store_backend_keeps_the_blob_store_guarantees() {
     assert!(object(sha).await.is_none(), "object deleted");
     let _ = tokio::fs::remove_dir_all(&dir).await;
 }
+
+async fn blob_project(pool: &sqlx::PgPool, sha: &str) -> Option<Uuid> {
+    sqlx::query_scalar("SELECT project_id FROM blobs WHERE sha256 = $1")
+        .bind(sha)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// Only the uploader (while the blob's project is not shared) or a move push authorized moves a
+/// blob's binding. A member's reference elsewhere, a removed uploader's, or a co-member's reference
+/// fanned into the uploader's partition from another project leaves a shared project's blob there.
+#[tokio::test]
+async fn a_shared_projects_blob_stays_bound_to_it() {
+    let (state, _dir) = make_state().await;
+    let router = drop_router(state.clone());
+    let (alice, bob, carol) = (
+        new_user(&router).await,
+        new_user(&router).await,
+        new_user(&router).await,
+    );
+    let tid = Uuid::now_v7().to_string();
+    let pid: Uuid = setup_project_with_task(&router, &alice, &tid, Some(&bob))
+        .await
+        .parse()
+        .unwrap();
+
+    // Bob (a commenter) attaches a file in the shared project: bound to it.
+    let shared = unique("shared file");
+    let (_, sha) = put(&router, &bob, &shared).await;
+    let aid = Uuid::now_v7().to_string();
+    assert_eq!(
+        push_attachment_meta(&router, &bob, &tid, &aid, &sha, 300).await,
+        StatusCode::OK
+    );
+    assert_eq!(blob_project(&state.pool, &sha).await, Some(pid));
+
+    // A reference in Bob's own inbox does not take it away from the project.
+    let own = Uuid::now_v7().to_string();
+    push_ops(
+        &router,
+        &bob.token,
+        vec![op("task", &own, "title", json!("mine"), 400)],
+    )
+    .await;
+    let copy = Uuid::now_v7().to_string();
+    push_attachment_meta(&router, &bob, &own, &copy, &sha, 410).await;
+    assert_eq!(blob_project(&state.pool, &sha).await, Some(pid));
+
+    // Removed, the uploader cannot rebind it either, by a reference or by uploading again.
+    let (status, _) = http(
+        &router,
+        "DELETE",
+        &format!("/projects/{pid}/members/{}", bob.id),
+        Some(&alice.token),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let again = Uuid::now_v7().to_string();
+    push_attachment_meta(&router, &bob, &own, &again, &sha, 500).await;
+    put(&router, &bob, &shared).await;
+    assert_eq!(blob_project(&state.pool, &sha).await, Some(pid));
+    assert_eq!(get_status(&router, &alice, &sha).await, StatusCode::OK);
+
+    // Alice's own blob in the project; Carol, her co-member in another project, references the sha
+    // there with a newer stamp. Alice's next upload of it keeps it in the first project.
+    let alices = unique("alice's file");
+    let (_, mine) = put(&router, &alice, &alices).await;
+    let a2 = Uuid::now_v7().to_string();
+    push_attachment_meta(&router, &alice, &tid, &a2, &mine, 600).await;
+    assert_eq!(blob_project(&state.pool, &mine).await, Some(pid));
+    let other_task = Uuid::now_v7().to_string();
+    setup_project_with_task(&router, &carol, &other_task, Some(&alice)).await;
+    let c = Uuid::now_v7().to_string();
+    push_attachment_meta(&router, &carol, &other_task, &c, &mine, 700).await;
+    put(&router, &alice, &alices).await;
+    assert_eq!(blob_project(&state.pool, &mine).await, Some(pid));
+}

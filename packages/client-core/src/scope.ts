@@ -486,9 +486,21 @@ export function reviveLockedValues(
     });
   });
   // Values that arrived sealed (protocol 7) open with the keys of the scope they arrived in.
-  const sealed = store.reviveSealed((wire, entityId, wireField, placeholder) =>
-    openSealed(keyring, wire, entityId, wireField, placeholder.scope, placeholder),
-  );
+  const sealed = store.reviveSealed((wire, entityId, wireField, placeholder) => {
+    const opened = openSealed(keyring, wire, entityId, wireField, placeholder.scope, placeholder);
+    // As on decode: an entry naming someone other than its pusher as its writer is forged.
+    if (
+      opened &&
+      opened.field === actorFieldOf(opened.kind) &&
+      (!placeholder.pushedBy || opened.value !== placeholder.pushedBy)
+    ) {
+      console.warn(
+        `[atlas-e2ee] dropped a ${opened.kind} whose writer did not push it (${entityId})`,
+      );
+      return null;
+    }
+    return opened;
+  });
   const repairs = confirmRepairs(store, keyring, userId, [
     ...revived.map((r) => ({ ...r, reason: "key" as const })),
     ...sealed.map((r) => ({

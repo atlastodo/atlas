@@ -381,6 +381,34 @@ export interface AccountAppView {
   enabled_at?: number;
 }
 
+/** Whether `wireOps` carry a current key-trust op, opened with the DEK, that marks the account's
+ *  legacy migration done. */
+function pageSaysLegacyMigrated(wireOps: readonly WireOp[], keyring: Keyring): boolean {
+  const trustOps = wireOps.filter(
+    (w) => w.entity_id === KEY_TRUST_ID && w.op === "set" && !isLegacyWireKind(w.entity),
+  );
+  if (trustOps.length === 0) return false;
+  return decodeOps(trustOps, {
+    keyring,
+    store: { kindOf: () => null },
+    openLegacy: () => null,
+  }).some(
+    (d) =>
+      d.opened?.scope.kind === "personal" &&
+      d.op.op === "set" &&
+      d.op.field === "legacy_migrated" &&
+      d.op.value === true,
+  );
+}
+
+/** The credential `PUT /auth/signing-key` takes for a session that did not just sign in. */
+export interface SigningKeyProof {
+  /** The account's auth hash, as for a password change. */
+  currentPassword?: string;
+  /** A passkey re-authentication proof. */
+  reauthToken?: string;
+}
+
 export class ApiClient {
   private readonly baseUrl: string;
   private token?: string;
@@ -862,11 +890,20 @@ export class ApiClient {
   getSigningKey(): Promise<SigningKeyResponse> {
     return this.request("GET", "/auth/signing-key");
   }
-  /** Write-once: 409 `signing_key_already_set` if a different key is stored. */
-  putSigningKey(publicKey: string, wrapped: { v?: number; iv: string; ct: string }): Promise<void> {
+  /**
+   * Write-once: 409 `signing_key_already_set` if a different key is stored. The first install
+   * needs `proof` unless this session signed in within the last few minutes (400 otherwise).
+   */
+  putSigningKey(
+    publicKey: string,
+    wrapped: { v?: number; iv: string; ct: string },
+    proof?: SigningKeyProof,
+  ): Promise<void> {
     return this.request("PUT", "/auth/signing-key", {
       signing_public_key: publicKey,
       encrypted_signing_key: wrapped,
+      ...(proof?.currentPassword ? { current_password: proof.currentPassword } : {}),
+      ...(proof?.reauthToken ? { reauth_token: proof.reauthToken } : {}),
     });
   }
   logout(refreshToken: string | undefined = this.refreshToken): Promise<void> {
@@ -1211,7 +1248,10 @@ export class ApiClient {
       throw new Error("malformed sync payload");
     const wireOps = operations as WireOp[];
     const store = this.scopeStore ?? EMPTY_SCOPE_STORE;
-    const legacy = !this.isLegacyMigrated();
+    // A fresh device learns that the account finished the legacy migration from the key-trust state
+    // the server delivers. It may sit later in this very page than a forged plaintext value, so a
+    // DEK-sealed `legacy_migrated` in the page closes the gate for the whole page.
+    const legacy = !this.isLegacyMigrated() && !pageSaysLegacyMigrated(wireOps, keyring);
     // Legacy rows (protocol 6) carry their links in plaintext, so their scopes resolve first.
     const legacyLinks = batchLinksOf(
       wireOps.filter((w) => isLegacyWireKind(w.entity)).map((w) => fromEncryptedWire(w, null)),

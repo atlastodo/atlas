@@ -10,6 +10,7 @@
  * repair, which would move their timestamps.
  */
 
+import { KEY_TRUST_ID } from "./trust";
 import {
   DEK_KEY_ID,
   fieldTag,
@@ -48,8 +49,15 @@ export type WireOp = {
   ts: { wall_ms: number; counter: number; node: string };
 } & ({ op: "set"; field: string; value: unknown } | { op: "delete" });
 
-/** A v3 value no key here opened yet: kept where it arrived, with the scope it was written in. */
-export type SealedPlaceholder = FieldEnvelopeV3 & { scope: string | null };
+/**
+ * A v3 value no key here opened yet: kept where it arrived, with the scope it was written in and
+ * who pushed it (an entry's writer field must name them once opened; a placeholder stored before
+ * this was kept has none, and then fails that check).
+ */
+export type SealedPlaceholder = FieldEnvelopeV3 & {
+  scope: string | null;
+  pushedBy?: string | null;
+};
 
 export function isSealedPlaceholder(v: unknown): v is SealedPlaceholder {
   return isFieldEnvelopeV3(v) && "scope" in (v as object);
@@ -195,6 +203,13 @@ export function decodeOps(wireOps: readonly WireOp[], ctx: DecodeContext): Decod
   const pageKinds = new Map<string, EntityKind>();
   const pendingDeletes: number[] = [];
   for (const w of wireOps) {
+    // No device deletes the key-trust state (its facts are cleared field by field), and a delete
+    // carries no envelope the server could not forge: one would wipe every pin and acceptance.
+    if (w.op === "delete" && w.entity_id === KEY_TRUST_ID) {
+      console.warn("[atlas-e2ee] dropped a delete of the key-trust state");
+      out.push(null);
+      continue;
+    }
     const ts = hlcOf(w);
     const base = { id: w.id, entityId: w.entity_id, ts };
     if (isLegacyWireKind(w.entity) || w.entity === "project_member") {
@@ -248,7 +263,7 @@ export function decodeOps(wireOps: readonly WireOp[], ctx: DecodeContext): Decod
     if (!opened) {
       // Kept as it arrived: a key that comes later may open it.
       console.warn(`[atlas-e2ee] no key opens ${w.entity} ${w.field} (${w.entity_id})`);
-      const placeholder: SealedPlaceholder = { ...w.value, scope };
+      const placeholder: SealedPlaceholder = { ...w.value, scope, pushedBy: w.pushed_by ?? null };
       out.push({
         op: {
           ...base,
