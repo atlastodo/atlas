@@ -3,6 +3,7 @@
 pub mod account_purge;
 pub mod api_tokens;
 mod handlers;
+pub(crate) use handlers::get_public_key;
 pub(crate) mod identity;
 pub mod kdf;
 pub mod passkeys;
@@ -94,7 +95,6 @@ pub fn routes() -> Router<AppState> {
             post(passkeys::reauth_options),
         )
         .route("/auth/passkeys/reauth", post(passkeys::reauth))
-        .route("/users/public-key", get(handlers::get_public_key))
 }
 
 /// Extractor that authenticates a request via `Authorization: Bearer <access-token>`. Rejects

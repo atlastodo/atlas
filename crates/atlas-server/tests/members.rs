@@ -1197,3 +1197,32 @@ async fn a_creator_removed_from_its_shared_project_cannot_list_its_members() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+/// Public-key lookups and invites each show whether an email has an account: they spend one
+/// per-user budget (`INVITE_RATE_LIMIT_*`, default 60 an hour).
+#[tokio::test]
+async fn public_key_lookups_share_the_per_user_invite_budget() {
+    let router = setup().await;
+    let alice = new_user(&router).await;
+    let bob = new_user(&router).await;
+    let pid = push_project(&router, &alice).await;
+    let uri = format!("/users/public-key?email={}", bob.email);
+    for _ in 0..60 {
+        let (status, _) = send(&router, "GET", &uri, Some(&alice.token), Value::Null).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (status, _) = send(&router, "GET", &uri, Some(&alice.token), Value::Null).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    let (status, _) = send(
+        &router,
+        "POST",
+        &format!("/projects/{pid}/members"),
+        Some(&alice.token),
+        json!({ "email": bob.email, "role": "editor" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "the same budget");
+    // Another user's budget is untouched.
+    let (status, _) = send(&router, "GET", &uri, Some(&bob.token), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+}

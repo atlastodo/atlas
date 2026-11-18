@@ -1746,9 +1746,11 @@ pub async fn replace_recovery_key(
 /// are sealed to, and the Ed25519 identity key (see [`super::identity`]).
 pub async fn get_public_key(
     State(state): State<AppState>,
-    _user: AuthUser,
+    user: AuthUser,
     Query(query): Query<PublicKeyQuery>,
 ) -> AppResult<Json<PublicKeyResponse>> {
+    // Looked up to share a todo project with the account.
+    user.require_app(root_key::TODO_APP)?;
     let email = query.email.trim().to_lowercase();
     let row: Option<(Uuid, String, Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT id, email::TEXT, public_key, signing_public_key FROM users WHERE email = $1",

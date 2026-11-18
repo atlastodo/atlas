@@ -183,10 +183,17 @@ async fn ensure_can_manage(pool: &PgPool, project_id: Uuid, caller: Uuid) -> App
 /// caller whether an email has an account, and lands in that account's invite list.
 pub fn routes(invite_rl: UserRateLimitState) -> Router<AppState> {
     let invite = post(invite_member).layer(axum::middleware::from_fn_with_state(
+        invite_rl.clone(),
+        ratelimit::enforce_per_user,
+    ));
+    // Looking up a public key by email shows whether it has an account, as an invite does: the
+    // two share one per-user budget.
+    let lookup = get(crate::auth::get_public_key).layer(axum::middleware::from_fn_with_state(
         invite_rl,
         ratelimit::enforce_per_user,
     ));
     Router::new()
+        .route("/users/public-key", lookup)
         .route("/invites", get(list_invites))
         .route("/projects/{id}/members", get(list_members).merge(invite))
         .route("/projects/{id}/accept", post(accept_invite))
