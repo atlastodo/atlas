@@ -431,13 +431,27 @@ async fn authenticate(
     }
     let verified = verify_login(state, email, password).await;
     match &verified {
-        Err(AppError::Unauthorized) => failures.record_failure(email, ip, Instant::now()),
+        Err(AppError::Unauthorized) => {
+            let known = email_has_account(state, email).await;
+            failures.record_failure(email, ip, Instant::now(), known)
+        }
         Ok(_) | Err(AppError::AccountDisabled | AppError::LegacyAccount) => {
             failures.reset(email, ip)
         }
         Err(_) => {}
     }
     verified
+}
+
+/// Whether `email` belongs to an account, for the failure limiter (which keeps real accounts'
+/// failures apart from junk emails'). Runs for known and unknown emails alike; a database error
+/// counts as known, so real accounts are never counted in the fail-open maps.
+async fn email_has_account(state: &AppState, email: &str) -> bool {
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE email = $1)")
+        .bind(email)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(true)
 }
 
 async fn verify_login(state: &AppState, email: &str, password: &str) -> AppResult<UserRow> {
@@ -1428,7 +1442,10 @@ pub async fn recover_account(
     }
     let recovered = recover(&state, &email, &req, kdf).await;
     match &recovered {
-        Err(AppError::Unauthorized) => failures.record_failure(&email, ip, Instant::now()),
+        Err(AppError::Unauthorized) => {
+            let known = email_has_account(&state, &email).await;
+            failures.record_failure(&email, ip, Instant::now(), known)
+        }
         Ok(_) => failures.reset(&email, ip),
         Err(_) => {}
     }
