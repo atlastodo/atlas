@@ -500,7 +500,7 @@ pub(super) async fn push(
 
     // Keep each blob bound to the project its attachment lives in (`attachments::bind_blobs`):
     // the entities that name a blob or changed scope.
-    let mut rebind: Vec<Uuid> = ops
+    let mut written: Vec<Uuid> = ops
         .iter()
         .filter(|op| {
             op.entity == WireKind::TodoSealed
@@ -509,11 +509,10 @@ pub(super) async fn push(
         })
         .map(|op| op.entity_id)
         .collect();
-    rebind.extend(fan_out.moved);
-    rebind.sort_unstable();
-    rebind.dedup();
-    if !rebind.is_empty() {
-        crate::attachments::bind_blobs(&mut tx, caller, &rebind, &[]).await?;
+    written.sort_unstable();
+    written.dedup();
+    if !written.is_empty() || !fan_out.moved.is_empty() {
+        crate::attachments::bind_blobs(&mut tx, caller, &written, &fan_out.moved, &[]).await?;
     }
 
     let cursor = partition_head(&mut tx, caller).await?;
