@@ -20,6 +20,12 @@ ignore = [
     # ES384), which the same HS256-only use never calls. jsonwebtoken 11.1.0, the latest, still
     # requires p256/p384 0.13. Drop this once jsonwebtoken moves to elliptic-curve 0.14.
     "RUSTSEC-2026-0387",
+    # RUSTSEC-2026-0543 (chrono, unmaintained) and RUSTSEC-2026-0542 (humantime, unmaintained as a
+    # chrono wrapper): unmaintained notices, not vulnerabilities. Both come only from object_store
+    # (the S3 blob backend), whose latest release, 0.14.2, still depends on them; the server's own
+    # time handling uses `time`. Drop both once object_store moves off chrono.
+    "RUSTSEC-2026-0542",
+    "RUSTSEC-2026-0543",
 ]
 
 [licenses]

@@ -388,7 +388,13 @@ async fn a_passkey_only_account_signs_in_with_its_passkey_and_not_a_password() {
     // Email-first sign-in names the account's passkey, with its PRF input.
     let options = login_options(&router, Some(&acct.email)).await;
     let id = auth.credential_id_b64();
-    assert_eq!(options["allowCredentials"][0]["id"], id);
+    let listed_ids: Vec<&str> = options["allowCredentials"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["id"].as_str().unwrap())
+        .collect();
+    assert!(listed_ids.contains(&id.as_str()));
     assert!(options["extensions"]["prf"]["evalByCredential"][&id]["first"].is_string());
     let credential = auth.assert(&options, RP_ID, ORIGIN, true);
     let (status, resp) = send(
@@ -401,9 +407,36 @@ async fn a_passkey_only_account_signs_in_with_its_passkey_and_not_a_password() {
     .await;
     assert_eq!(status, StatusCode::OK, "{resp:?}");
 
-    // An unknown email gets a stand-in credential, not an empty list.
-    let options = login_options(&router, Some(&new_email())).await;
-    assert_eq!(options["allowCredentials"].as_array().unwrap().len(), 1);
+    // An unknown email gets stand-in credentials, not an empty list, in the same shape as the
+    // account's answer: as many entries, each with the same fields, sorted alike.
+    let unknown = login_options(&router, Some(&new_email())).await;
+    let shape = |o: &Value| -> Vec<Vec<String>> {
+        o["allowCredentials"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c.as_object().unwrap().keys().cloned().collect())
+            .collect()
+    };
+    assert_eq!(shape(&unknown), shape(&options));
+    assert_eq!(shape(&unknown).len(), 4);
+    let sorted = |o: &Value| {
+        let ids: Vec<&str> = o["allowCredentials"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["id"].as_str().unwrap())
+            .collect();
+        ids.windows(2).all(|w| w[0] <= w[1])
+    };
+    assert!(sorted(&unknown) && sorted(&options));
+    assert_eq!(
+        unknown["extensions"]["prf"]["evalByCredential"]
+            .as_object()
+            .unwrap()
+            .len(),
+        4
+    );
 
     let listed = list(&router, &acct.access).await;
     assert_eq!(listed.len(), 1);

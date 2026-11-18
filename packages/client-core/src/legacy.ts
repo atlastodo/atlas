@@ -13,6 +13,7 @@
  */
 
 import type { LocalStore } from "./store";
+import { readKeyTrust } from "./trust";
 import type { EntityKind, Operation } from "./types";
 import { isEncryptedEnvelope } from "./crypto";
 
@@ -87,6 +88,13 @@ export async function migrateLegacy(
       if (key.covered) {
         drop.push(key);
         result.covered++;
+        continue;
+      }
+      // Once the account finished the migration, a legacy value this device holds can only have
+      // arrived before it learned so (a fresh device's first pages): possibly a server forgery,
+      // which re-encoding would turn into genuine ciphertext. Leave such keys as they are.
+      if (readKeyTrust(store).legacyMigrated) {
+        result.left++;
         continue;
       }
       const kind = key.entity as EntityKind;

@@ -216,6 +216,40 @@ fn in_project(entity_id: Uuid, project: Uuid, field: &str, value: Value) -> Valu
     )
 }
 
+/// The stamp of `user`'s legacy journal entry row: a field's, or (`None`) its tombstone's.
+async fn legacy_stamp(
+    pool: &sqlx::PgPool,
+    user: &User,
+    id: Uuid,
+    field: Option<&str>,
+) -> (u64, u32, Uuid) {
+    let (wall, counter, node): (i64, i32, Uuid) = match field {
+        Some(field) => sqlx::query_as(
+            "SELECT hlc_wall_ms, hlc_counter, hlc_node FROM entity_fields
+              WHERE user_id = $1 AND entity = 'journal.entry' AND entity_id = $2 AND field = $3",
+        )
+        .bind(user.id)
+        .bind(id)
+        .bind(field),
+        None => sqlx::query_as(
+            "SELECT hlc_wall_ms, hlc_counter, hlc_node FROM entity_tombstones
+              WHERE user_id = $1 AND entity = 'journal.entry' AND entity_id = $2",
+        )
+        .bind(user.id)
+        .bind(id),
+    }
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    (wall as u64, counter as u32, node)
+}
+
+/// A journal entry field re-encoded from its legacy row, as a client does: same stamp.
+async fn reencoded(pool: &sqlx::PgPool, user: &User, id: Uuid, field: &str, value: Value) -> Value {
+    let ts = legacy_stamp(pool, user, id, Some(field)).await;
+    wire::set(wire::wire_kind("journal.entry"), id, None, field, value, ts)
+}
+
 async fn push(
     router: &Router,
     token: &str,
@@ -681,16 +715,22 @@ async fn legacy_keys_list_what_is_left_and_what_is_covered() {
     assert_eq!(listed_sorted, want, "the journal's keys only");
     assert!(all.get("next").is_none());
 
-    // One re-encoded in full, one only in part, the deleted one as a current tombstone.
+    // One re-encoded in full, one only in part, the deleted one as a current tombstone: as a client
+    // re-encodes, each with its legacy row's stamp.
     let (status, body) = push(
         &router,
         &user.token,
         Some("journal"),
         vec![
-            set_op("journal.entry", a, "body", json!("x")),
-            set_op("journal.entry", a, "date", json!("y")),
-            set_op("journal.entry", b, "body", json!("x")),
-            wire::delete("journal.sealed", gone, None, (now_ms(), 0, Uuid::now_v7())),
+            reencoded(&state.pool, &user, a, "body", json!("x")).await,
+            reencoded(&state.pool, &user, a, "date", json!("y")).await,
+            reencoded(&state.pool, &user, b, "body", json!("x")).await,
+            wire::delete(
+                "journal.sealed",
+                gone,
+                None,
+                legacy_stamp(&state.pool, &user, gone, None).await,
+            ),
         ],
     )
     .await;
@@ -731,4 +771,82 @@ async fn legacy_keys_list_what_is_left_and_what_is_covered() {
     let todo = legacy_keys(&router, &user, None, "").await;
     assert_eq!(todo["entities"][0]["entity"], "task");
     assert_eq!(todo["entities"].as_array().unwrap().len(), 1);
+}
+
+/// A commenter's copy of a shared item, even one replaying the legacy rows' stamps, does not make
+/// another member's legacy key `covered`: that member's client would drop its own copy unread.
+#[tokio::test]
+async fn a_commenters_rows_do_not_cover_another_members_legacy_key() {
+    let (state, router) = suite().await;
+    let alice = signup(&router).await;
+    let bob = signup(&router).await;
+    let (project, task) = (Uuid::now_v7(), Uuid::now_v7());
+    let name = json!({ "__enc": 2, "kid": "dek", "iv": "aXY=", "ct": "bmFtZQ==" });
+    legacy_push(
+        &state.pool,
+        &[alice.id],
+        &[
+            legacy_set("project", project, "name", name, 100),
+            legacy_set("task", task, "project_id", json!(project.to_string()), 110),
+            legacy_set("task", task, "title", json!("legacy"), 110),
+        ],
+    )
+    .await;
+    record_creator(&state.pool, project, alice.id).await;
+    let (status, _) = send(
+        &router,
+        "POST",
+        &format!("/projects/{project}/members"),
+        Some(&alice.token),
+        None,
+        json!({ "email": bob.email, "role": "commenter" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, _) = send(
+        &router,
+        "POST",
+        &format!("/projects/{project}/accept"),
+        Some(&bob.token),
+        None,
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Bob replays the stamps of the legacy rows he holds too, with junk values.
+    let stamps: Vec<(String, i64, i32, Uuid)> = sqlx::query_as(
+        "SELECT field, hlc_wall_ms, hlc_counter, hlc_node FROM entity_fields
+          WHERE user_id = $1 AND entity = 'task' AND entity_id = $2",
+    )
+    .bind(bob.id)
+    .bind(task)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!(stamps.len(), 2);
+    let forged: Vec<Value> = stamps
+        .iter()
+        .map(|(field, wall, counter, node)| {
+            wire::set(
+                wire::SEALED,
+                task,
+                Some(&project.to_string()),
+                field,
+                json!("junk"),
+                (*wall as u64, *counter as u32, *node),
+            )
+        })
+        .collect();
+    let (status, body) = push(&router, &bob.token, None, forged).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+
+    let keys = legacy_keys(&router, &alice, None, "").await;
+    let key = keys["entities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|k| k["entity"] == "task" && k["entity_id"] == task.to_string())
+        .expect("the task's legacy key");
+    assert_eq!(key["covered"], false);
 }

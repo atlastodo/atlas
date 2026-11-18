@@ -14,6 +14,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use time::{Duration, OffsetDateTime};
 
 use super::{AuthUser, InteractiveAuthUser};
 use crate::error::{AppError, AppResult};
@@ -89,11 +90,26 @@ pub struct PutSigningKeyRequest {
     pub signing_public_key: String,
     #[serde(default)]
     pub encrypted_signing_key: Value,
+    /// Proof of the account's credential, needed to install a key from a session that did not
+    /// just sign in (see [`FRESH_SIGN_IN`]).
+    #[serde(default)]
+    pub current_password: Option<String>,
+    #[serde(default)]
+    pub reauth_token: Option<String>,
 }
+
+/// How long after a credential sign-in its session may install the account's signing key without
+/// proving the credential again. Clients create the key right after the first sign-in.
+pub const FRESH_SIGN_IN: Duration = Duration::minutes(10);
 
 /// `PUT /auth/signing-key` — store the caller's signing key, once. Repeating the stored public key
 /// is a no-op (the stored wrap is kept); any other key is a 409 `signing_key_already_set`, and the
 /// client then loads the stored one through `GET /auth/signing-key`.
+///
+/// The first install is permanent and co-members pin the key, so a bearer token alone does not
+/// do: it needs `current_password` or `reauth_token`, or a session whose credential sign-in is at
+/// most [`FRESH_SIGN_IN`] old. A token refreshed from a stolen refresh token keeps its family's
+/// sign-in time.
 pub async fn put_signing_key(
     State(state): State<AppState>,
     InteractiveAuthUser(user): InteractiveAuthUser,
@@ -101,6 +117,27 @@ pub async fn put_signing_key(
 ) -> AppResult<StatusCode> {
     let public_key = req.signing_public_key.trim().to_ascii_lowercase();
     validate_signing_key(&public_key, &req.encrypted_signing_key)?;
+    let has_key: bool =
+        sqlx::query_scalar("SELECT signing_public_key IS NOT NULL FROM users WHERE id = $1")
+            .bind(user.user_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or(AppError::NotFound)?;
+    if !has_key {
+        if req.current_password.is_some() || req.reauth_token.is_some() {
+            super::handlers::verify_password_hash(
+                &state,
+                user.user_id,
+                req.current_password.as_deref(),
+                req.reauth_token.as_deref(),
+            )
+            .await?;
+        } else if !signed_in_recently(&state, &user).await? {
+            return Err(AppError::BadRequest(
+                "current_password or reauth_token is required".into(),
+            ));
+        }
+    }
     let stored: Option<String> = sqlx::query_scalar(
         "UPDATE users
             SET signing_public_key = COALESCE(signing_public_key, $2),
@@ -120,6 +157,22 @@ pub async fn put_signing_key(
         return Err(AppError::SigningKeyAlreadySet);
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Whether `user`'s session started with a credential sign-in at most [`FRESH_SIGN_IN`] ago, as its
+/// refresh family records it (`signed_in_at`, carried to every rotated row).
+async fn signed_in_recently(state: &AppState, user: &AuthUser) -> AppResult<bool> {
+    let Some(device) = user.device_id else {
+        return Ok(false);
+    };
+    let started: Option<OffsetDateTime> = sqlx::query_scalar(
+        "SELECT max(signed_in_at) FROM refresh_tokens WHERE user_id = $1 AND device_id = $2",
+    )
+    .bind(user.user_id)
+    .bind(device)
+    .fetch_one(&state.pool)
+    .await?;
+    Ok(started.is_some_and(|t| OffsetDateTime::now_utc() - t <= FRESH_SIGN_IN))
 }
 
 #[cfg(test)]

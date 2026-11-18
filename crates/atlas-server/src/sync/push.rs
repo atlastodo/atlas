@@ -24,7 +24,7 @@ use super::apply::{apply_live, MemberBatches};
 use super::pull::partition_head;
 use super::{
     cap_future_skew, entity_str, hlc_key, observe_client_ts, physical_now_ms, successor_hlc,
-    take_sync_write_lock, HlcKey, SyncError, SyncResult, MAX_FUTURE_SKEW_MS,
+    HlcKey, SyncError, SyncResult, MAX_FUTURE_SKEW_MS,
 };
 use crate::apps::{RequestedApps, SessionApps};
 use crate::auth::AuthUser;
@@ -485,9 +485,10 @@ pub(super) async fn push(
         .await?
         .check_ops(&ops)?;
 
-    let mut tx = state.pool.begin().await?;
     // Serialize all sync writes (see [`SYNC_WRITE_LOCK`]).
-    take_sync_write_lock(&mut tx).await?;
+    let mut tx = super::begin_sync_write(&state.pool, Some(caller)).await?;
+
+    let ops = unseen_ops(&mut tx, caller, ops).await?;
 
     // Authorize every op and resolve its fan-out before writing anything.
     let scopes = Scopes::load(&mut tx, caller, &ops).await?;
@@ -499,7 +500,7 @@ pub(super) async fn push(
 
     // Keep each blob bound to the project its attachment lives in (`attachments::bind_blobs`):
     // the entities that name a blob or changed scope.
-    let mut rebind: Vec<Uuid> = ops
+    let mut written: Vec<Uuid> = ops
         .iter()
         .filter(|op| {
             op.entity == WireKind::TodoSealed
@@ -508,11 +509,10 @@ pub(super) async fn push(
         })
         .map(|op| op.entity_id)
         .collect();
-    rebind.extend(fan_out.moved);
-    rebind.sort_unstable();
-    rebind.dedup();
-    if !rebind.is_empty() {
-        crate::attachments::bind_blobs(&mut tx, caller, &rebind, &[]).await?;
+    written.sort_unstable();
+    written.dedup();
+    if !written.is_empty() || !fan_out.moved.is_empty() {
+        crate::attachments::bind_blobs(&mut tx, caller, &written, &fan_out.moved, &[]).await?;
     }
 
     let cursor = partition_head(&mut tx, caller).await?;
@@ -538,6 +538,49 @@ pub(super) async fn push(
 
 /// Check a batch before the transaction, so a malformed one never takes the global write lock,
 /// and stamp every op with its pusher. Returns the ops and their newest timestamp.
+/// The ops of a batch that are new: an op the caller already stored is a retry, and is dropped
+/// before authorization so that authorization, fan-out and the stored log all see the same ops.
+/// An op whose id another op already has, in any partition (fan-out copies share their op's id),
+/// is refused: a recipient would take it for the op it already holds and silently skip it.
+async fn unseen_ops(
+    tx: &mut Transaction<'_, Postgres>,
+    caller: Uuid,
+    ops: Vec<WireOperation>,
+) -> SyncResult<Vec<WireOperation>> {
+    let ids: Vec<Uuid> = ops.iter().map(|o| o.id).collect();
+    let stored: std::collections::HashSet<Uuid> =
+        sqlx::query_scalar("SELECT op_id FROM operations WHERE user_id = $1 AND op_id = ANY($2)")
+            .bind(caller)
+            .bind(&ids)
+            .fetch_all(&mut **tx)
+            .await?
+            .into_iter()
+            .collect();
+    let ops: Vec<WireOperation> = ops
+        .into_iter()
+        .filter(|o| !stored.contains(&o.id))
+        .collect();
+    let ids: Vec<Uuid> = ops.iter().map(|o| o.id).collect();
+    let entity_ids: Vec<Uuid> = ops.iter().map(|o| o.entity_id).collect();
+    let taken: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM operations o
+               JOIN UNNEST($1::uuid[], $2::uuid[]) AS r(op_id, entity_id) ON o.op_id = r.op_id
+              WHERE o.pushed_by IS DISTINCT FROM $3 OR o.entity_id <> r.entity_id)",
+    )
+    .bind(&ids)
+    .bind(&entity_ids)
+    .bind(caller)
+    .fetch_one(&mut **tx)
+    .await?;
+    if taken {
+        return Err(
+            AppError::Conflict("an operation id is already another operation's".into()).into(),
+        );
+    }
+    Ok(ops)
+}
+
 fn check_batch(
     caller: Uuid,
     operations: Vec<WireOperation>,
@@ -576,9 +619,32 @@ fn check_batch(
         }
     }
 
+    // One op per id: authorization reads the whole batch, and only the first op of a repeated id
+    // would be stored, so the two could see different ends. A repeat of the same op is dropped; a
+    // different op under a used id is refused.
+    // At most MAX_OPS_PER_PUSH, checked above.
+    let capacity = operations.len().min(MAX_OPS_PER_PUSH);
+    let mut seen: std::collections::HashMap<Uuid, WireOperation> =
+        std::collections::HashMap::with_capacity(capacity);
+    let mut ops = Vec::with_capacity(capacity);
+    for op in operations {
+        match seen.get(&op.id) {
+            Some(first) if *first == op => continue,
+            Some(_) => {
+                return Err(AppError::BadRequest(
+                    "two different operations share an id in one push".into(),
+                )
+                .into())
+            }
+            None => {
+                seen.insert(op.id, op.clone());
+                ops.push(op);
+            }
+        }
+    }
+
     // Clients check an entry's writer field (an app's `actor_field`) against the pusher, which only
     // the server may say.
-    let mut ops = operations;
     for op in &mut ops {
         op.pushed_by = Some(caller);
     }
@@ -609,12 +675,16 @@ async fn authorize(
     let mut revocations: Vec<Revocation> = Vec::new();
     let mut moved: Vec<Uuid> = Vec::new();
     let mut fan_targets: Vec<Vec<Uuid>> = Vec::with_capacity(ops.len());
+    // Per op, for a sealed entity: the scopes it was authorized against (see `bind_to_recipients`).
+    let mut authorized: Vec<Vec<Uuid>> = Vec::with_capacity(ops.len());
     for (i, op) in ops.iter().enumerate() {
         // Owner-only kinds: nothing to authorize against a project, and nobody else receives them.
         if !may_fan_out(op.entity) {
             fan_targets.push(Vec::new());
+            authorized.push(Vec::new());
             continue;
         }
+        let mut allowed: Vec<Uuid> = Vec::new();
         let project = project_of(op, ops, scopes)?;
 
         // An entity a move took away stays away (see `still_revoked`).
@@ -630,6 +700,7 @@ async fn authorize(
             if members.is_shared() {
                 members.require_role(caller, min_role_for_op(op))?;
                 targets = members.active_ids();
+                allowed.push(pid);
             }
         }
 
@@ -643,6 +714,7 @@ async fn authorize(
                         let old_members = project_members(tx, &mut members_cache, old).await?;
                         if old_members.is_shared() {
                             old_members.require_role(caller, Role::Editor)?;
+                            allowed.push(old);
                             let left_behind: Vec<Uuid> = old_members
                                 .active_ids()
                                 .into_iter()
@@ -663,12 +735,82 @@ async fn authorize(
         }
         targets.retain(|member| *member != caller);
         fan_targets.push(targets);
+        authorized.push(allowed);
     }
+    bind_to_recipients(tx, ops, &authorized, &mut fan_targets, &mut revocations).await?;
     Ok(FanOut {
         targets: fan_targets,
         revocations,
         moved,
     })
+}
+
+/// Keep a sealed op out of a co-member's partition where that member holds the entity under a
+/// scope the op was not authorized against: personally, or in another project (unless a move took
+/// it away from them). Authorization reads
+/// the entity's scope in the caller's partition, which says nothing of the member's own entity of
+/// the same id (the key-trust record's id is the same for every account), so without this a
+/// commenter could overwrite or delete anything of a co-member's whose id they know.
+async fn bind_to_recipients(
+    tx: &mut Transaction<'_, Postgres>,
+    ops: &[WireOperation],
+    authorized: &[Vec<Uuid>],
+    targets: &mut [Vec<Uuid>],
+    revocations: &mut [Revocation],
+) -> AppResult<()> {
+    let (mut users, mut entities) = (Vec::new(), Vec::new());
+    for (op, members) in ops.iter().zip(targets.iter()) {
+        if op.entity == WireKind::TodoSealed {
+            for member in members {
+                users.push(*member);
+                entities.push(op.entity_id);
+            }
+        }
+    }
+    if users.is_empty() {
+        return Ok(());
+    }
+    // An entity a move took away from the member (`revoked_entities`) is the shared one, whatever
+    // scope the move left in their partition: a move back must reach them.
+    let held: Vec<(Uuid, Uuid, Option<Uuid>)> = sqlx::query_as(
+        "SELECT s.user_id, s.entity_id, s.scope
+           FROM UNNEST($1::uuid[], $2::uuid[]) AS r(user_id, entity_id)
+           JOIN entity_scopes s
+             ON s.user_id = r.user_id AND s.entity = 'todo.sealed' AND s.entity_id = r.entity_id
+          WHERE NOT EXISTS (SELECT 1 FROM revoked_entities v
+                             WHERE v.user_id = r.user_id AND v.entity_id = r.entity_id)",
+    )
+    .bind(&users)
+    .bind(&entities)
+    .fetch_all(&mut **tx)
+    .await?;
+    let held: HashMap<(Uuid, Uuid), Option<Uuid>> = held
+        .into_iter()
+        .map(|(user, entity, scope)| ((user, entity), scope))
+        .collect();
+    let may_receive =
+        |member: Uuid, entity: Uuid, allowed: &[Uuid]| match held.get(&(member, entity)) {
+            None => true,
+            Some(scope) => scope.is_some_and(|s| allowed.contains(&s)),
+        };
+    for ((op, members), allowed) in ops.iter().zip(targets.iter_mut()).zip(authorized) {
+        if op.entity == WireKind::TodoSealed {
+            members.retain(|m| may_receive(*m, op.entity_id, allowed));
+        }
+    }
+    // A member skipped above keeps its own entity: no revocation tombstone for it either.
+    for revocation in revocations.iter_mut() {
+        let allowed: Vec<Uuid> = ops
+            .iter()
+            .zip(authorized)
+            .filter(|(op, _)| op.entity_id == revocation.entity_id)
+            .flat_map(|(_, a)| a.iter().copied())
+            .collect();
+        revocation
+            .members
+            .retain(|m| may_receive(*m, revocation.entity_id, &allowed));
+    }
+    Ok(())
 }
 
 /// Leave out of each op's fan-out the co-members whose account has not enabled the op's app:

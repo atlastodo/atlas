@@ -180,7 +180,7 @@ pub(crate) async fn revoke_project(
     user: Uuid,
     project_id: Uuid,
 ) -> AppResult<usize> {
-    let mut tx = begin_sync_write(&state.pool).await?;
+    let mut tx = begin_sync_write(&state.pool, None).await?;
     let ops = revoke_project_ops(&mut tx, state, user, project_id).await?;
     if ops.is_empty() {
         return Ok(0);

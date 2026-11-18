@@ -193,13 +193,146 @@ pub(crate) async fn take_sync_write_lock(tx: &mut Transaction<'_, Postgres>) -> 
     Ok(())
 }
 
-/// Begin a transaction that may insert into `operations`, holding [`SYNC_WRITE_LOCK`].
-pub(crate) async fn begin_sync_write(
-    pool: &sqlx::PgPool,
-) -> AppResult<Transaction<'static, Postgres>> {
+/// How long a sync write waits for its turn before it is refused with 429.
+const SYNC_WRITE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// One in-process turn for [`SYNC_WRITE_LOCK`]. The advisory lock serializes sync writes
+/// anyway; waiting for the turn here, before a pool connection is checked out, keeps waiters from
+/// holding the pool's connections, which every other request needs.
+fn sync_write_turns() -> &'static tokio::sync::Semaphore {
+    static TURNS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    TURNS.get_or_init(|| tokio::sync::Semaphore::new(1))
+}
+
+type UserQueues = std::collections::HashMap<Uuid, std::sync::Arc<tokio::sync::Semaphore>>;
+
+/// One queue per user with writes in flight, so one account's writes wait behind each other and
+/// at most one of them competes for the turn: a busy account cannot crowd out the others.
+fn user_queues() -> &'static std::sync::Mutex<UserQueues> {
+    static QUEUES: std::sync::OnceLock<std::sync::Mutex<UserQueues>> = std::sync::OnceLock::new();
+    QUEUES.get_or_init(Default::default)
+}
+
+fn lock_queues() -> std::sync::MutexGuard<'static, UserQueues> {
+    user_queues()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A user's place at the head of their queue; released (and the queue dropped when idle) on drop.
+struct UserSlot {
+    user: Uuid,
+    queue: std::sync::Arc<tokio::sync::Semaphore>,
+    permit: Option<tokio::sync::OwnedSemaphorePermit>,
+}
+
+impl UserSlot {
+    async fn take(user: Uuid) -> AppResult<Self> {
+        let queue = lock_queues()
+            .entry(user)
+            .or_insert_with(|| std::sync::Arc::new(tokio::sync::Semaphore::new(1)))
+            .clone();
+        let mut slot = Self {
+            user,
+            queue,
+            permit: None,
+        };
+        let permit = tokio::time::timeout(SYNC_WRITE_WAIT, slot.queue.clone().acquire_owned())
+            .await
+            .map_err(|_| AppError::TooManyRequests)?
+            .map_err(|_| AppError::Internal)?;
+        slot.permit = Some(permit);
+        Ok(slot)
+    }
+}
+
+impl Drop for UserSlot {
+    fn drop(&mut self) {
+        let mut queues = lock_queues();
+        self.permit.take();
+        // The map's handle plus ours: nobody else holds or waits in this queue.
+        if std::sync::Arc::strong_count(&self.queue) == 2 {
+            queues.remove(&self.user);
+        }
+    }
+}
+
+async fn take_turn() -> AppResult<tokio::sync::SemaphorePermit<'static>> {
+    tokio::time::timeout(SYNC_WRITE_WAIT, sync_write_turns().acquire())
+        .await
+        .map_err(|_| AppError::TooManyRequests)?
+        .map_err(|_| AppError::Internal)
+}
+
+/// A sync-write transaction together with its turn. It derefs to the transaction; the turn is
+/// released when it commits or is dropped (rolled back), never earlier.
+pub(crate) struct SyncTx {
+    tx: Transaction<'static, Postgres>,
+    // Dropped after `tx` (fields drop in order): the turn outlives the transaction.
+    turn: Option<tokio::sync::SemaphorePermit<'static>>,
+    _slot: Option<UserSlot>,
+}
+
+impl SyncTx {
+    /// Begin a transaction that does not hold [`SYNC_WRITE_LOCK`] yet; [`SyncTx::lock`] takes it
+    /// (and the turn) before its first read of sync state. `user` is the requester of a
+    /// user-driven write (queued per user), `None` for server-side work.
+    pub(crate) async fn begin_unlocked(pool: &sqlx::PgPool, user: Option<Uuid>) -> AppResult<Self> {
+        let slot = match user {
+            Some(user) => Some(UserSlot::take(user).await?),
+            None => None,
+        };
+        Ok(Self {
+            tx: pool.begin().await?,
+            turn: None,
+            _slot: slot,
+        })
+    }
+
+    /// Take the turn (at most [`SYNC_WRITE_WAIT`]) and [`SYNC_WRITE_LOCK`].
+    pub(crate) async fn lock(&mut self) -> AppResult<()> {
+        if self.turn.is_none() {
+            self.turn = Some(take_turn().await?);
+        }
+        take_sync_write_lock(&mut self.tx).await
+    }
+
+    pub(crate) async fn commit(self) -> AppResult<()> {
+        let Self { tx, turn, _slot } = self;
+        tx.commit().await?;
+        drop(turn);
+        Ok(())
+    }
+}
+
+impl std::ops::Deref for SyncTx {
+    type Target = Transaction<'static, Postgres>;
+    fn deref(&self) -> &Self::Target {
+        &self.tx
+    }
+}
+
+impl std::ops::DerefMut for SyncTx {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.tx
+    }
+}
+
+/// Begin a transaction that may insert into `operations`, holding [`SYNC_WRITE_LOCK`]. The turn
+/// is taken before a pool connection is checked out. `user` as for [`SyncTx::begin_unlocked`].
+pub(crate) async fn begin_sync_write(pool: &sqlx::PgPool, user: Option<Uuid>) -> AppResult<SyncTx> {
+    let slot = match user {
+        Some(user) => Some(UserSlot::take(user).await?),
+        None => None,
+    };
+    let turn = take_turn().await?;
     let mut tx = pool.begin().await?;
     take_sync_write_lock(&mut tx).await?;
-    Ok(tx)
+    Ok(SyncTx {
+        tx,
+        turn: Some(turn),
+        _slot: slot,
+    })
 }
 
 /// The pull-shaped payload of `/sync/pull`, every WebSocket message and every live push: all of
@@ -317,5 +450,26 @@ mod tests {
         assert_eq!(parse(None, "/sync/ws?xprotocol=9&ticket=t"), None);
         assert_eq!(parse(None, "/sync/ws?ticket=t"), None);
         assert_eq!(parse(None, "/sync/ws"), None);
+    }
+}
+
+#[cfg(test)]
+mod sync_write_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn one_users_writes_queue_behind_each_other_not_others() {
+        let user = Uuid::now_v7();
+        let first = UserSlot::take(user).await.unwrap();
+        // The same user's next write waits; another user's does not.
+        let waiting = tokio::spawn(UserSlot::take(user));
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        let _other = UserSlot::take(Uuid::now_v7()).await.unwrap();
+        drop(first);
+        let second = waiting.await.unwrap().unwrap();
+        drop(second);
+        // An idle user's queue is dropped.
+        assert!(!lock_queues().contains_key(&user));
     }
 }

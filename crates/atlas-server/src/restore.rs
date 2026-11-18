@@ -161,7 +161,7 @@ pub async fn restore_tasks(pool: &PgPool, opts: &RestoreOptions) -> AppResult<Re
     for task_id in candidate_tasks(pool, opts).await? {
         let report = if opts.apply {
             // Plan and write in one sync-write transaction so no push lands in between.
-            let mut tx = sync::begin_sync_write(pool).await?;
+            let mut tx = sync::begin_sync_write(pool, None).await?;
             let plan = plan_task(&mut tx, pool, opts, task_id).await?;
             if plan.report.skip.is_none() {
                 clock.update(plan.floor, now_ms());

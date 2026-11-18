@@ -161,6 +161,11 @@ pub fn decode_ops(
             continue;
         };
         let is_delete = w.get("op").and_then(Value::as_str) == Some("delete");
+        // No device deletes the key-trust state (its facts are cleared field by field), and a
+        // delete carries no envelope the server could not forge: one would wipe every pin.
+        if is_delete && id == crate::trust::KEY_TRUST_ID {
+            continue;
+        }
         let make = |kind: String, change: Change| Operation {
             id: op_id,
             entity: kind,
@@ -255,6 +260,10 @@ pub fn decode_ops(
                 scope: scope.map(str::to_owned),
                 envelope,
                 ts,
+                pushed_by: w
+                    .get("pushed_by")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
             });
             continue;
         };
@@ -331,6 +340,26 @@ mod tests {
     }
 
     #[test]
+    fn a_served_delete_of_the_key_trust_state_is_dropped() {
+        crate::testing::register_test_app();
+        let (keyring, _, _) = keys();
+        let store = Store::new(Uuid::nil());
+        let delete = |entity: &str| {
+            json!({
+                "id": Uuid::now_v7(), "entity": entity, "entity_id": crate::trust::KEY_TRUST_ID,
+                "op": "delete", "ts": { "wall_ms": 9_999_999_999_999u64, "counter": 0, "node": Uuid::nil() },
+            })
+        };
+        let (decoded, _) = decode_ops(
+            &[delete("todo.sealed"), delete("preference")],
+            &keyring,
+            &store,
+            Some,
+        );
+        assert_eq!(decoded.len(), 0);
+    }
+
+    #[test]
     fn encodes_and_decodes_like_the_typescript_client() {
         crate::testing::register_test_app();
         let (keyring, personal, project) = keys();
@@ -379,6 +408,49 @@ mod tests {
         moved["field"] = json!("0".repeat(32));
         let (ops, aside) = decode_ops(&[moved], &keyring, &store, Some);
         assert!(ops.is_empty() && aside.sealed.len() == 1);
+    }
+
+    #[test]
+    fn a_revived_activity_actor_must_be_its_pusher() {
+        crate::testing::register_test_app();
+        let (_, _, project) = keys();
+        // The project's key is not here yet: both stay sealed.
+        let mut keyring = Keyring::new(
+            crate::crypto::random_bytes(),
+            crate::crypto::random_bytes(),
+            None,
+        );
+        let mut store = Store::new(Uuid::nil());
+        let (forged, real) = (Uuid::new_v4(), Uuid::new_v4());
+        let actor = |id: Uuid, pushed_by: &str| {
+            let mut op = encode_op(
+                &set(EntityKind::Activity, id, "actor_id", json!("me")),
+                &project,
+            )
+            .unwrap();
+            op["pushed_by"] = json!(pushed_by);
+            op
+        };
+        let (_, aside) = decode_ops(
+            &[actor(forged, "someone else"), actor(real, "me")],
+            &keyring,
+            &store,
+            Some,
+        );
+        assert_eq!(aside.sealed.len(), 2);
+        for pending in aside.sealed {
+            store.add_sealed(pending);
+        }
+        keyring.set_project_key("p1", [9u8; 32]);
+        crate::scope::revive_locked_values(&mut store, &keyring, Some("me"), true);
+
+        let actor_of = |id: Uuid| {
+            store
+                .get(EntityKind::Activity, &id.to_string())
+                .and_then(|f| f.get("actor_id").cloned())
+        };
+        assert_eq!(actor_of(real), Some(json!("me")));
+        assert_eq!(actor_of(forged), None);
     }
 
     #[test]

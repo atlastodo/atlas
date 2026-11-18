@@ -25,6 +25,10 @@ visible parameters or in git.
 A token cannot change your password, recovery phrase or sessions, delete or export your account,
 create or revoke tokens, or use the admin pages. Those routes need a signed-in device.
 
+An account must have a recovery phrase before it can create a todo token: the token carries the
+key that would otherwise recover an account without one. An older account that never set a
+phrase sets it in **Settings → Recovery phrase** first.
+
 Revoke a token in the same settings section. Anything using it stops on its next request, and the
 server deletes its copy of your wrapped keys. Recovering your account with the recovery phrase,
 or scheduling its deletion, revokes every token. Changing your password does not.
@@ -200,6 +204,9 @@ slot]`; `test-vectors/api_token_vectors.json` has a journal entry).
   projects or project keys in a journal session. A vault session works the same way with the vault
   key (`vault.sealed`; `vault.item`, `vault.folder` inside). A session re-encodes the rows its
   partition still holds from before sync protocol 7 and drops the originals, once per run.
+- Todo's sharing routes (`/projects/:id/members`, invites, `/projects/:id/keys`,
+  `/project-keys`) and attachment blobs are todo's: a session whose token is not for todo gets 403
+  `app_not_enabled`, scope `token`, there too.
 
 ### Vault tokens for CI
 

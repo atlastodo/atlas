@@ -480,14 +480,22 @@ pub fn revive_locked_values(
     });
     // Values that arrived sealed (protocol 7) open with the keys of the scope they arrived in.
     let sealed = store.revive_sealed(|pending| {
-        crate::wire::open_sealed(
+        let opened = crate::wire::open_sealed(
             keyring,
             &pending.wire,
             &pending.entity_id,
             &pending.field,
             pending.scope.as_deref(),
             &pending.envelope,
-        )
+        )?;
+        // As on decode: an entry naming someone other than its pusher as its writer is forged.
+        if crate::apps::actor_field_of(&opened.kind).as_deref() == Some(opened.field.as_str())
+            && (pending.pushed_by.is_none()
+                || opened.value.as_str() != pending.pushed_by.as_deref())
+        {
+            return None;
+        }
+        Some(opened)
     });
     let count = revived.len() + sealed.len();
     let sealed_repairs = sealed.into_iter().map(|(opened, entity_id, ts)| Repair {

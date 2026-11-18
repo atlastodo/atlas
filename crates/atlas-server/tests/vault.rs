@@ -754,3 +754,30 @@ async fn expired_tokens_do_not_count_against_the_cap() {
     let (status, body) = create_vault_token(&router, &user, &new_token(), later).await;
     assert_eq!(status, StatusCode::CREATED, "{body:?}");
 }
+
+/// Todo's sharing and key routes are todo's: a vault-only token session reaches none.
+#[tokio::test]
+async fn a_vault_token_cannot_reach_todo_sharing_keys_or_blobs() {
+    let (_, router) = suite().await;
+    let user = vault_user(&router).await;
+    let (_, access) = vault_session(
+        &router,
+        &user,
+        json!({ "expires_at": now_ms() + DAY_MS, "write": true }),
+    )
+    .await;
+    let pid = Uuid::now_v7();
+    for (method, uri, body) in [
+        ("GET", "/project-keys".to_owned(), Value::Null),
+        ("GET", format!("/projects/{pid}/members"), Value::Null),
+        (
+            "POST",
+            format!("/projects/{pid}/members"),
+            json!({ "email": "someone@example.com", "role": "editor" }),
+        ),
+    ] {
+        let (status, resp) = send(&router, method, &uri, Some(&access), None, body).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} {uri}: {resp:?}");
+        assert_eq!(code(&resp), "app_not_enabled", "{method} {uri}");
+    }
+}

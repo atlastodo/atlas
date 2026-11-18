@@ -3,7 +3,7 @@
  * once (409 `signing_key_already_set`), so when two devices race the loser loads the winner's.
  */
 
-import { apiErrorCode, type ApiClient } from "./api";
+import { apiErrorCode, type ApiClient, type SigningKeyProof } from "./api";
 import { generateSigningKeypair, unwrapSigningKey, wrapSigningKey, type Keyring } from "./crypto";
 
 export type SigningKeyTransport = Pick<ApiClient, "getSigningKey" | "putSigningKey">;
@@ -18,12 +18,15 @@ export interface EnsuredSigningKey {
  * Put the account's signing key into `keyring`: the one it holds, else the stored one (`stored`,
  * from the auth response or the session, then the server), else a new one this call uploads.
  * Throws when the stored key does not open under the DEK or does not match its public half: a new
- * key could not replace it anyway.
+ * key could not replace it anyway. A new key's upload needs `proof` (the credential just entered)
+ * unless the session signed in within the last few minutes; without either it throws, and a later
+ * unlock with the credential creates it.
  */
 export async function ensureSigningKey(
   api: SigningKeyTransport,
   keyring: Keyring,
   stored?: { publicKey?: string | null; wrapped?: { iv: string; ct: string } | null },
+  proof?: SigningKeyProof,
 ): Promise<EnsuredSigningKey> {
   const held = keyring.getSigningKey();
   if (held) return { publicKey: keyring.getSigningPublicKey()!, secretKey: held, created: false };
@@ -42,7 +45,11 @@ export async function ensureSigningKey(
 
   const fresh = generateSigningKeypair();
   try {
-    await api.putSigningKey(fresh.publicKey, wrapSigningKey(fresh.secretKey, keyring.getDek()));
+    await api.putSigningKey(
+      fresh.publicKey,
+      wrapSigningKey(fresh.secretKey, keyring.getDek()),
+      proof,
+    );
   } catch (err) {
     if (apiErrorCode(err) !== "signing_key_already_set") throw err;
     // Another device stored one first: that one is the account's.

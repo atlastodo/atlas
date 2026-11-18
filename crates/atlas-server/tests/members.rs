@@ -1159,3 +1159,70 @@ async fn wait_for_blocked(pool: &sqlx::PgPool, holder: i32, n: i64) {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
 }
+
+#[tokio::test]
+async fn a_creator_removed_from_its_shared_project_cannot_list_its_members() {
+    let router = setup().await;
+    let alice = new_user(&router).await;
+    let bob = new_user(&router).await;
+    let pid = push_project(&router, &alice).await;
+    invite(&router, &alice, &pid, &bob).await;
+    accept(&router, &bob, &pid).await;
+    let (status, _) = send(
+        &router,
+        "PATCH",
+        &format!("/projects/{pid}/members/{}", bob.id),
+        Some(&alice.token),
+        json!({ "role": "owner" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = send(
+        &router,
+        "DELETE",
+        &format!("/projects/{pid}/members/{}", alice.id),
+        Some(&bob.token),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, _) = send(
+        &router,
+        "GET",
+        &format!("/projects/{pid}/members"),
+        Some(&alice.token),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// Public-key lookups and invites each show whether an email has an account: they spend one
+/// per-user budget (`INVITE_RATE_LIMIT_*`, default 60 an hour).
+#[tokio::test]
+async fn public_key_lookups_share_the_per_user_invite_budget() {
+    let router = setup().await;
+    let alice = new_user(&router).await;
+    let bob = new_user(&router).await;
+    let pid = push_project(&router, &alice).await;
+    let uri = format!("/users/public-key?email={}", bob.email);
+    for _ in 0..60 {
+        let (status, _) = send(&router, "GET", &uri, Some(&alice.token), Value::Null).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (status, _) = send(&router, "GET", &uri, Some(&alice.token), Value::Null).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    let (status, _) = send(
+        &router,
+        "POST",
+        &format!("/projects/{pid}/members"),
+        Some(&alice.token),
+        json!({ "email": bob.email, "role": "editor" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "the same budget");
+    // Another user's budget is untouched.
+    let (status, _) = send(&router, "GET", &uri, Some(&bob.token), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+}

@@ -420,19 +420,38 @@ async fn authenticate(
     password: &str,
     ip: IpAddr,
 ) -> AppResult<UserRow> {
+    // No account has a longer address (signup enforces the cap); refuse before the email is
+    // stored as a limiter key, so a request cannot make the limiter hold megabytes for minutes.
+    if email.len() > MAX_EMAIL_LEN {
+        return Err(AppError::Unauthorized);
+    }
     let failures = ratelimit::account_failures();
     if failures.is_blocked(email, ip, Instant::now()) {
         return Err(AppError::TooManyRequests);
     }
     let verified = verify_login(state, email, password).await;
     match &verified {
-        Err(AppError::Unauthorized) => failures.record_failure(email, ip, Instant::now()),
+        Err(AppError::Unauthorized) => {
+            let known = email_has_account(state, email).await;
+            failures.record_failure(email, ip, Instant::now(), known)
+        }
         Ok(_) | Err(AppError::AccountDisabled | AppError::LegacyAccount) => {
             failures.reset(email, ip)
         }
         Err(_) => {}
     }
     verified
+}
+
+/// Whether `email` belongs to an account, for the failure limiter (which keeps real accounts'
+/// failures apart from junk emails'). Runs for known and unknown emails alike; a database error
+/// counts as known, so real accounts are never counted in the fail-open maps.
+async fn email_has_account(state: &AppState, email: &str) -> bool {
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE email = $1)")
+        .bind(email)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(true)
 }
 
 async fn verify_login(state: &AppState, email: &str, password: &str) -> AppResult<UserRow> {
@@ -680,6 +699,7 @@ async fn start_new_session(
         }
         None => Vec::new(),
     };
+    // A credential sign-in: it starts the family, and its time travels with every rotation.
     let session = start_session(
         &mut tx,
         state,
@@ -687,6 +707,7 @@ async fn start_new_session(
         Uuid::now_v7(),
         device_name,
         install_key_hash,
+        Some(OffsetDateTime::now_utc()),
     )
     .await?;
     tx.commit().await?;
@@ -706,6 +727,7 @@ async fn start_session(
     device_id: Uuid,
     device_name: Option<String>,
     install_key_hash: Option<String>,
+    signed_in_at: Option<OffsetDateTime>,
 ) -> AppResult<AuthResponse> {
     let access_token = issue_access_token(
         user.id,
@@ -731,8 +753,9 @@ async fn start_session(
     let expires_at =
         OffsetDateTime::now_utc() + time::Duration::seconds(state.config.refresh_ttl_seconds);
     sqlx::query(
-        "INSERT INTO refresh_tokens (user_id, device_id, token_hash, expires_at, device_name, install_key_hash)
-         VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO refresh_tokens
+             (user_id, device_id, token_hash, expires_at, device_name, install_key_hash, signed_in_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(user.id)
     .bind(device_id)
@@ -740,6 +763,7 @@ async fn start_session(
     .bind(expires_at)
     .bind(&clean_device_name)
     .bind(&install_key_hash)
+    .bind(signed_in_at)
     .execute(&mut *conn)
     .await?;
     // No root key, no app keys: skip the query for accounts not migrated yet.
@@ -858,8 +882,29 @@ async fn insert_user(
     Ok(inserted)
 }
 
-/// The 409 for a signup whose insert hit a conflict: the email, or else the client-chosen id.
-async fn signup_conflict(conn: &mut sqlx::PgConnection, email: &str) -> AppError {
+/// The 409 for a signup whose insert hit a conflict. A taken client-chosen id answers as such
+/// whatever the email: clients pick a fresh UUIDv7, so only a probe reuses one, and answering the
+/// email for it would tell whether an address has an account without creating one or spending an
+/// invite.
+async fn signup_conflict(
+    conn: &mut sqlx::PgConnection,
+    email: &str,
+    user_id: Option<Uuid>,
+) -> AppError {
+    let id_taken: Result<bool, sqlx::Error> = match user_id {
+        Some(id) => {
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)")
+                .bind(id)
+                .fetch_one(&mut *conn)
+                .await
+        }
+        None => Ok(false),
+    };
+    match id_taken {
+        Ok(true) => return AppError::Conflict("user id".into()),
+        Ok(false) => {}
+        Err(e) => return e.into(),
+    }
     let taken: Result<bool, sqlx::Error> =
         sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE email = $1)")
             .bind(email)
@@ -1016,7 +1061,7 @@ pub async fn signup(
     )
     .await?
     else {
-        return Err(signup_conflict(&mut tx, &email).await);
+        return Err(signup_conflict(&mut tx, &email, req.user_id).await);
     };
     let slot = match &passkey {
         Some(verified) => Some(super::passkeys::store_passkey(&mut tx, user.id, verified).await?),
@@ -1075,19 +1120,26 @@ pub async fn refresh(
 
     let mut tx = state.pool.begin().await?;
     // Consume the token only if it is live and its account may still hold a session.
-    let consumed: Option<(Uuid, Uuid, Option<String>, Option<String>)> = sqlx::query_as(
+    #[allow(clippy::type_complexity)]
+    let consumed: Option<(
+        Uuid,
+        Uuid,
+        Option<String>,
+        Option<String>,
+        Option<OffsetDateTime>,
+    )> = sqlx::query_as(
         "UPDATE refresh_tokens t
-            SET revoked_at = now(), rotated_at = now()
-           FROM users u
-          WHERE t.token_hash = $1 AND t.revoked_at IS NULL AND t.expires_at > now()
-            AND u.id = t.user_id AND u.disabled_at IS NULL AND u.deletion_scheduled_at IS NULL
-        RETURNING t.user_id, t.device_id, t.device_name, t.install_key_hash",
+                SET revoked_at = now(), rotated_at = now()
+               FROM users u
+              WHERE t.token_hash = $1 AND t.revoked_at IS NULL AND t.expires_at > now()
+                AND u.id = t.user_id AND u.disabled_at IS NULL AND u.deletion_scheduled_at IS NULL
+            RETURNING t.user_id, t.device_id, t.device_name, t.install_key_hash, t.signed_in_at",
     )
     .bind(&token_hash)
     .fetch_optional(&mut *tx)
     .await?;
 
-    let Some((user_id, device_id, device_name, install_key_hash)) = consumed else {
+    let Some((user_id, device_id, device_name, install_key_hash, signed_in_at)) = consumed else {
         drop(tx);
         return Err(refresh_rejection(&state, &token_hash, req.grace).await);
     };
@@ -1100,6 +1152,7 @@ pub async fn refresh(
     if !user.is_e2ee {
         return Err(AppError::LegacyAccount);
     }
+    // The rotated row carries the family's sign-in time on.
     let session = start_session(
         &mut tx,
         &state,
@@ -1107,6 +1160,7 @@ pub async fn refresh(
         device_id,
         device_name,
         install_key_hash,
+        signed_in_at,
     )
     .await?;
     tx.commit().await?;
@@ -1299,6 +1353,13 @@ pub async fn change_password(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Whether the account `u` ever had a todo API token, live, revoked or expired (rows are kept). A
+/// todo token carries the account's X25519 private key, which answers a version-1 recovery
+/// challenge, and its holder may keep that key after the token is revoked: such an account is not
+/// recovered by version 1.
+const TODO_TOKEN_ISSUED: &str =
+    "EXISTS (SELECT 1 FROM api_tokens t WHERE t.user_id = u.id AND 'todo' = ANY(t.apps))";
+
 /// `GET /auth/recovery-keys?email=...`: the recovery-wrapped keys plus a challenge sealed to the
 /// account's recovery key (see [`recovery::recipient`]), which `POST /auth/recover` requires
 /// answered. `recovery_key_version` says which secret answers it.
@@ -1322,16 +1383,18 @@ pub async fn get_recovery_keys(
         recovery_encrypted_private_key: Option<serde_json::Value>,
         recovery_encrypted_root_key: Option<serde_json::Value>,
         todo_app_key: Option<serde_json::Value>,
+        todo_token_issued: bool,
     }
     let email = query.email.trim().to_lowercase();
-    let row: Option<Row> = sqlx::query_as(
+    let row: Option<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT u.id, u.password_hash, u.salt, u.public_key, u.recovery_public_key,
                 u.recovery_encrypted_dek, u.recovery_encrypted_private_key,
-                u.recovery_encrypted_root_key, k.wrapped_key AS todo_app_key
+                u.recovery_encrypted_root_key, k.wrapped_key AS todo_app_key,
+                {TODO_TOKEN_ISSUED} AS todo_token_issued
            FROM users u
            LEFT JOIN account_app_keys k ON k.user_id = u.id AND k.app = $2
-          WHERE u.email = $1 AND u.is_e2ee = TRUE",
-    )
+          WHERE u.email = $1 AND u.is_e2ee = TRUE"
+    )))
     .bind(&email)
     .bind(root_key::TODO_APP)
     .fetch_optional(&state.pool)
@@ -1341,6 +1404,10 @@ pub async fn get_recovery_keys(
     let recoverable = row.and_then(|r| {
         let (version, recipient) =
             recovery::recipient(r.recovery_public_key.as_deref(), r.public_key.as_deref())?;
+        // See `TODO_TOKEN_ISSUED`: such an account answers like one that cannot be recovered.
+        if version == recovery::RECOVERY_KEY_V1 && r.todo_token_issued {
+            return None;
+        }
         Some((r.salt.clone()?, version, recipient, r))
     });
     let (salt, dek, priv_key, pwh, version, recipient, user_id, root_slot, todo_key) =
@@ -1411,6 +1478,11 @@ pub async fn recover_account(
     validate_auth_hash(&req.new_auth_hash)?;
     let kdf = Kdf::from_request(req.kdf_version, req.kdf_params.as_ref())?;
     let email = req.email.trim().to_lowercase();
+    // See `authenticate`: an over-long address cannot match an account and must not become a
+    // limiter key.
+    if email.len() > MAX_EMAIL_LEN {
+        return Err(AppError::Unauthorized);
+    }
     // Failures count per email and address, as for login.
     let failures = ratelimit::account_failures();
     if failures.is_blocked(&email, ip, Instant::now()) {
@@ -1418,7 +1490,10 @@ pub async fn recover_account(
     }
     let recovered = recover(&state, &email, &req, kdf).await;
     match &recovered {
-        Err(AppError::Unauthorized) => failures.record_failure(&email, ip, Instant::now()),
+        Err(AppError::Unauthorized) => {
+            let known = email_has_account(&state, &email).await;
+            failures.record_failure(&email, ip, Instant::now(), known)
+        }
         Ok(_) => failures.reset(&email, ip),
         Err(_) => {}
     }
@@ -1438,21 +1513,27 @@ async fn recover(
     if claims.email != email {
         return Err(AppError::Unauthorized);
     }
-    let (user_id, old_hash, public_key, recovery_public_key): (
+    let (user_id, old_hash, public_key, recovery_public_key, todo_token_issued): (
         Uuid,
         Option<String>,
         Option<String>,
         Option<String>,
-    ) = sqlx::query_as(
-        "SELECT id, password_hash, public_key, recovery_public_key FROM users
-          WHERE email = $1 AND is_e2ee = TRUE",
-    )
+        bool,
+    ) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT u.id, u.password_hash, u.public_key, u.recovery_public_key,
+                {TODO_TOKEN_ISSUED}
+           FROM users u
+          WHERE u.email = $1 AND u.is_e2ee = TRUE"
+    )))
     .bind(email)
     .fetch_optional(&state.pool)
     .await?
     .ok_or(AppError::Unauthorized)?;
     let (version, key) = recovery::recipient(recovery_public_key.as_deref(), public_key.as_deref())
         .ok_or(AppError::Unauthorized)?;
+    if version == recovery::RECOVERY_KEY_V1 && todo_token_issued {
+        return Err(AppError::Unauthorized);
+    }
     if claims.ver != version
         || claims.rk != recovery::key_fingerprint(&key)
         || recovery::password_hash_fingerprint(old_hash.as_deref().unwrap_or_default())
@@ -1698,9 +1779,11 @@ pub async fn replace_recovery_key(
 /// are sealed to, and the Ed25519 identity key (see [`super::identity`]).
 pub async fn get_public_key(
     State(state): State<AppState>,
-    _user: AuthUser,
+    user: AuthUser,
     Query(query): Query<PublicKeyQuery>,
 ) -> AppResult<Json<PublicKeyResponse>> {
+    // Looked up to share a todo project with the account.
+    user.require_app(root_key::TODO_APP)?;
     let email = query.email.trim().to_lowercase();
     let row: Option<(Uuid, String, Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT id, email::TEXT, public_key, signing_public_key FROM users WHERE email = $1",

@@ -125,6 +125,14 @@ impl<K: Eq + Hash + Clone> Windows<K> {
         }
     }
 
+    /// Failures `key` has in its live window, without creating one (absent or expired: 0).
+    fn count(&self, key: &K, now: Instant, window: Duration) -> u32 {
+        self.map
+            .get(key)
+            .filter(|w| now.duration_since(w.start) < window)
+            .map_or(0, |w| w.count)
+    }
+
     /// The live window for `key` at `now`, created or restarted as needed; `None` when the key is
     /// new and the map is full.
     fn window(&mut self, key: K, now: Instant, window: Duration) -> Option<&mut Window> {
@@ -188,11 +196,18 @@ pub const ACCOUNT_WIDE_FACTOR: u32 = 5;
 /// [`ACCOUNT_WIDE_FACTOR`] times it. Someone who knows an email therefore cannot lock its owner
 /// out from one address, while guesses spread over many addresses still hit a cap. Only failures
 /// count and a success clears both, so the owner is not locked out by their own sign-ins.
+///
+/// Failures for emails with no account are kept apart from real accounts', so junk emails cannot
+/// use up the capacity real accounts are counted in. Checking never inserts a window and never
+/// refuses an email that has none: a full map of unknown emails fails open (the per-address auth
+/// limiter still bounds each source), while real accounts keep their own capacity and their caps.
 pub struct FailureLimiter {
     max_failures: u32,
     window: Duration,
     pairs: Mutex<Windows<(String, IpAddr)>>,
     accounts: Mutex<Windows<String>>,
+    unknown_pairs: Mutex<Windows<(String, IpAddr)>>,
+    unknown_accounts: Mutex<Windows<String>>,
 }
 
 impl FailureLimiter {
@@ -202,36 +217,45 @@ impl FailureLimiter {
             window,
             pairs: Mutex::new(Windows::new(capacity)),
             accounts: Mutex::new(Windows::new(capacity)),
+            unknown_pairs: Mutex::new(Windows::new(capacity)),
+            unknown_accounts: Mutex::new(Windows::new(capacity)),
         }
     }
 
-    /// Whether `email` must be refused from `ip` before its credential is checked; also true for
-    /// an untracked key while a map is full.
+    /// Whether `email` must be refused from `ip` before its credential is checked. Read-only: an
+    /// email with no recorded failures is never refused, however full the maps are.
     pub fn is_blocked(&self, email: &str, ip: IpAddr, now: Instant) -> bool {
         let account_cap = self.max_failures.saturating_mul(ACCOUNT_WIDE_FACTOR);
-        let account = match lock(&self.accounts).window(email.to_owned(), now, self.window) {
-            Some(w) => w.count >= account_cap,
-            None => true,
-        };
-        account
-            || match lock(&self.pairs).window((email.to_owned(), ip), now, self.window) {
-                Some(w) => w.count >= self.max_failures,
-                None => true,
-            }
+        let email = email.to_owned();
+        let pair = (email.clone(), ip);
+        lock(&self.accounts).count(&email, now, self.window) >= account_cap
+            || lock(&self.pairs).count(&pair, now, self.window) >= self.max_failures
+            || lock(&self.unknown_accounts).count(&email, now, self.window) >= account_cap
+            || lock(&self.unknown_pairs).count(&pair, now, self.window) >= self.max_failures
     }
 
-    pub fn record_failure(&self, email: &str, ip: IpAddr, now: Instant) {
-        if let Some(w) = lock(&self.accounts).window(email.to_owned(), now, self.window) {
+    /// Count a failed check. `known`: the email belongs to an account. Unknown emails are counted
+    /// in their own maps (so they still answer like real ones), and dropped when those are full.
+    pub fn record_failure(&self, email: &str, ip: IpAddr, now: Instant, known: bool) {
+        let (accounts, pairs) = if known {
+            (&self.accounts, &self.pairs)
+        } else {
+            (&self.unknown_accounts, &self.unknown_pairs)
+        };
+        if let Some(w) = lock(accounts).window(email.to_owned(), now, self.window) {
             w.count = w.count.saturating_add(1);
         }
-        if let Some(w) = lock(&self.pairs).window((email.to_owned(), ip), now, self.window) {
+        if let Some(w) = lock(pairs).window((email.to_owned(), ip), now, self.window) {
             w.count = w.count.saturating_add(1);
         }
     }
 
     pub fn reset(&self, email: &str, ip: IpAddr) {
+        let pair = (email.to_owned(), ip);
         lock(&self.accounts).map.remove(email);
-        lock(&self.pairs).map.remove(&(email.to_owned(), ip));
+        lock(&self.pairs).map.remove(&pair);
+        lock(&self.unknown_accounts).map.remove(email);
+        lock(&self.unknown_pairs).map.remove(&pair);
     }
 }
 
@@ -583,7 +607,7 @@ mod tests {
         let t0 = Instant::now();
         for _ in 0..3 {
             assert!(!limiter.is_blocked("a@example.com", ip(1), t0));
-            limiter.record_failure("a@example.com", ip(1), t0);
+            limiter.record_failure("a@example.com", ip(1), t0, true);
         }
         assert!(limiter.is_blocked("a@example.com", ip(1), t0));
         assert!(
@@ -592,10 +616,10 @@ mod tests {
         );
         assert!(!limiter.is_blocked("a@example.com", ip(1), t0 + Duration::from_secs(901)));
 
-        limiter.record_failure("b@example.com", ip(1), t0);
-        limiter.record_failure("b@example.com", ip(1), t0);
+        limiter.record_failure("b@example.com", ip(1), t0, true);
+        limiter.record_failure("b@example.com", ip(1), t0, true);
         limiter.reset("b@example.com", ip(1));
-        limiter.record_failure("b@example.com", ip(1), t0);
+        limiter.record_failure("b@example.com", ip(1), t0, true);
         assert!(
             !limiter.is_blocked("b@example.com", ip(1), t0),
             "a success clears the count"
@@ -607,7 +631,7 @@ mod tests {
         let limiter = FailureLimiter::new(3, Duration::from_secs(900), 100);
         let t0 = Instant::now();
         for _ in 0..3 {
-            limiter.record_failure("a@example.com", ip(1), t0);
+            limiter.record_failure("a@example.com", ip(1), t0, true);
         }
         assert!(limiter.is_blocked("a@example.com", ip(1), t0));
         assert!(
@@ -617,7 +641,7 @@ mod tests {
 
         // Spread over addresses, the account closes at ACCOUNT_WIDE_FACTOR times the cap.
         for n in 0..(3 * ACCOUNT_WIDE_FACTOR - 3) {
-            limiter.record_failure("a@example.com", ip(10 + n as u8), t0);
+            limiter.record_failure("a@example.com", ip(10 + n as u8), t0, true);
         }
         assert!(limiter.is_blocked("a@example.com", ip(2), t0));
     }
@@ -635,12 +659,34 @@ mod tests {
     }
 
     #[test]
-    fn a_full_failure_limiter_fails_closed() {
-        let limiter = FailureLimiter::new(3, Duration::from_secs(900), 1);
+    fn junk_emails_cannot_lock_out_real_accounts() {
+        let limiter = FailureLimiter::new(3, Duration::from_secs(900), 2);
         let t0 = Instant::now();
-        limiter.record_failure("a@example.com", ip(1), t0);
-        assert!(limiter.is_blocked("b@example.com", ip(1), t0));
-        assert!(!limiter.is_blocked("a@example.com", ip(1), t0));
+        // Fill the unknown-email maps far past their capacity.
+        for n in 0..50 {
+            limiter.record_failure(&format!("junk{n}@x.invalid"), ip(n as u8), t0, false);
+        }
+        // A real account with no failures is not refused.
+        assert!(!limiter.is_blocked("real@example.com", ip(200), t0));
+        // Real accounts still hit the account-wide cap, even spread over addresses.
+        for n in 0..(3 * ACCOUNT_WIDE_FACTOR) {
+            limiter.record_failure("real@example.com", ip(100 + n as u8), t0, true);
+        }
+        assert!(limiter.is_blocked("real@example.com", ip(201), t0));
+        // Checking never inserts a window.
+        assert!(!limiter.is_blocked("fresh@example.com", ip(1), t0));
+        assert_eq!(lock(&limiter.accounts).map.len(), 1);
+    }
+
+    #[test]
+    fn unknown_emails_are_still_capped_while_there_is_room() {
+        let limiter = FailureLimiter::new(3, Duration::from_secs(900), 100);
+        let t0 = Instant::now();
+        for _ in 0..3 {
+            limiter.record_failure("nobody@example.com", ip(1), t0, false);
+        }
+        assert!(limiter.is_blocked("nobody@example.com", ip(1), t0));
+        assert!(!limiter.is_blocked("nobody@example.com", ip(2), t0));
     }
 
     fn user(n: u128) -> Uuid {

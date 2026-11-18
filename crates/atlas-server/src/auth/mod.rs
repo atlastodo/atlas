@@ -3,6 +3,7 @@
 pub mod account_purge;
 pub mod api_tokens;
 mod handlers;
+pub(crate) use handlers::get_public_key;
 pub(crate) mod identity;
 pub mod kdf;
 pub mod passkeys;
@@ -94,7 +95,6 @@ pub fn routes() -> Router<AppState> {
             post(passkeys::reauth_options),
         )
         .route("/auth/passkeys/reauth", post(passkeys::reauth))
-        .route("/users/public-key", get(handlers::get_public_key))
 }
 
 /// Extractor that authenticates a request via `Authorization: Bearer <access-token>`. Rejects
@@ -173,6 +173,20 @@ impl FromRequestParts<AppState> for AuthUser {
     }
 }
 
+impl AuthUser {
+    /// Refuse an API-token session whose token does not carry `app`: an app's own routes (todo's
+    /// sharing, keys and attachments) are in a token's scope only when its app is.
+    pub fn require_app(&self, app: &str) -> Result<(), AppError> {
+        match &self.token_apps {
+            Some(apps) if !apps.iter().any(|a| a == app) => Err(AppError::AppNotEnabled {
+                app: app.to_owned(),
+                scope: "token",
+            }),
+            _ => Ok(()),
+        }
+    }
+}
+
 /// [`AuthUser`] that also admits an account in its deletion grace period, for the data export.
 /// Interactive only, like [`InteractiveAuthUser`].
 pub struct AuthUserAllowScheduled(pub AuthUser);
@@ -231,7 +245,11 @@ async fn authenticate_bearer(
                 ELSE $2::uuid IS NULL OR EXISTS (
                     SELECT 1 FROM refresh_tokens
                      WHERE user_id = $1 AND device_id = $2
-                       AND revoked_at IS NULL AND expires_at > now())
+                       AND ((revoked_at IS NULL AND expires_at > now())
+                            -- In the grace period: a family the deletion itself ended, not one
+                            -- revoked before it (that device stays signed out).
+                            OR (u.deletion_scheduled_at IS NOT NULL
+                                AND revoked_at >= u.deletion_scheduled_at)))
                 END,
                 t.apps,
                 COALESCE(t.expires_at <= now(), false),
@@ -257,11 +275,11 @@ async fn authenticate_bearer(
     if api_token && token_expired {
         return Err(AppError::ApiTokenExpired);
     }
-    // Scheduling a deletion also ends every session. The token in hand still reaches the export
-    // until it expires (`AuthUserAllowScheduled`), as no new session can be had in the grace
-    // period; `AuthUser` refuses it with the typed error.
-    // An API token never reaches the grace-period export, so it needs a live token regardless.
-    if !live_session && (api_token || deletion_scheduled_at.is_none()) {
+    // Scheduling a deletion also ends every session. A session it ended still reaches the export
+    // with the token in hand until that expires (`AuthUserAllowScheduled`), as no new session can
+    // be had in the grace period (the query above counts it as live); `AuthUser` refuses it with
+    // the typed error. A session revoked before the deletion, or an API token, stays refused.
+    if !live_session {
         return Err(AppError::Unauthorized);
     }
     // A read-only token reaches the read routes only, whichever handler a route has: deny by

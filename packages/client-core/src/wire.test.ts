@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEK_KEY_ID, Keyring, generateDek, generatePek, projectKeyId } from "./crypto";
 import type { Hlc } from "./hlc";
-import type { ScopeKey } from "./scope";
+import { reviveLockedValues, type ScopeKey } from "./scope";
 import { LocalStore } from "./store";
 import type { EntityKind, Operation } from "./types";
 import { decodeOps, encodeOp, isSealedPlaceholder, type DecodeContext, type WireOp } from "./wire";
@@ -145,6 +145,26 @@ describe("decodeOps", () => {
       pushed_by: OTHER,
     };
     expect(decode([kind], ctx(keyring))).toHaveLength(1);
+    warn.mockRestore();
+  });
+
+  it("checks an activity's actor against its pusher when a later key opens it", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { project } = keys();
+    const [forged, real] = [newId(), newId()];
+    const actor = (id: string, pushed_by: string) => ({
+      ...encodeOp(set("activity", id, "actor_id", ME), project),
+      pushed_by,
+    });
+    // The project's key is not here yet: both stay sealed.
+    const keyring = new Keyring({ dek: generateDek() });
+    const store = new LocalStore("device", { newId });
+    store.applyRemoteBatch(decode([actor(forged, OTHER), actor(real, ME)], ctx(keyring)));
+    keyring.setProjectKey(P, project.key);
+    reviveLockedValues(store, keyring, ME);
+
+    expect(store.get("activity", real)?.actor_id).toBe(ME);
+    expect(store.get("activity", forged)?.actor_id).toBeUndefined();
     warn.mockRestore();
   });
 

@@ -41,14 +41,21 @@ use crate::config::BlobBackend;
 /// How long `/health` waits for the database before declaring it unreachable.
 const HEALTH_DB_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Largest request body the `/auth` routes accept.
+pub const AUTH_BODY_LIMIT: usize = 64 * 1024;
+
 /// Build the application router with all routes and shared state.
 pub fn app(state: AppState) -> Router {
     // Rate-limit only the unauthenticated, guessable auth endpoints.
     let rl_state = ratelimit::RateLimitState::from_config(ratelimit::RateLimitConfig::from_env());
-    let auth_routes = auth::routes().layer(axum::middleware::from_fn_with_state(
-        rl_state,
-        ratelimit::enforce,
-    ));
+    // Auth bodies are small JSON (credentials, wrapped keys, WebAuthn responses); cap them well
+    // below axum's 2 MiB default so a pre-auth request cannot make the server parse megabytes.
+    let auth_routes = auth::routes()
+        .layer(axum::extract::DefaultBodyLimit::max(AUTH_BODY_LIMIT))
+        .layer(axum::middleware::from_fn_with_state(
+            rl_state,
+            ratelimit::enforce,
+        ));
 
     // Sync keys its limiter on the verified user id, not the IP (shared NATs). Pushes and reads
     // have separate budgets; see `sync_limit`.

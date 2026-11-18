@@ -493,3 +493,61 @@ async fn concurrent_pushes_on_a_tiny_pool_all_complete() {
         started.elapsed()
     );
 }
+
+/// Pushes waiting for the sync-write lock must not hold pool connections: while another
+/// transaction holds the lock, an account's queued pushes leave the pool to everyone else.
+#[tokio::test]
+async fn queued_pushes_do_not_starve_the_pool() {
+    let acquire_timeout = Duration::from_secs(3);
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(3)
+        .acquire_timeout(acquire_timeout)
+        .connect(&test_database_url())
+        .await
+        .unwrap();
+    db::migrate(&pool).await.unwrap();
+    let base = make_state().await;
+    let state = AppState::new(pool, (*base.config).clone());
+    let control = app(state.clone());
+    let alice = new_user(&control).await;
+    let bob = new_user(&control).await;
+
+    // Hold the sync-write lock from outside the server's pool.
+    let mut holder = <sqlx::PgConnection as sqlx::Connection>::connect(&test_database_url())
+        .await
+        .unwrap();
+    let mut blocker = sqlx::Connection::begin(&mut holder).await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1, $2)")
+        .bind(0x6174_6C61_i32)
+        .bind(0x735F_7379_i32)
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+
+    let mut pushes = Vec::new();
+    for _ in 0..6 {
+        let (router, token) = (control.clone(), alice.token.clone());
+        pushes.push(tokio::spawn(async move {
+            let id = Uuid::now_v7().to_string();
+            http(
+                &router,
+                "POST",
+                "/sync/push",
+                Some(&token),
+                json!({ "operations": [op(&Uuid::now_v7().to_string(), "task", &id, "title", json!("t"), now_ms())] }),
+            )
+            .await
+        }));
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // Another account's ordinary request still gets a connection.
+    let (status, body) = http(&control, "GET", "/auth/me", Some(&bob.token), Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+
+    blocker.rollback().await.unwrap();
+    for push in pushes {
+        let (status, body) = push.await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{body:?}");
+    }
+}
