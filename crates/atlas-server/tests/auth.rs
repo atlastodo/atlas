@@ -3105,3 +3105,57 @@ async fn auth_routes_refuse_oversized_bodies() {
     let response = router.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
+
+#[tokio::test]
+async fn a_session_revoked_before_the_deletion_does_not_regain_the_export() {
+    let router = setup().await;
+    let (email, signup) = signup_account(&router).await;
+    let kept = signup["access_token"].as_str().unwrap().to_string();
+    let (_, other) = send(
+        &router,
+        "POST",
+        "/auth/login",
+        None,
+        json!({ "email": email, "password": PASSWORD }),
+    )
+    .await;
+    let revoked = other["access_token"].as_str().unwrap().to_string();
+    let (status, _) = send(
+        &router,
+        "POST",
+        "/auth/logout",
+        None,
+        json!({ "refresh_token": other["refresh_token"] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Schedule the deletion as the handler does: then end the sessions still live.
+    let pool = test_pool().await;
+    sqlx::query("UPDATE users SET deletion_scheduled_at = now() WHERE email = $1")
+        .bind(&email)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE refresh_tokens SET revoked_at = now()
+          WHERE user_id = (SELECT id FROM users WHERE email = $1) AND revoked_at IS NULL",
+    )
+    .bind(&email)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (status, _) = send(&router, "GET", "/auth/export", Some(&kept), Value::Null).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the session the deletion ended keeps the export"
+    );
+    let (status, _) = send(&router, "GET", "/auth/export", Some(&revoked), Value::Null).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "a device signed out before stays out"
+    );
+}
