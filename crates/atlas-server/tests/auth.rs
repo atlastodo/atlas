@@ -3071,3 +3071,37 @@ async fn a_revoked_sessions_access_token_stops_working_at_once() {
     let (status, _) = send(&router, "GET", "/auth/me", Some(&access_a), Value::Null).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn overlong_email_is_refused_before_the_failure_limiter() {
+    let router = setup().await;
+    // One byte over the 254-byte cap that signup enforces: no account can have it.
+    let email = format!("{}@example.com", "a".repeat(255 - "@example.com".len()));
+    for uri in ["/auth/login", "/auth/account/cancel-deletion"] {
+        let (status, _) = send(
+            &router,
+            "POST",
+            uri,
+            None,
+            json!({ "email": email, "password": "x".repeat(129) }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn auth_routes_refuse_oversized_bodies() {
+    let router = setup().await;
+    let email = format!("{}@example.com", "a".repeat(80 * 1024));
+    let request = Request::builder()
+        .method("POST")
+        .uri("/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "email": email, "password": "x" })).unwrap(),
+        ))
+        .unwrap();
+    let response = router.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}

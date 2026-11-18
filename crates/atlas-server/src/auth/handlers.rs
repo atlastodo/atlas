@@ -420,6 +420,11 @@ async fn authenticate(
     password: &str,
     ip: IpAddr,
 ) -> AppResult<UserRow> {
+    // No account has a longer address (signup enforces the cap); refuse before the email is
+    // stored as a limiter key, so a request cannot make the limiter hold megabytes for minutes.
+    if email.len() > MAX_EMAIL_LEN {
+        return Err(AppError::Unauthorized);
+    }
     let failures = ratelimit::account_failures();
     if failures.is_blocked(email, ip, Instant::now()) {
         return Err(AppError::TooManyRequests);
@@ -1411,6 +1416,11 @@ pub async fn recover_account(
     validate_auth_hash(&req.new_auth_hash)?;
     let kdf = Kdf::from_request(req.kdf_version, req.kdf_params.as_ref())?;
     let email = req.email.trim().to_lowercase();
+    // See `authenticate`: an over-long address cannot match an account and must not become a
+    // limiter key.
+    if email.len() > MAX_EMAIL_LEN {
+        return Err(AppError::Unauthorized);
+    }
     // Failures count per email and address, as for login.
     let failures = ratelimit::account_failures();
     if failures.is_blocked(&email, ip, Instant::now()) {
