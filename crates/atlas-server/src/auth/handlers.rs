@@ -877,8 +877,29 @@ async fn insert_user(
     Ok(inserted)
 }
 
-/// The 409 for a signup whose insert hit a conflict: the email, or else the client-chosen id.
-async fn signup_conflict(conn: &mut sqlx::PgConnection, email: &str) -> AppError {
+/// The 409 for a signup whose insert hit a conflict. A taken client-chosen id answers as such
+/// whatever the email: clients pick a fresh UUIDv7, so only a probe reuses one, and answering the
+/// email for it would tell whether an address has an account without creating one or spending an
+/// invite.
+async fn signup_conflict(
+    conn: &mut sqlx::PgConnection,
+    email: &str,
+    user_id: Option<Uuid>,
+) -> AppError {
+    let id_taken: Result<bool, sqlx::Error> = match user_id {
+        Some(id) => {
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)")
+                .bind(id)
+                .fetch_one(&mut *conn)
+                .await
+        }
+        None => Ok(false),
+    };
+    match id_taken {
+        Ok(true) => return AppError::Conflict("user id".into()),
+        Ok(false) => {}
+        Err(e) => return e.into(),
+    }
     let taken: Result<bool, sqlx::Error> =
         sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE email = $1)")
             .bind(email)
@@ -1035,7 +1056,7 @@ pub async fn signup(
     )
     .await?
     else {
-        return Err(signup_conflict(&mut tx, &email).await);
+        return Err(signup_conflict(&mut tx, &email, req.user_id).await);
     };
     let slot = match &passkey {
         Some(verified) => Some(super::passkeys::store_passkey(&mut tx, user.id, verified).await?),
