@@ -200,6 +200,9 @@ slot]`; `test-vectors/api_token_vectors.json` has a journal entry).
   projects or project keys in a journal session. A vault session works the same way with the vault
   key (`vault.sealed`; `vault.item`, `vault.folder` inside). A session re-encodes the rows its
   partition still holds from before sync protocol 7 and drops the originals, once per run.
+- Todo's sharing routes (`/projects/:id/members`, invites, `/projects/:id/keys`,
+  `/project-keys`) and attachment blobs are todo's: a session whose token is not for todo gets 403
+  `app_not_enabled`, scope `token`, there too.
 
 ### Vault tokens for CI
 

@@ -173,6 +173,20 @@ impl FromRequestParts<AppState> for AuthUser {
     }
 }
 
+impl AuthUser {
+    /// Refuse an API-token session whose token does not carry `app`: an app's own routes (todo's
+    /// sharing, keys and attachments) are in a token's scope only when its app is.
+    pub fn require_app(&self, app: &str) -> Result<(), AppError> {
+        match &self.token_apps {
+            Some(apps) if !apps.iter().any(|a| a == app) => Err(AppError::AppNotEnabled {
+                app: app.to_owned(),
+                scope: "token",
+            }),
+            _ => Ok(()),
+        }
+    }
+}
+
 /// [`AuthUser`] that also admits an account in its deletion grace period, for the data export.
 /// Interactive only, like [`InteractiveAuthUser`].
 pub struct AuthUserAllowScheduled(pub AuthUser);

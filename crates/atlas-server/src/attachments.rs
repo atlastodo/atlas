@@ -594,6 +594,7 @@ async fn put_blob(
     headers: HeaderMap,
     body: Body,
 ) -> AppResult<(StatusCode, Json<serde_json::Value>)> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let sha = validate_sha256(&sha)?;
     let store = blob_store(&state)?;
     let max = state.config.max_blob_bytes;
@@ -635,6 +636,7 @@ async fn get_blob(
     Path(sha): Path<String>,
     user: AuthUser,
 ) -> AppResult<Response> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let sha = validate_sha256(&sha)?;
     let sql = "SELECT b.sha256 IS NOT NULL, (b.sha256 IS NOT NULL AND ".to_owned()
         + COUNTING_REFERENCE

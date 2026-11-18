@@ -345,6 +345,7 @@ async fn list_invites(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> AppResult<Json<Vec<InviteView>>> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let rows = sqlx::query_as::<_, InviteRow>(
         "WITH inv AS (
              SELECT pm.project_id, pm.role, pm.created_at, pm.invite_preview,
@@ -465,6 +466,7 @@ async fn list_members(
     user: AuthUser,
     Path(project_id): Path<Uuid>,
 ) -> AppResult<Json<Vec<MemberView>>> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     match membership(&state.pool, project_id, user.user_id).await? {
         Some((_, MemberState::Active)) => {}
         // The creator of a project nobody else has joined, as for `ensure_can_manage`: a creator
@@ -507,6 +509,7 @@ async fn invite_member(
     Path(project_id): Path<Uuid>,
     Json(req): Json<InviteRequest>,
 ) -> AppResult<(StatusCode, Json<MemberView>)> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let role = Role::parse(req.role.trim())?;
     if req
         .preview
@@ -609,6 +612,7 @@ async fn accept_invite(
     user: AuthUser,
     Path(project_id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let pending: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM project_members
                          WHERE project_id = $1 AND user_id = $2 AND state = 'pending')",
@@ -685,6 +689,7 @@ async fn decline_invite(
     user: AuthUser,
     Path(project_id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let mut tx = state.pool.begin().await?;
     // An invitee already sent the key could open it: the project rotates it.
     crate::projects::request_rotations(&mut *tx, Some(project_id), &[user.user_id]).await?;
@@ -732,6 +737,7 @@ async fn update_role(
     Path((project_id, target)): Path<(Uuid, Uuid)>,
     Json(req): Json<UpdateRoleRequest>,
 ) -> AppResult<Json<MemberView>> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     require_role(&state.pool, project_id, user.user_id, Role::Owner).await?;
     let role = Role::parse(req.role.trim())?;
     let mut tx = state.pool.begin().await?;
@@ -761,6 +767,7 @@ async fn remove_member(
     user: AuthUser,
     Path((project_id, target)): Path<(Uuid, Uuid)>,
 ) -> AppResult<StatusCode> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     if target != user.user_id {
         require_role(&state.pool, project_id, user.user_id, Role::Owner).await?;
     }
@@ -857,6 +864,7 @@ async fn claim_ownership(
     user: AuthUser,
     Path(project_id): Path<Uuid>,
 ) -> AppResult<Json<MemberView>> {
+    user.require_app(crate::auth::root_key::TODO_APP)?;
     let (caller_role, caller_state) = membership(&state.pool, project_id, user.user_id)
         .await?
         .ok_or_else(|| AppError::Forbidden("not a member of this project".into()))?;
