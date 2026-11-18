@@ -1159,3 +1159,41 @@ async fn wait_for_blocked(pool: &sqlx::PgPool, holder: i32, n: i64) {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
 }
+
+#[tokio::test]
+async fn a_creator_removed_from_its_shared_project_cannot_list_its_members() {
+    let router = setup().await;
+    let alice = new_user(&router).await;
+    let bob = new_user(&router).await;
+    let pid = push_project(&router, &alice).await;
+    invite(&router, &alice, &pid, &bob).await;
+    accept(&router, &bob, &pid).await;
+    let (status, _) = send(
+        &router,
+        "PATCH",
+        &format!("/projects/{pid}/members/{}", bob.id),
+        Some(&alice.token),
+        json!({ "role": "owner" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = send(
+        &router,
+        "DELETE",
+        &format!("/projects/{pid}/members/{}", alice.id),
+        Some(&bob.token),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, _) = send(
+        &router,
+        "GET",
+        &format!("/projects/{pid}/members"),
+        Some(&alice.token),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

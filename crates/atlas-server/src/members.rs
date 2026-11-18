@@ -467,8 +467,12 @@ async fn list_members(
 ) -> AppResult<Json<Vec<MemberView>>> {
     match membership(&state.pool, project_id, user.user_id).await? {
         Some((_, MemberState::Active)) => {}
+        // The creator of a project nobody else has joined, as for `ensure_can_manage`: a creator
+        // who left or was removed from a shared project reads no more of it.
         _ => {
-            if !is_project_creator(&state.pool, project_id, user.user_id).await? {
+            if is_shared(&state.pool, project_id).await?
+                || !is_project_creator(&state.pool, project_id, user.user_id).await?
+            {
                 return Err(AppError::NotFound);
             }
         }
