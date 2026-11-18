@@ -322,6 +322,21 @@ pub async fn create(
             "the account has no {app} key to give a token"
         )));
     }
+    // A todo token carries the account's X25519 key, which answers the version-1 recovery
+    // challenge of an account without a recovery key: such an account registers its recovery
+    // phrase first (and `recover` refuses version 1 once a todo token ever existed).
+    if apps.iter().any(|a| a == TODO_APP) {
+        let has_recovery_key: bool =
+            sqlx::query_scalar("SELECT recovery_public_key IS NOT NULL FROM users WHERE id = $1")
+                .bind(user.user_id)
+                .fetch_one(&state.pool)
+                .await?;
+        if !has_recovery_key {
+            return Err(AppError::BadRequest(
+                "register a recovery phrase before creating a token".into(),
+            ));
+        }
+    }
     let app_keys = (!req.app_keys.is_empty())
         .then(|| serde_json::to_value(&req.app_keys))
         .transpose()

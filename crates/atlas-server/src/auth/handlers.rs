@@ -1339,6 +1339,13 @@ pub async fn change_password(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Whether the account `u` ever had a todo API token, live, revoked or expired (rows are kept). A
+/// todo token carries the account's X25519 private key, which answers a version-1 recovery
+/// challenge, and its holder may keep that key after the token is revoked: such an account is not
+/// recovered by version 1.
+const TODO_TOKEN_ISSUED: &str =
+    "EXISTS (SELECT 1 FROM api_tokens t WHERE t.user_id = u.id AND 'todo' = ANY(t.apps))";
+
 /// `GET /auth/recovery-keys?email=...`: the recovery-wrapped keys plus a challenge sealed to the
 /// account's recovery key (see [`recovery::recipient`]), which `POST /auth/recover` requires
 /// answered. `recovery_key_version` says which secret answers it.
@@ -1362,16 +1369,18 @@ pub async fn get_recovery_keys(
         recovery_encrypted_private_key: Option<serde_json::Value>,
         recovery_encrypted_root_key: Option<serde_json::Value>,
         todo_app_key: Option<serde_json::Value>,
+        todo_token_issued: bool,
     }
     let email = query.email.trim().to_lowercase();
-    let row: Option<Row> = sqlx::query_as(
+    let row: Option<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT u.id, u.password_hash, u.salt, u.public_key, u.recovery_public_key,
                 u.recovery_encrypted_dek, u.recovery_encrypted_private_key,
-                u.recovery_encrypted_root_key, k.wrapped_key AS todo_app_key
+                u.recovery_encrypted_root_key, k.wrapped_key AS todo_app_key,
+                {TODO_TOKEN_ISSUED} AS todo_token_issued
            FROM users u
            LEFT JOIN account_app_keys k ON k.user_id = u.id AND k.app = $2
-          WHERE u.email = $1 AND u.is_e2ee = TRUE",
-    )
+          WHERE u.email = $1 AND u.is_e2ee = TRUE"
+    )))
     .bind(&email)
     .bind(root_key::TODO_APP)
     .fetch_optional(&state.pool)
@@ -1381,6 +1390,10 @@ pub async fn get_recovery_keys(
     let recoverable = row.and_then(|r| {
         let (version, recipient) =
             recovery::recipient(r.recovery_public_key.as_deref(), r.public_key.as_deref())?;
+        // See `TODO_TOKEN_ISSUED`: such an account answers like one that cannot be recovered.
+        if version == recovery::RECOVERY_KEY_V1 && r.todo_token_issued {
+            return None;
+        }
         Some((r.salt.clone()?, version, recipient, r))
     });
     let (salt, dek, priv_key, pwh, version, recipient, user_id, root_slot, todo_key) =
@@ -1486,21 +1499,27 @@ async fn recover(
     if claims.email != email {
         return Err(AppError::Unauthorized);
     }
-    let (user_id, old_hash, public_key, recovery_public_key): (
+    let (user_id, old_hash, public_key, recovery_public_key, todo_token_issued): (
         Uuid,
         Option<String>,
         Option<String>,
         Option<String>,
-    ) = sqlx::query_as(
-        "SELECT id, password_hash, public_key, recovery_public_key FROM users
-          WHERE email = $1 AND is_e2ee = TRUE",
-    )
+        bool,
+    ) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT u.id, u.password_hash, u.public_key, u.recovery_public_key,
+                {TODO_TOKEN_ISSUED}
+           FROM users u
+          WHERE u.email = $1 AND u.is_e2ee = TRUE"
+    )))
     .bind(email)
     .fetch_optional(&state.pool)
     .await?
     .ok_or(AppError::Unauthorized)?;
     let (version, key) = recovery::recipient(recovery_public_key.as_deref(), public_key.as_deref())
         .ok_or(AppError::Unauthorized)?;
+    if version == recovery::RECOVERY_KEY_V1 && todo_token_issued {
+        return Err(AppError::Unauthorized);
+    }
     if claims.ver != version
         || claims.rk != recovery::key_fingerprint(&key)
         || recovery::password_hash_fingerprint(old_hash.as_deref().unwrap_or_default())

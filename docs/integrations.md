@@ -25,6 +25,10 @@ visible parameters or in git.
 A token cannot change your password, recovery phrase or sessions, delete or export your account,
 create or revoke tokens, or use the admin pages. Those routes need a signed-in device.
 
+An account must have a recovery phrase before it can create a todo token: the token carries the
+key that would otherwise recover an account without one. An older account that never set a
+phrase sets it in **Settings → Recovery phrase** first.
+
 Revoke a token in the same settings section. Anything using it stops on its next request, and the
 server deletes its copy of your wrapped keys. Recovering your account with the recovery phrase,
 or scheduling its deletion, revokes every token. Changing your password does not.
