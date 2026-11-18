@@ -918,6 +918,21 @@ field's encryption binds the value to its name.
 | `keys_initialized`              |                              | The baseline was recorded. Before it, an upgraded account loads keys as it used to.                                                                                    |
 | `legacy_migrated`               |                              | The account's own old-format values were rewritten, so plaintext in an encrypted field, or a version 1 value under the personal key, can only be a forgery.            |
 
+The server can withhold this state, but it cannot forge or erase it:
+
+- A served delete of the entity is dropped. No device deletes it, as facts are cleared field by
+  field.
+- A page that carries `legacy_migrated` closes the plaintext gate for the whole page, so a forgery
+  served ahead of it on a fresh device is dropped.
+- Once the device knows the account is migrated, the legacy pass only drops covered keys. It never
+  re-encodes what it holds, which on a fresh device may be a forgery accepted before the state
+  arrived.
+
+What withholding still does is make an account look like one from before the state existed. A
+device that never receives the entity loads keys as an upgraded account used to, and reads
+plaintext as old-client content. Closing that needs the facts in key material the server must hand
+over, which is not done yet.
+
 Loading a sealed key follows these rules (`projectKeys.ts`):
 
 - Anyone can seal a key to the user's public key, so a sealed key loads only with its owner's

@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { ApiClient, type FetchLike, type WireOp } from "./api";
 import { generateAek, unwrapAek, unwrapAekAny, wrapAek } from "./attachments";
 import {
+  DEK_KEY_ID,
   Keyring,
   encryptJson,
   generateDek,
@@ -20,7 +21,9 @@ import type { Hlc } from "./hlc";
 import { hydrateProjectKeys } from "./projectKeys";
 import { keyForScope, rescopeEntity, type ScopeKey } from "./scope";
 import { LocalStore } from "./store";
+import { migrateLegacy } from "./legacy";
 import { SyncClient } from "./sync-client";
+import { encodeOp } from "./wire";
 import * as trust from "./trust";
 import type { EntityKind, Operation, ProjectKeysResponse } from "./types";
 
@@ -361,5 +364,54 @@ describe("the key-trust state", () => {
     const after = trust.readKeyTrust(store);
     expect(after.initialized).toBe(true);
     expect(after.minted.get(MINE)).toBe("k1");
+  });
+});
+
+describe("plaintext on a fresh device of a migrated account", () => {
+  it("is dropped when the page also says the migration is done", async () => {
+    const store = new LocalStore(DEVICE, { newId });
+    const { dek, keyring } = victimKeys();
+    const migrated = encodeOp(
+      {
+        id: newId(),
+        entity: "preference",
+        entityId: trust.KEY_TRUST_ID,
+        ts: ts(1, DEVICE),
+        op: "set",
+        field: "legacy_migrated",
+        value: true,
+      },
+      { key: dek, keyId: DEK_KEY_ID, scope: { kind: "personal" } },
+    );
+    // The forgery comes first in the page, before the device has read the trust state.
+    const srv = server([
+      wire("task", PRIVATE_TASK, "title", "Reset your password at http://evil", ts(20)),
+      migrated,
+    ]);
+    await new SyncClient(store, client(srv.fetch, keyring, store), { cursor: 0 }).sync();
+
+    expect(trust.readKeyTrust(store).legacyMigrated).toBe(true);
+    expect(store.get("task", PRIVATE_TASK)?.title).toBeUndefined();
+  });
+
+  it("is never re-encoded once the account is known to be migrated", async () => {
+    const store = new LocalStore(DEVICE, { newId });
+    // Accepted on an earlier page, before the trust state arrived.
+    store.applyRemote(remote("task", PRIVATE_TASK, "title", "forged", ts(20)));
+    trust.recordLegacyMigrated(store);
+    const pushed: Operation[] = [];
+    const result = await migrateLegacy(store, {
+      legacyKeys: async () => ({
+        entities: [{ entity: "task", entity_id: PRIVATE_TASK, covered: false }],
+      }),
+      dropLegacy: async () => 0,
+      syncPush: async (ops) => {
+        pushed.push(...ops);
+        return {};
+      },
+    });
+
+    expect(pushed).toEqual([]);
+    expect(result).toMatchObject({ reencoded: 0, left: 1 });
   });
 });

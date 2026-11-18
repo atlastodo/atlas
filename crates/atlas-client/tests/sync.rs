@@ -352,3 +352,55 @@ fn protocol_6_rows_are_re_encoded_and_dropped() {
         (Some("Old title"), Some(3))
     );
 }
+
+/// A fresh device of a migrated account drops plaintext the server puts in an encrypted field,
+/// even ahead of the key-trust state that says the migration is done, and never re-encodes it.
+#[test]
+fn a_fresh_device_of_a_migrated_account_drops_forged_plaintext() {
+    atlas_client::testing::register_test_app();
+    let server = FakeServer::new();
+    let task = Uuid::new_v4().to_string();
+    inject(
+        &server,
+        wire_set(
+            "task",
+            &task,
+            "title",
+            json!("Reset your password at http://evil"),
+            7,
+        ),
+    );
+    let migrated = atlas_core::Operation::set(
+        EntityKind::Preference,
+        Uuid::parse_str(atlas_client::trust::KEY_TRUST_ID).unwrap(),
+        "legacy_migrated",
+        json!(true),
+        atlas_core::Hlc {
+            wall_ms: 8,
+            counter: 0,
+            node: Uuid::new_v4(),
+        },
+    );
+    let personal = atlas_client::scope::ScopeKey {
+        key: server.dek,
+        key_id: atlas_client::crypto::DEK_KEY_ID.into(),
+        scope: KeyScope::Personal,
+    };
+    inject(
+        &server,
+        atlas_client::wire::encode_op(&migrated, &personal).unwrap(),
+    );
+
+    let s = connect(&server);
+    assert!(s
+        .store
+        .get(EntityKind::Task, &task)
+        .is_none_or(|f| f.get("title").is_none()));
+    let st = server.state.lock().unwrap();
+    assert!(
+        st.ops
+            .iter()
+            .all(|(_, o)| o["entity_id"] != json!(task) || o["entity"] == "task"),
+        "nothing re-encoded"
+    );
+}

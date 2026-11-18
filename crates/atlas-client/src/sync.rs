@@ -490,10 +490,18 @@ pub fn migrate_legacy(cx: &mut SyncContext<'_>) -> Result<LegacyMigration> {
         let mut drop: Vec<(String, String)> = Vec::new();
         let mut ops: Vec<Operation> = Vec::new();
         let mut pushed: Vec<(String, String, Vec<Uuid>)> = Vec::new();
+        // Once the account finished the migration, a legacy value this store holds can only have
+        // arrived before it learned so (a fresh device's first pages): possibly a server forgery,
+        // which re-encoding would turn into genuine ciphertext. Such keys are left as they are.
+        let migrated = crate::trust::read_key_trust(cx.store).legacy_migrated;
         for key in page.entities {
             if key.covered {
                 result.covered += 1;
                 drop.push((key.entity, key.entity_id));
+                continue;
+            }
+            if migrated {
+                result.left += 1;
                 continue;
             }
             let reencoded = EntityKind::from_wire(&key.entity)

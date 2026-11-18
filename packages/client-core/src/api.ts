@@ -381,6 +381,26 @@ export interface AccountAppView {
   enabled_at?: number;
 }
 
+/** Whether `wireOps` carry a current key-trust op, opened with the DEK, that marks the account's
+ *  legacy migration done. */
+function pageSaysLegacyMigrated(wireOps: readonly WireOp[], keyring: Keyring): boolean {
+  const trustOps = wireOps.filter(
+    (w) => w.entity_id === KEY_TRUST_ID && w.op === "set" && !isLegacyWireKind(w.entity),
+  );
+  if (trustOps.length === 0) return false;
+  return decodeOps(trustOps, {
+    keyring,
+    store: { kindOf: () => null },
+    openLegacy: () => null,
+  }).some(
+    (d) =>
+      d.opened?.scope.kind === "personal" &&
+      d.op.op === "set" &&
+      d.op.field === "legacy_migrated" &&
+      d.op.value === true,
+  );
+}
+
 export class ApiClient {
   private readonly baseUrl: string;
   private token?: string;
@@ -1211,7 +1231,10 @@ export class ApiClient {
       throw new Error("malformed sync payload");
     const wireOps = operations as WireOp[];
     const store = this.scopeStore ?? EMPTY_SCOPE_STORE;
-    const legacy = !this.isLegacyMigrated();
+    // A fresh device learns that the account finished the legacy migration from the key-trust state
+    // the server delivers. It may sit later in this very page than a forged plaintext value, so a
+    // DEK-sealed `legacy_migrated` in the page closes the gate for the whole page.
+    const legacy = !this.isLegacyMigrated() && !pageSaysLegacyMigrated(wireOps, keyring);
     // Legacy rows (protocol 6) carry their links in plaintext, so their scopes resolve first.
     const legacyLinks = batchLinksOf(
       wireOps.filter((w) => isLegacyWireKind(w.entity)).map((w) => fromEncryptedWire(w, null)),
