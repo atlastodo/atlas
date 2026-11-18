@@ -141,10 +141,14 @@ pub struct KeysResponse {
 /// holds, of the session's apps, so a client knows what is left to re-encode and drop. Ordered by
 /// key; `next` resumes after the page's last one.
 ///
-/// `covered` is a heuristic for a key another device or member already re-encoded: current rows
-/// of the same entity id that are at least as many as its legacy field rows and as new (wall clock),
-/// or, for a legacy tombstone without fields, a current tombstone at least as new. A re-encoded
-/// copy keeps every field and its stamp, so it passes; a client that sees `covered` drops the key.
+/// `covered` says another device or member already re-encoded a key: a re-encoded copy keeps every
+/// field and its stamp, so each legacy field row's exact stamp is on a current row of the same
+/// entity id, or, for a legacy tombstone without fields, a current delete of it carries the
+/// tombstone's stamp. Those current rows must come from an entitled writer: the caller, or an
+/// active editor or owner of the row's scope (who may rewrite or delete the item anyway). A co-member's rows (even a commenter's, fanned into every
+/// partition) therefore never make a key look covered, which would make the client drop its
+/// legacy copy unread. A client that sees `covered` drops the key; otherwise it re-encodes it from
+/// its own copy.
 pub(super) async fn keys(
     State(state): State<AppState>,
     user: AuthUser,
@@ -182,22 +186,35 @@ pub(super) async fn keys(
              LIMIT $6
          )
          SELECT p.entity, p.entity_id,
-                COALESCE(CASE WHEN l.n > 0 THEN c.n >= l.n AND c.wall >= l.wall
+                COALESCE(CASE WHEN EXISTS (
+                     SELECT 1 FROM entity_fields lf
+                      WHERE lf.user_id = $1 AND lf.entity = p.entity AND lf.entity_id = p.entity_id)
+                THEN NOT EXISTS (
+                     SELECT 1 FROM entity_fields lf
+                      WHERE lf.user_id = $1 AND lf.entity = p.entity AND lf.entity_id = p.entity_id
+                        AND NOT EXISTS (
+                            SELECT 1 FROM entity_fields cf
+                             WHERE cf.user_id = $1 AND cf.entity = ANY($3)
+                               AND cf.entity_id = p.entity_id
+                               AND (cf.hlc_wall_ms, cf.hlc_counter, cf.hlc_node)
+                                 = (lf.hlc_wall_ms, lf.hlc_counter, lf.hlc_node)
+                               AND (cf.pushed_by = $1 OR EXISTS (
+                                    SELECT 1 FROM project_members pm
+                                     WHERE pm.project_id = cf.scope AND pm.user_id = cf.pushed_by
+                                       AND pm.role IN ('editor', 'owner') AND pm.state = 'active'))))
                 ELSE EXISTS (
-                     SELECT 1 FROM entity_tombstones ct, entity_tombstones lt
-                      WHERE ct.user_id = $1 AND ct.entity = ANY($3) AND ct.entity_id = p.entity_id
-                        AND lt.user_id = $1 AND lt.entity = p.entity AND lt.entity_id = p.entity_id
-                        AND ct.hlc_wall_ms >= lt.hlc_wall_ms)
+                     SELECT 1 FROM entity_tombstones lt, operations co
+                      WHERE lt.user_id = $1 AND lt.entity = p.entity AND lt.entity_id = p.entity_id
+                        AND co.user_id = $1 AND co.entity = ANY($3) AND co.entity_id = p.entity_id
+                        AND co.is_delete
+                        AND (co.hlc_wall_ms, co.hlc_counter, co.hlc_node)
+                          = (lt.hlc_wall_ms, lt.hlc_counter, lt.hlc_node)
+                        AND (co.pushed_by = $1 OR EXISTS (
+                             SELECT 1 FROM project_members pm
+                              WHERE pm.project_id = co.scope AND pm.user_id = co.pushed_by
+                                AND pm.role IN ('editor', 'owner') AND pm.state = 'active')))
                 END, FALSE) AS covered
            FROM page p
-           CROSS JOIN LATERAL (
-                SELECT count(*) AS n, max(hlc_wall_ms) AS wall
-                  FROM entity_fields
-                 WHERE user_id = $1 AND entity = p.entity AND entity_id = p.entity_id) l
-           CROSS JOIN LATERAL (
-                SELECT count(*) AS n, max(hlc_wall_ms) AS wall
-                  FROM entity_fields
-                 WHERE user_id = $1 AND entity = ANY($3) AND entity_id = p.entity_id) c
           ORDER BY p.entity, p.entity_id",
     )
     .bind(user.user_id)
