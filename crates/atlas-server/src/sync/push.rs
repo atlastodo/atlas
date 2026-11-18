@@ -622,11 +622,8 @@ fn check_batch(
     // One op per id: authorization reads the whole batch, and only the first op of a repeated id
     // would be stored, so the two could see different ends. A repeat of the same op is dropped; a
     // different op under a used id is refused.
-    // At most MAX_OPS_PER_PUSH, checked above.
-    let capacity = operations.len().min(MAX_OPS_PER_PUSH);
-    let mut seen: std::collections::HashMap<Uuid, WireOperation> =
-        std::collections::HashMap::with_capacity(capacity);
-    let mut ops = Vec::with_capacity(capacity);
+    let mut seen: std::collections::HashMap<Uuid, WireOperation> = std::collections::HashMap::new();
+    let mut ops = Vec::new();
     for op in operations {
         match seen.get(&op.id) {
             Some(first) if *first == op => continue,
