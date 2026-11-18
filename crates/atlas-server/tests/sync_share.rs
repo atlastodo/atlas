@@ -1992,3 +1992,66 @@ async fn pushes_during_an_accept_reach_the_joiner_exactly_once() {
     );
     assert_eq!(visible_value(&ops, &after, "title"), Some(json!("after")));
 }
+
+/// An op id is one op's. A push may not carry two different ops under one id, an id the caller
+/// already stored is a retry (not authorized again, not applied), and an id another account's op
+/// already has is refused: recipients would take the new op for the one they hold.
+#[tokio::test]
+async fn an_op_id_names_one_op_across_the_server() {
+    let state = make_state().await;
+    let control = app(state.clone());
+    let alice = new_user(&control).await;
+    let bob = new_user(&control).await;
+    let (a, private) = (Uuid::now_v7().to_string(), Uuid::now_v7().to_string());
+    let tid = Uuid::now_v7().to_string();
+    push(
+        &control,
+        &alice.token,
+        vec![project_op(&a, "name", json!("A"), 100)],
+    )
+    .await;
+    invite_and_accept(&control, &alice, &bob, &a, "commenter").await;
+    push(
+        &control,
+        &alice.token,
+        vec![item(&tid, &a, "project_id", json!(a), 200)],
+    )
+    .await;
+    // An op of Alice's own that Bob never receives.
+    let alices = personal(&Uuid::now_v7().to_string(), "title", json!("private"), 250);
+    push(&control, &alice.token, vec![alices.clone()]).await;
+    push(
+        &control,
+        &bob.token,
+        vec![project_op(&private, "name", json!("mine"), 300)],
+    )
+    .await;
+
+    // Two different ops under one id in one push.
+    let edit = item(&tid, &a, "title", json!("edit"), 400);
+    let mut moved = personal(&tid, "project_id", json!(private), 500);
+    moved["id"] = edit["id"].clone();
+    assert_eq!(
+        push(&control, &bob.token, vec![edit.clone(), moved.clone()]).await,
+        StatusCode::BAD_REQUEST
+    );
+
+    // The commenter's edit lands; reusing its id for a move later is a retry, not a move.
+    assert_eq!(push(&control, &bob.token, vec![edit]).await, StatusCode::OK);
+    assert_eq!(
+        push(&control, &bob.token, vec![moved]).await,
+        StatusCode::OK
+    );
+    assert!(
+        !task_hidden(&partition_ops(&control, &alice).await, &tid),
+        "the reused id moved nothing"
+    );
+
+    // Alice's op id, reused by Bob for an op that would reach Alice: she would skip it as held.
+    let mut forged = item(&Uuid::now_v7().to_string(), &a, "title", json!("x"), 600);
+    forged["id"] = alices["id"].clone();
+    assert_eq!(
+        push(&control, &bob.token, vec![forged]).await,
+        StatusCode::CONFLICT
+    );
+}

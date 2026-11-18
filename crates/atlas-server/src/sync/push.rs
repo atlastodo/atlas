@@ -488,6 +488,8 @@ pub(super) async fn push(
     // Serialize all sync writes (see [`SYNC_WRITE_LOCK`]).
     let mut tx = super::begin_sync_write(&state.pool, Some(caller)).await?;
 
+    let ops = unseen_ops(&mut tx, caller, ops).await?;
+
     // Authorize every op and resolve its fan-out before writing anything.
     let scopes = Scopes::load(&mut tx, caller, &ops).await?;
     let mut fan_out = authorize(&mut tx, caller, &ops, &scopes).await?;
@@ -537,6 +539,49 @@ pub(super) async fn push(
 
 /// Check a batch before the transaction, so a malformed one never takes the global write lock,
 /// and stamp every op with its pusher. Returns the ops and their newest timestamp.
+/// The ops of a batch that are new: an op the caller already stored is a retry, and is dropped
+/// before authorization so that authorization, fan-out and the stored log all see the same ops.
+/// An op whose id another op already has, in any partition (fan-out copies share their op's id),
+/// is refused: a recipient would take it for the op it already holds and silently skip it.
+async fn unseen_ops(
+    tx: &mut Transaction<'_, Postgres>,
+    caller: Uuid,
+    ops: Vec<WireOperation>,
+) -> SyncResult<Vec<WireOperation>> {
+    let ids: Vec<Uuid> = ops.iter().map(|o| o.id).collect();
+    let stored: std::collections::HashSet<Uuid> =
+        sqlx::query_scalar("SELECT op_id FROM operations WHERE user_id = $1 AND op_id = ANY($2)")
+            .bind(caller)
+            .bind(&ids)
+            .fetch_all(&mut **tx)
+            .await?
+            .into_iter()
+            .collect();
+    let ops: Vec<WireOperation> = ops
+        .into_iter()
+        .filter(|o| !stored.contains(&o.id))
+        .collect();
+    let ids: Vec<Uuid> = ops.iter().map(|o| o.id).collect();
+    let entity_ids: Vec<Uuid> = ops.iter().map(|o| o.entity_id).collect();
+    let taken: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM operations o
+               JOIN UNNEST($1::uuid[], $2::uuid[]) AS r(op_id, entity_id) ON o.op_id = r.op_id
+              WHERE o.pushed_by IS DISTINCT FROM $3 OR o.entity_id <> r.entity_id)",
+    )
+    .bind(&ids)
+    .bind(&entity_ids)
+    .bind(caller)
+    .fetch_one(&mut **tx)
+    .await?;
+    if taken {
+        return Err(
+            AppError::Conflict("an operation id is already another operation's".into()).into(),
+        );
+    }
+    Ok(ops)
+}
+
 fn check_batch(
     caller: Uuid,
     operations: Vec<WireOperation>,
@@ -575,9 +620,30 @@ fn check_batch(
         }
     }
 
+    // One op per id: authorization reads the whole batch, and only the first op of a repeated id
+    // would be stored, so the two could see different ends. A repeat of the same op is dropped; a
+    // different op under a used id is refused.
+    let mut seen: std::collections::HashMap<Uuid, WireOperation> =
+        std::collections::HashMap::with_capacity(operations.len());
+    let mut ops = Vec::with_capacity(operations.len());
+    for op in operations {
+        match seen.get(&op.id) {
+            Some(first) if *first == op => continue,
+            Some(_) => {
+                return Err(AppError::BadRequest(
+                    "two different operations share an id in one push".into(),
+                )
+                .into())
+            }
+            None => {
+                seen.insert(op.id, op.clone());
+                ops.push(op);
+            }
+        }
+    }
+
     // Clients check an entry's writer field (an app's `actor_field`) against the pusher, which only
     // the server may say.
-    let mut ops = operations;
     for op in &mut ops {
         op.pushed_by = Some(caller);
     }
