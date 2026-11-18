@@ -699,6 +699,7 @@ async fn start_new_session(
         }
         None => Vec::new(),
     };
+    // A credential sign-in: it starts the family, and its time travels with every rotation.
     let session = start_session(
         &mut tx,
         state,
@@ -706,6 +707,7 @@ async fn start_new_session(
         Uuid::now_v7(),
         device_name,
         install_key_hash,
+        Some(OffsetDateTime::now_utc()),
     )
     .await?;
     tx.commit().await?;
@@ -725,6 +727,7 @@ async fn start_session(
     device_id: Uuid,
     device_name: Option<String>,
     install_key_hash: Option<String>,
+    signed_in_at: Option<OffsetDateTime>,
 ) -> AppResult<AuthResponse> {
     let access_token = issue_access_token(
         user.id,
@@ -750,8 +753,9 @@ async fn start_session(
     let expires_at =
         OffsetDateTime::now_utc() + time::Duration::seconds(state.config.refresh_ttl_seconds);
     sqlx::query(
-        "INSERT INTO refresh_tokens (user_id, device_id, token_hash, expires_at, device_name, install_key_hash)
-         VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO refresh_tokens
+             (user_id, device_id, token_hash, expires_at, device_name, install_key_hash, signed_in_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(user.id)
     .bind(device_id)
@@ -759,6 +763,7 @@ async fn start_session(
     .bind(expires_at)
     .bind(&clean_device_name)
     .bind(&install_key_hash)
+    .bind(signed_in_at)
     .execute(&mut *conn)
     .await?;
     // No root key, no app keys: skip the query for accounts not migrated yet.
@@ -1115,19 +1120,26 @@ pub async fn refresh(
 
     let mut tx = state.pool.begin().await?;
     // Consume the token only if it is live and its account may still hold a session.
-    let consumed: Option<(Uuid, Uuid, Option<String>, Option<String>)> = sqlx::query_as(
+    #[allow(clippy::type_complexity)]
+    let consumed: Option<(
+        Uuid,
+        Uuid,
+        Option<String>,
+        Option<String>,
+        Option<OffsetDateTime>,
+    )> = sqlx::query_as(
         "UPDATE refresh_tokens t
-            SET revoked_at = now(), rotated_at = now()
-           FROM users u
-          WHERE t.token_hash = $1 AND t.revoked_at IS NULL AND t.expires_at > now()
-            AND u.id = t.user_id AND u.disabled_at IS NULL AND u.deletion_scheduled_at IS NULL
-        RETURNING t.user_id, t.device_id, t.device_name, t.install_key_hash",
+                SET revoked_at = now(), rotated_at = now()
+               FROM users u
+              WHERE t.token_hash = $1 AND t.revoked_at IS NULL AND t.expires_at > now()
+                AND u.id = t.user_id AND u.disabled_at IS NULL AND u.deletion_scheduled_at IS NULL
+            RETURNING t.user_id, t.device_id, t.device_name, t.install_key_hash, t.signed_in_at",
     )
     .bind(&token_hash)
     .fetch_optional(&mut *tx)
     .await?;
 
-    let Some((user_id, device_id, device_name, install_key_hash)) = consumed else {
+    let Some((user_id, device_id, device_name, install_key_hash, signed_in_at)) = consumed else {
         drop(tx);
         return Err(refresh_rejection(&state, &token_hash, req.grace).await);
     };
@@ -1140,6 +1152,7 @@ pub async fn refresh(
     if !user.is_e2ee {
         return Err(AppError::LegacyAccount);
     }
+    // The rotated row carries the family's sign-in time on.
     let session = start_session(
         &mut tx,
         &state,
@@ -1147,6 +1160,7 @@ pub async fn refresh(
         device_id,
         device_name,
         install_key_hash,
+        signed_in_at,
     )
     .await?;
     tx.commit().await?;

@@ -644,7 +644,11 @@ the recovery key (`users.recovery_encrypted_dek`, `users.recovery_encrypted_priv
 - Each shared project has a random 256-bit project key (PEK).
 - Each account has an X25519 key (deliveries are sealed to it) and an Ed25519 signing key,
   created at signup and wrapped under the DEK, so password changes and recovery leave them
-  alone. Accounts that predate the signing key get one on their first unlock.
+  alone. Accounts that predate the signing key get one on their first unlock. That upload is
+  permanent and co-members pin the key, so `PUT /auth/signing-key` takes it only from a session
+  that signed in with a credential in the last 10 minutes, or with `current_password` or
+  `reauth_token`. A token refreshed from an old session keeps that session's sign-in time
+  (`refresh_tokens.signed_in_at`).
 - A password change re-wraps the root key (and the deprecated DEK and private key wraps) under the
   new MEK on the device. Neither the root nor the DEK changes.
 

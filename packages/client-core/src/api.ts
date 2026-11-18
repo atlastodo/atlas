@@ -401,6 +401,14 @@ function pageSaysLegacyMigrated(wireOps: readonly WireOp[], keyring: Keyring): b
   );
 }
 
+/** The credential `PUT /auth/signing-key` takes for a session that did not just sign in. */
+export interface SigningKeyProof {
+  /** The account's auth hash, as for a password change. */
+  currentPassword?: string;
+  /** A passkey re-authentication proof. */
+  reauthToken?: string;
+}
+
 export class ApiClient {
   private readonly baseUrl: string;
   private token?: string;
@@ -882,11 +890,20 @@ export class ApiClient {
   getSigningKey(): Promise<SigningKeyResponse> {
     return this.request("GET", "/auth/signing-key");
   }
-  /** Write-once: 409 `signing_key_already_set` if a different key is stored. */
-  putSigningKey(publicKey: string, wrapped: { v?: number; iv: string; ct: string }): Promise<void> {
+  /**
+   * Write-once: 409 `signing_key_already_set` if a different key is stored. The first install
+   * needs `proof` unless this session signed in within the last few minutes (400 otherwise).
+   */
+  putSigningKey(
+    publicKey: string,
+    wrapped: { v?: number; iv: string; ct: string },
+    proof?: SigningKeyProof,
+  ): Promise<void> {
     return this.request("PUT", "/auth/signing-key", {
       signing_public_key: publicKey,
       encrypted_signing_key: wrapped,
+      ...(proof?.currentPassword ? { current_password: proof.currentPassword } : {}),
+      ...(proof?.reauthToken ? { reauth_token: proof.reauthToken } : {}),
     });
   }
   logout(refreshToken: string | undefined = this.refreshToken): Promise<void> {

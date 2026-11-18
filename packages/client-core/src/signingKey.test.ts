@@ -46,6 +46,16 @@ describe("ensureSigningKey", () => {
     expect(srv.api.puts).toBe(1);
   });
 
+  it("sends the credential it is given with a new key's upload", async () => {
+    const srv = server();
+    await ensureSigningKey(srv.api, new Keyring({ dek: generateDek() }), undefined, {
+      currentPassword: "auth-hash",
+    });
+    expect(srv.api.putSigningKey).toHaveBeenCalledWith(expect.any(String), expect.any(Object), {
+      currentPassword: "auth-hash",
+    });
+  });
+
   it("loads the stored key, from the session first, without touching the server", async () => {
     const dek = generateDek();
     const pair = generateSigningKeypair();
