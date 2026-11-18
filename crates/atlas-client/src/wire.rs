@@ -161,6 +161,11 @@ pub fn decode_ops(
             continue;
         };
         let is_delete = w.get("op").and_then(Value::as_str) == Some("delete");
+        // No device deletes the key-trust state (its facts are cleared field by field), and a
+        // delete carries no envelope the server could not forge: one would wipe every pin.
+        if is_delete && id == crate::trust::KEY_TRUST_ID {
+            continue;
+        }
         let make = |kind: String, change: Change| Operation {
             id: op_id,
             entity: kind,
@@ -328,6 +333,26 @@ mod tests {
                 node: Uuid::nil(),
             },
         )
+    }
+
+    #[test]
+    fn a_served_delete_of_the_key_trust_state_is_dropped() {
+        crate::testing::register_test_app();
+        let (keyring, _, _) = keys();
+        let store = Store::new(Uuid::nil());
+        let delete = |entity: &str| {
+            json!({
+                "id": Uuid::now_v7(), "entity": entity, "entity_id": crate::trust::KEY_TRUST_ID,
+                "op": "delete", "ts": { "wall_ms": 9_999_999_999_999u64, "counter": 0, "node": Uuid::nil() },
+            })
+        };
+        let (decoded, _) = decode_ops(
+            &[delete("todo.sealed"), delete("preference")],
+            &keyring,
+            &store,
+            Some,
+        );
+        assert_eq!(decoded.len(), 0);
     }
 
     #[test]

@@ -10,6 +10,7 @@
  * repair, which would move their timestamps.
  */
 
+import { KEY_TRUST_ID } from "./trust";
 import {
   DEK_KEY_ID,
   fieldTag,
@@ -195,6 +196,13 @@ export function decodeOps(wireOps: readonly WireOp[], ctx: DecodeContext): Decod
   const pageKinds = new Map<string, EntityKind>();
   const pendingDeletes: number[] = [];
   for (const w of wireOps) {
+    // No device deletes the key-trust state (its facts are cleared field by field), and a delete
+    // carries no envelope the server could not forge: one would wipe every pin and acceptance.
+    if (w.op === "delete" && w.entity_id === KEY_TRUST_ID) {
+      console.warn("[atlas-e2ee] dropped a delete of the key-trust state");
+      out.push(null);
+      continue;
+    }
     const ts = hlcOf(w);
     const base = { id: w.id, entityId: w.entity_id, ts };
     if (isLegacyWireKind(w.entity) || w.entity === "project_member") {

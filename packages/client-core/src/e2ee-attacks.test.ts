@@ -343,3 +343,23 @@ describe("planted project keys", () => {
     expect(keyring.projectKeys(MINE).map((k) => k.keyId)).toEqual([projectKeyId(mine)]);
   });
 });
+
+describe("the key-trust state", () => {
+  it("survives a delete the server serves for it", async () => {
+    const store = victimStore();
+    const { keyring } = victimKeys();
+    trust.recordKeyTrustBaseline(store, keyring, ME);
+    trust.recordMintedKey(store, MINE, "k1");
+    for (const op of store.unsyncedOps()) store.markSynced([op.id]);
+    const t = { wall_ms: 9_999_999_999_999, counter: 0, node: REMOTE_NODE };
+    const srv = server([
+      { id: newId(), entity: "todo.sealed", entity_id: trust.KEY_TRUST_ID, ts: t, op: "delete" },
+      { id: newId(), entity: "preference", entity_id: trust.KEY_TRUST_ID, ts: t, op: "delete" },
+    ]);
+    await new SyncClient(store, client(srv.fetch, keyring, store), { cursor: 7 }).sync();
+
+    const after = trust.readKeyTrust(store);
+    expect(after.initialized).toBe(true);
+    expect(after.minted.get(MINE)).toBe("k1");
+  });
+});
