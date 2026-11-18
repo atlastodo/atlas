@@ -1,6 +1,9 @@
-## v0.1.19
+## v0.1.20
+
+There is no v0.1.19 release: that tag was pushed by mistake to v0.1.18's commit, and nothing was built or published from it.
 
 ### Fixes
+- Address CodeQL warnings on the audit fixes
 - Require a fresh sign-in or the credential to install a signing key
 - Check an entry's writer when a later key opens it
 - Stop fresh devices from re-sealing forged legacy plaintext
@@ -21,4 +24,4 @@
 - Cap login and recovery emails before the failure limiter
 
 ### Maintenance
-- 8 dependency updates ([full list](https://github.com/atlastodo/atlas/compare/v0.1.18...v0.1.19))
+- 9 dependency updates ([full list](https://github.com/atlastodo/atlas/compare/v0.1.18...v0.1.20))
