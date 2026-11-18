@@ -24,7 +24,7 @@ use super::apply::{apply_live, MemberBatches};
 use super::pull::partition_head;
 use super::{
     cap_future_skew, entity_str, hlc_key, observe_client_ts, physical_now_ms, successor_hlc,
-    take_sync_write_lock, HlcKey, SyncError, SyncResult, MAX_FUTURE_SKEW_MS,
+    HlcKey, SyncError, SyncResult, MAX_FUTURE_SKEW_MS,
 };
 use crate::apps::{RequestedApps, SessionApps};
 use crate::auth::AuthUser;
@@ -485,9 +485,8 @@ pub(super) async fn push(
         .await?
         .check_ops(&ops)?;
 
-    let mut tx = state.pool.begin().await?;
     // Serialize all sync writes (see [`SYNC_WRITE_LOCK`]).
-    take_sync_write_lock(&mut tx).await?;
+    let mut tx = super::begin_sync_write(&state.pool, Some(caller)).await?;
 
     // Authorize every op and resolve its fan-out before writing anything.
     let scopes = Scopes::load(&mut tx, caller, &ops).await?;

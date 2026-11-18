@@ -209,7 +209,7 @@ async fn broadcast_members(
     changed: &[Uuid],
     joined: Option<Uuid>,
 ) -> AppResult<()> {
-    let mut tx = crate::sync::begin_sync_write(&state.pool).await?;
+    let mut tx = crate::sync::begin_sync_write(&state.pool, None).await?;
     let rows = member_list_rows(&mut tx, state, project_id, changed, joined).await?;
     let rows: Vec<(Uuid, &WireOperation)> = rows.iter().map(|(member, op)| (*member, op)).collect();
     let batches = crate::sync::apply_to_partitions(&mut tx, &rows).await?;
@@ -625,7 +625,7 @@ async fn accept_invite(
         None => None,
     };
 
-    let mut tx = state.pool.begin().await?;
+    let mut tx = crate::sync::SyncTx::begin_unlocked(&state.pool, Some(user.user_id)).await?;
     // Before the lock: this row is not one a lock holder waits on.
     let n = sqlx::query(
         "UPDATE project_members SET state = 'active', updated_at = now()
@@ -633,13 +633,13 @@ async fn accept_invite(
     )
     .bind(project_id)
     .bind(user.user_id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?
     .rows_affected();
     if n == 0 {
         return Err(AppError::NotFound);
     }
-    crate::sync::take_sync_write_lock(&mut tx).await?;
+    tx.lock().await?;
 
     let owner = backfill_owner(&mut tx, project_id, owner).await?;
     let backfill = match (owner, read) {
@@ -812,7 +812,7 @@ async fn remove_member(
 /// Re-deliver each active member's own membership row after a key rotation: a client reloads
 /// project keys when its own row changes, which tells it to write under the new key.
 pub(crate) async fn announce_key_change(state: &AppState, project_id: Uuid) -> AppResult<()> {
-    let mut tx = crate::sync::begin_sync_write(&state.pool).await?;
+    let mut tx = crate::sync::begin_sync_write(&state.pool, None).await?;
     let rows: Vec<(Uuid, String, String, String, bool)> = sqlx::query_as(
         "SELECT pm.user_id, u.email::text AS email, u.display_name, pm.role,
                 (u.deletion_scheduled_at IS NOT NULL) AS deletion_scheduled
@@ -820,7 +820,7 @@ pub(crate) async fn announce_key_change(state: &AppState, project_id: Uuid) -> A
          WHERE pm.project_id = $1 AND pm.state = 'active'",
     )
     .bind(project_id)
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut **tx)
     .await?;
     let ops: Vec<(Uuid, WireOperation)> = rows
         .iter()

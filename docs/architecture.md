@@ -439,6 +439,12 @@ transaction, allocation order equals commit order. The allocated but uncommitted
 a contiguous suffix above every committed one, so a cursor can never skip one. That also makes
 the cursors in push responses and live pushes safe.
 
+Waiting for the lock happens in the server process, not in Postgres: a sync write waits for an
+in-process turn before it checks out a pool connection, so queued writes never hold the
+connections every other request needs. Each account's writes also queue behind each other, so
+one busy account has at most one write competing for the turn. A write that waits more than 30
+seconds is refused with 429.
+
 A lock per caller would not be enough, because a partition also receives rows fanned out from
 other users' transactions, so two pushers who share a project can interleave inside one target
 partition. Locking every partition a transaction might write, in sorted order, would work but

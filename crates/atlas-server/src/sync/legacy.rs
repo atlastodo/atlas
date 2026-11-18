@@ -74,7 +74,7 @@ pub(super) async fn drop(
     }
 
     // Under the sync-write lock, like retention's purge: a pull reads the op log in seq order.
-    let mut tx = begin_sync_write(&state.pool).await?;
+    let mut tx = begin_sync_write(&state.pool, Some(user.user_id)).await?;
     let dropped: i64 = sqlx::query_scalar(
         "WITH k AS (SELECT * FROM UNNEST($2::text[], $3::uuid[]) AS k(entity, entity_id)),
               ops AS (
@@ -97,7 +97,7 @@ pub(super) async fn drop(
     .bind(user.user_id)
     .bind(&entities)
     .bind(&ids)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
     tx.commit().await?;
     Ok(Json(DropResponse {
