@@ -47,6 +47,34 @@ pub struct FakeState {
     pub log: Vec<String>,
     /// The `x-atlas-sync-apps` header of every `/sync/*` request (`None` when absent).
     pub sync_apps: Vec<Option<String>>,
+    /// The account's password sign-in, when made with [`FakeServer::with_password`].
+    pub password: Option<PasswordAccount>,
+}
+
+/// How [`FakeServer::with_password`] wraps the account's keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasswordKeys {
+    /// The root key's password slot and the todo app key (a current account), plus the legacy
+    /// wraps the server still keeps.
+    Root,
+    /// Only the DEK and identity under the MEK (an account from before root keys).
+    Legacy,
+}
+
+/// A password account of the fake server: what `/auth/salt`, `/auth/login`, `/auth/refresh` and
+/// `/auth/logout` answer from.
+pub struct PasswordAccount {
+    pub email: String,
+    pub salt: String,
+    pub auth_hash: String,
+    pub device_id: String,
+    /// The login response's key fields.
+    pub keys: Value,
+    /// Refresh tokens that still work; a used one is revoked (rotation).
+    pub refresh_tokens: Vec<String>,
+    pub issued: u32,
+    /// Every `/auth/login` body.
+    pub logins: Vec<Value>,
 }
 
 #[derive(Clone)]
@@ -154,7 +182,132 @@ impl FakeServer {
                 discovery: None,
                 log: Vec::new(),
                 sync_apps: Vec::new(),
+                password: None,
             })),
+        }
+    }
+
+    /// A todo account that also signs in with `email` and `password` (Argon2id at the lowest
+    /// parameters a client accepts), its keys wrapped as `keys` says.
+    pub fn with_password(email: &str, password: &str, keys: PasswordKeys) -> Self {
+        let fake = Self::new();
+        let kdf = crate::crypto::CURRENT_KDF;
+        let salt = hex::encode(random_bytes::<16>());
+        let derived = crate::crypto::derive_auth_and_mek(password, &salt, kdf).expect("KDF");
+        let legacy_dek = crate::crypto::wrap_key(&fake.dek, &derived.mek).expect("wrap");
+        let legacy_private =
+            crate::crypto::wrap_key(&fake.private_key, &derived.mek).expect("wrap");
+        let mut body = json!({
+            "public_key": fake.public_key(),
+            "encrypted_dek": legacy_dek,
+            "encrypted_private_key": legacy_private,
+        });
+        if keys == PasswordKeys::Root {
+            let root: [u8; 32] = random_bytes();
+            body["encrypted_root_key"] =
+                json!(
+                    crate::crypto::wrap_root_key(&root, &derived.mek, USER_ID, "password")
+                        .expect("wrap")
+                );
+            body["app_keys"] = json!([{
+                "app": TODO_APP,
+                "wrapped_key": crate::crypto::wrap_app_key(&fake.dek, &root, USER_ID, TODO_APP)
+                    .expect("wrap"),
+                "wrapped_private_key": crate::crypto::wrap_app_private_key(
+                    &fake.private_key, &fake.dek, USER_ID, TODO_APP
+                ).expect("wrap"),
+            }]);
+        }
+        fake.state.lock().expect("fake server").password = Some(PasswordAccount {
+            email: email.trim().to_lowercase(),
+            salt,
+            auth_hash: derived.auth_hash,
+            device_id: "01920000-0000-7000-8000-0000000000dd".into(),
+            keys: body,
+            refresh_tokens: Vec::new(),
+            issued: 0,
+            logins: Vec::new(),
+        });
+        fake
+    }
+
+    fn password_route(
+        st: &mut FakeState,
+        method: &str,
+        path: &str,
+        email: Option<String>,
+        body: Option<Value>,
+    ) -> HttpResponse {
+        let unauthorized = || json_res(401, json!({"error": "unauthorized"}));
+        let Some(acct) = st.password.as_mut() else {
+            return json_res(404, json!({"error": "not found"}));
+        };
+        let body = body.unwrap_or_default();
+        let issue = |acct: &mut PasswordAccount| {
+            acct.issued += 1;
+            let refresh = format!("refresh-{}", acct.issued);
+            acct.refresh_tokens.push(refresh.clone());
+            let mut out = json!({
+                "access_token": format!("password-access-{}", acct.issued),
+                "refresh_token": refresh,
+                "expires_in": 900,
+                "device_id": acct.device_id,
+                "user": {"id": USER_ID, "email": acct.email},
+                "is_e2ee": true,
+                "kdf_version": 2,
+                "kdf_params": {"memory_kib": 65536, "iterations": 3, "parallelism": 1},
+            });
+            for (k, v) in acct.keys.as_object().expect("keys") {
+                out[k] = v.clone();
+            }
+            json_res(200, out)
+        };
+        match (method, path) {
+            ("GET", "/auth/salt") => {
+                // Every address answers; an unknown one gets a salt nothing derives a match from.
+                let known =
+                    email.as_deref().map(|e| e.replace("%40", "@")) == Some(acct.email.clone());
+                let salt = if known {
+                    acct.salt.clone()
+                } else {
+                    "00".repeat(16)
+                };
+                json_res(
+                    200,
+                    json!({
+                        "salt": salt,
+                        "is_e2ee": true,
+                        "kdf_version": 2,
+                        "kdf_params": {"memory_kib": 65536, "iterations": 3, "parallelism": 1},
+                    }),
+                )
+            }
+            ("POST", "/auth/login") => {
+                acct.logins.push(body.clone());
+                if body["email"] != json!(acct.email) || body["password"] != json!(acct.auth_hash) {
+                    return unauthorized();
+                }
+                issue(acct)
+            }
+            ("POST", "/auth/refresh") => {
+                let token = body["refresh_token"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned();
+                let Some(i) = acct.refresh_tokens.iter().position(|t| *t == token) else {
+                    // Reuse of a rotated token ends the session family.
+                    acct.refresh_tokens.clear();
+                    return unauthorized();
+                };
+                acct.refresh_tokens.remove(i);
+                issue(acct)
+            }
+            ("POST", "/auth/logout") => {
+                let token = body["refresh_token"].as_str().unwrap_or_default();
+                acct.refresh_tokens.retain(|t| t != token);
+                json_res(204, Value::Null)
+            }
+            _ => json_res(404, json!({"error": "not found"})),
         }
     }
 
@@ -234,6 +387,13 @@ impl FakeServer {
                 Some(d) => json_res(200, d.clone()),
                 None => json_res(404, json!({"error": "not found"})),
             };
+        }
+        if path == "/auth/salt"
+            || path == "/auth/login"
+            || path == "/auth/refresh"
+            || path == "/auth/logout"
+        {
+            return Self::password_route(&mut st, method, path, param("email"), body);
         }
         if method == "POST" && path == "/auth/api-token/session" {
             let body = body.unwrap_or_default();
