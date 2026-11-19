@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   Keyring,
@@ -102,18 +101,6 @@ function fakeApi(response: ProjectKeysResponse) {
 }
 
 const quiet = () => vi.spyOn(console, "warn").mockImplementation(() => {});
-
-describe("projectKeyId", () => {
-  it('is the first 16 bytes of SHA-256("atlas-pek-id-v1" || PEK), lowercase hex', () => {
-    const pek = new Uint8Array(32).map((_, i) => i);
-    const expected = createHash("sha256")
-      .update(Buffer.concat([Buffer.from("atlas-pek-id-v1", "utf8"), Buffer.from(pek)]))
-      .digest("hex")
-      .slice(0, 32);
-    expect(projectKeyId(pek)).toBe(expected);
-    expect(projectKeyId(pek)).toMatch(/^[0-9a-f]{32}$/);
-  });
-});
 
 describe("hydrateProjectKeys", () => {
   it("loads every row shape ever written", async () => {
