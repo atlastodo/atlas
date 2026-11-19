@@ -27,7 +27,7 @@ hex = "0.4"
 rand = "0.10"
 unicode-normalization = "0.1"
 # The bundled time zone database too: the Alpine-based images the CLI runs in often lack tzdata.
-jiff = { version = "0.2", default-features = false, features = [
+jiff = { version = "1.0", default-features = false, features = [
     "std",
     "tz-system",
     "tz-fat",
