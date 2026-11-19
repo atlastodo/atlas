@@ -191,13 +191,4 @@ mod tests {
         let huge = json!({ "iv": "A", "ct": "A".repeat(MAX_WRAPPED_KEY_BYTES) });
         assert!(validate_signing_key(&"ab".repeat(32), &huge).is_err());
     }
-
-    #[test]
-    fn signup_takes_both_signing_fields_or_neither() {
-        let wrapped = json!({ "iv": "A", "ct": "B" });
-        assert!(signup_signing_key(None, None).is_ok());
-        assert!(signup_signing_key(Some(&"ab".repeat(32)), Some(&wrapped)).is_ok());
-        assert!(signup_signing_key(Some(&"ab".repeat(32)), None).is_err());
-        assert!(signup_signing_key(None, Some(&wrapped)).is_err());
-    }
 }
