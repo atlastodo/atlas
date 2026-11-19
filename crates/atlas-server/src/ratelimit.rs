@@ -392,8 +392,8 @@ pub async fn enforce(
     next.run(req).await
 }
 
-/// State for the per-user limiter on the sync surface. The middleware verifies the token itself
-/// with the JWT secret rather than trusting a claim.
+/// State for the per-user limiter on attachment transfers and invites. The middleware verifies the
+/// token itself with the JWT secret rather than trusting a claim.
 #[derive(Clone)]
 pub struct UserRateLimitState {
     limiter: Arc<RateLimiter<Uuid>>,
@@ -447,19 +447,6 @@ mod tests {
     }
 
     #[test]
-    fn allows_up_to_the_limit_then_blocks() {
-        let rl = RateLimiter::new(3, Duration::from_secs(60));
-        let t0 = Instant::now();
-        assert!(rl.check(ip(1), t0));
-        assert!(rl.check(ip(1), t0));
-        assert!(rl.check(ip(1), t0));
-        assert!(
-            !rl.check(ip(1), t0),
-            "the 4th request in the window is blocked"
-        );
-    }
-
-    #[test]
     fn window_resets_after_it_elapses() {
         let rl = RateLimiter::new(2, Duration::from_secs(60));
         let t0 = Instant::now();
@@ -468,15 +455,6 @@ mod tests {
         assert!(!rl.check(ip(1), t0));
         let later = t0 + Duration::from_secs(61);
         assert!(rl.check(ip(1), later));
-    }
-
-    #[test]
-    fn counts_are_per_ip() {
-        let rl = RateLimiter::new(1, Duration::from_secs(60));
-        let t0 = Instant::now();
-        assert!(rl.check(ip(1), t0));
-        assert!(!rl.check(ip(1), t0));
-        assert!(rl.check(ip(2), t0));
     }
 
     fn forwarded(value: &str) -> HeaderMap {
@@ -585,23 +563,6 @@ mod tests {
     }
 
     #[test]
-    fn expired_windows_are_swept_periodically_not_per_check() {
-        let rl = RateLimiter::with_capacity(1_000_000, Duration::from_secs(60), 10_000);
-        let t0 = Instant::now();
-        for n in 0..100u8 {
-            rl.check(ip(n), t0);
-        }
-        let len = || rl.state.lock().unwrap().map.len();
-        let later = t0 + Duration::from_secs(61);
-        rl.check(ip(200), later);
-        assert_eq!(len(), 101, "one check does not sweep the map");
-        for _ in 0..PRUNE_EVERY {
-            rl.check(ip(200), later);
-        }
-        assert_eq!(len(), 1, "the periodic sweep dropped the expired windows");
-    }
-
-    #[test]
     fn failures_block_one_account_until_success_or_the_window_ends() {
         let limiter = FailureLimiter::new(3, Duration::from_secs(900), 100);
         let t0 = Instant::now();
@@ -687,25 +648,6 @@ mod tests {
         }
         assert!(limiter.is_blocked("nobody@example.com", ip(1), t0));
         assert!(!limiter.is_blocked("nobody@example.com", ip(2), t0));
-    }
-
-    fn user(n: u128) -> Uuid {
-        Uuid::from_u128(n)
-    }
-
-    #[test]
-    fn per_user_limiter_counts_each_user_separately() {
-        let rl = RateLimiter::new(1, Duration::from_secs(60));
-        let t0 = Instant::now();
-        assert!(rl.check(user(1), t0));
-        assert!(
-            !rl.check(user(1), t0),
-            "the same user's 2nd request is blocked"
-        );
-        assert!(
-            rl.check(user(2), t0),
-            "a different user has their own budget"
-        );
     }
 
     #[test]

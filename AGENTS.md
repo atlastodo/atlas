@@ -25,6 +25,16 @@
   - Rust: `cargo nextest run -p atlas-server <name>` for one test. Every server test shares one database (`TEST_DATABASE_URL`), so a test that runs a database-wide sweep (op retention, blob GC, account purge) and asserts on what it removed must be listed in the `database-sweeps` group in `.config/nextest.toml`, which runs them one at a time; otherwise they delete each other's rows and flake.
   - `packages/*`: `cd packages/sdk && bunx --bun vitest run src/foo.test.ts` (vitest runs under Bun's runtime, supported since Bun 1.4; `test:all` and CI do the same).
 
+## Writing tests
+
+A test guards intended behavior: it changes only when that behavior changes and fails only when it regresses. Don't add a test that depends on:
+
+- **The past:** asserting that removed code, routes, fields or files stay gone. Bringing them back would be a decision, not a regression. The exception is a removal whose return would open an auth, data-exposure or E2EE hole (an unauthenticated or plaintext route, a token reaching an account-critical route, a field leaving unencrypted): keep those as security guards.
+- **Nothing:** something no change to the code can break: that the framework renders or fires events, that a mock returns what it was told to (above all a mock of the unit under test), or what the type system already guarantees.
+- **The implementation:** an expected value computed with the code's own logic (write the literal instead), private state, internal call order, or which helper ran.
+
+Before adding a test, check that no existing test already guards the same behavior on the same path; extend that one instead. Don't add production code that exists only for a test (test-only exports, `_forTests` hooks, reset functions); test through the public API, the `FakeServer`s or the server's HTTP routes. A rule shared by Rust and TypeScript is tested through a `test-vectors/` fixture both sides read, not with parallel hand-written cases.
+
 ## Layout
 
 - **Core is app-agnostic.** No app's domain rules live here: an app registers an **app definition** (its kinds, scope links and writer field; `registerApp` in `packages/client-core/src/fieldPolicy.ts`, `atlas_client::apps` in Rust) and keeps its rules in its own repository (todo's: `@atlastodo/todo-core`, `atlas-todo-rules` and the `atlas-todo` CLI in atlastodo/atlas-todo; the journal's: `@atlastodo/journal-core`, `atlas-journal-rules` and the `atlas-journal` CLI in atlastodo/atlas-journal; the vault's: `@atlastodo/vault-core` (item rules and `VaultClient`), `atlas-vault-rules`, the `atlas-vault` CLI and `secretspec-provider-atlas` in atlastodo/atlas-vault; journal and vault are personal and register no definition). A new kind, field, link or rule of an app needs no change here; don't add one. Only something the server must read (a public field, a token policy, a new app) is a manifest change. Core's own tests run with the todo-shaped test app of `test-vectors/scope_rule_vectors.json` (`testApp.testutil.ts`, `atlas_client::testing::register_test_app`), and app-scoped sessions with the journal and vault manifests on raw store writes (`crates/atlas-client/tests/apps.rs`). See `docs/architecture.md` (App definitions).

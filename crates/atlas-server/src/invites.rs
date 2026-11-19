@@ -199,13 +199,3 @@ async fn revoke_invite(
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_invite_validity_is_within_the_clamp() {
-        assert!((1..=365).contains(&DEFAULT_VALIDITY_DAYS));
-    }
-}

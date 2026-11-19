@@ -868,16 +868,6 @@ pub async fn reauth(
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_prf_input_is_the_hash_of_its_label() {
-        // Pinned in test-vectors/passkey_vectors.json too: the client sends the same input.
-        assert_eq!(
-            prf_input(),
-            b64url(&Sha256::digest(b"atlas-passkey-prf-v1"))
-        );
-        assert_eq!(prf_input().len(), 43);
-    }
-
     /// The client's vectors: the same PRF input, and a slot key derivation an independent HKDF
     /// reproduces (the server never derives one; this pins the documented scheme).
     #[test]

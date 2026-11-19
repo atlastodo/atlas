@@ -193,10 +193,4 @@ describe("field encryption policy", () => {
     expect(shouldEncryptField("comment", "anything")).toBe(true);
     expect(shouldEncryptField("no_such_entity" as EntityKind, "project_id")).toBe(true);
   });
-
-  it("never encrypts server-authored project_member fields", () => {
-    for (const field of ["project_id", "user_id", "email", "role", "state", "whatever"]) {
-      expect(shouldEncryptField("project_member", field)).toBe(false);
-    }
-  });
 });
