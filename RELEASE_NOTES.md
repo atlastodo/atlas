@@ -4,6 +4,7 @@
 - `atlas-client` moves to jiff 1.0: its `TimeZone` (`zoned_parts`, `AtlasClient::time_zone`) is jiff 1.0's, so dependents need `jiff = "1.0"`
 
 ### Fixes
+- `url` 2.5.9: a crafted nested `blob:` URL overflowed the stack in `Url::origin()` ([RUSTSEC-2026-0592](https://rustsec.org/advisories/RUSTSEC-2026-0592))
 - Don't size push's op-id map from the request
 
 ### Documentation
