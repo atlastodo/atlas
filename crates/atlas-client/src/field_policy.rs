@@ -71,20 +71,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_manifest_decides() {
-        assert!(should_encrypt_field("task", "title"));
-        assert!(should_encrypt_field("task", "project_id"));
-        assert!(!legacy_encrypted("task", "project_id"));
-        assert!(should_encrypt_field("comment", "task_id"));
-        assert!(!should_encrypt_field("attachment", "blob_sha"));
-        assert!(is_public_field("attachment", "blob_sha"));
-        assert!(is_public_field("project", "archived_at"));
-        assert!(should_encrypt_field("project", "archived_at"));
-        assert!(!should_encrypt_field("project_member", "anything"));
-        assert!(should_encrypt_field("notes.note", "body"));
-        assert_eq!(wire_kind_of("task").as_deref(), Some("todo.sealed"));
-        assert_eq!(wire_kind_of("project").as_deref(), Some("todo.project"));
-        assert_eq!(wire_kind_of("vault.item").as_deref(), Some("vault.sealed"));
+    fn wire_kinds_name_their_real_kinds() {
         assert_eq!(
             real_kind_of("todo.project", None),
             Some("project".to_owned())

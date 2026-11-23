@@ -460,7 +460,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sync_rate_limit_is_per_user() {
+    async fn per_user_rate_limit_is_billed_to_the_user_not_the_ip() {
+        // The attachment-transfer and invite limiter (`enforce_per_user`); sync has its own.
         use crate::ratelimit::{RateLimitConfig, UserRateLimitState};
         use std::time::Duration;
 
@@ -474,7 +475,7 @@ mod tests {
             &config,
         );
         let router = Router::new()
-            .route("/sync/pull", axum::routing::get(|| async { "ok" }))
+            .route("/attachments/x", axum::routing::get(|| async { "ok" }))
             .layer(axum::middleware::from_fn_with_state(
                 rl_state,
                 crate::ratelimit::enforce_per_user,
@@ -493,7 +494,7 @@ mod tests {
         let hit = |jwt: String| {
             router.clone().oneshot(
                 Request::builder()
-                    .uri("/sync/pull")
+                    .uri("/attachments/x")
                     .header("authorization", format!("Bearer {jwt}"))
                     .body(Body::empty())
                     .unwrap(),
@@ -508,7 +509,7 @@ mod tests {
             hit(alice).await.unwrap().status(),
             StatusCode::TOO_MANY_REQUESTS
         );
-        // ...while another user's budget is untouched: sync is billed to the user, not the IP.
+        // ...while another user's budget is untouched: the limit is billed to the user, not the IP.
         let bob = jwt_for(Uuid::now_v7());
         assert_eq!(hit(bob).await.unwrap().status(), StatusCode::OK);
     }

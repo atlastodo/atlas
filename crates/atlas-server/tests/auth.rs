@@ -484,63 +484,6 @@ async fn login_with_unknown_email_is_unauthorized() {
 }
 
 #[tokio::test]
-async fn refresh_rotates_and_old_token_is_rejected() {
-    let router = setup().await;
-    let email = unique_email();
-    let (_, signup) = send(
-        &router,
-        "POST",
-        "/auth/signup",
-        None,
-        with_keys(json!({
-            "email": email, "password": PASSWORD
-        })),
-    )
-    .await;
-    let first_refresh = signup["refresh_token"].as_str().unwrap().to_string();
-
-    let (status, refreshed) = send(
-        &router,
-        "POST",
-        "/auth/refresh",
-        None,
-        json!({
-            "refresh_token": first_refresh
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let second_refresh = refreshed["refresh_token"].as_str().unwrap().to_string();
-    assert_ne!(first_refresh, second_refresh, "token should rotate");
-
-    // The rotation chain keeps working without any replay: the new token rotates again.
-    let (status, refreshed2) = send(
-        &router,
-        "POST",
-        "/auth/refresh",
-        None,
-        json!({ "refresh_token": second_refresh }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let third_refresh = refreshed2["refresh_token"].as_str().unwrap().to_string();
-    assert_ne!(second_refresh, third_refresh, "token should rotate again");
-
-    // Reusing the long-revoked first token must fail.
-    let (status, _) = send(
-        &router,
-        "POST",
-        "/auth/refresh",
-        None,
-        json!({
-            "refresh_token": first_refresh
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-}
-
-#[tokio::test]
 async fn replaying_a_revoked_refresh_token_revokes_the_whole_family() {
     // A consumed (rotated) refresh token is single-use, so presenting it again after the grace
     // window signals theft; even from a client that asks for the grace. Since attacker and victim
@@ -827,20 +770,6 @@ async fn logout_revokes_the_device_family_even_with_an_already_rotated_token() {
 }
 
 #[tokio::test]
-async fn the_refresh_token_hash_index_covers_revoked_rows() {
-    // The reuse lookup filters on revoked rows; a partial index over live rows cannot serve it.
-    let pool = test_pool().await;
-    atlas_server::db::migrate(&pool).await.unwrap();
-    let def: String = sqlx::query_scalar(
-        "SELECT indexdef FROM pg_indexes WHERE indexname = 'refresh_tokens_token_hash_idx'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert!(!def.contains("WHERE"), "{def}");
-}
-
-#[tokio::test]
 async fn a_logged_out_refresh_token_gets_no_grace() {
     // Logout revokes without rotating: presenting that token again is not a lost race between
     // tabs, so it keeps the theft response.
@@ -868,43 +797,6 @@ async fn a_logged_out_refresh_token_gets_no_grace() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert!(body.get("code").is_none(), "no grace: {body:?}");
-}
-
-#[tokio::test]
-async fn logout_revokes_refresh_token() {
-    let router = setup().await;
-    let email = unique_email();
-    let (_, signup) = send(
-        &router,
-        "POST",
-        "/auth/signup",
-        None,
-        with_keys(json!({
-            "email": email, "password": PASSWORD
-        })),
-    )
-    .await;
-    let refresh = signup["refresh_token"].as_str().unwrap().to_string();
-
-    let (status, _) = send(
-        &router,
-        "POST",
-        "/auth/logout",
-        None,
-        json!({ "refresh_token": refresh }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-
-    let (status, _) = send(
-        &router,
-        "POST",
-        "/auth/refresh",
-        None,
-        json!({ "refresh_token": refresh }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

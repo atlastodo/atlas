@@ -8,7 +8,7 @@
 #   rust:1.99    must stay >= rust-version in Cargo.toml
 
 # Stage 1: Compile the Rust backend binary
-FROM rust:1.99-bookworm AS server-builder
+FROM rust:1.100-bookworm AS server-builder
 WORKDIR /app
 
 # The image's own Rust only provides rustup: the build uses the one rust-toolchain.toml pins, as CI,

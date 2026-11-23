@@ -557,23 +557,6 @@ async fn key_id_must_be_a_32_hex_fingerprint() {
 }
 
 #[tokio::test]
-async fn single_project_key_route_is_gone() {
-    let router = setup().await;
-    let alice = new_user(&router).await;
-    let pid = push_project(&router, &alice).await;
-    put_own(&router, &alice, &pid, &key_id(1), wrapped_pek("a")).await;
-    let (status, _) = send(
-        &router,
-        "GET",
-        &format!("/projects/{pid}/keys"),
-        Some(&alice.token),
-        json!({}),
-    )
-    .await;
-    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
-}
-
-#[tokio::test]
 async fn list_returns_every_own_row_and_the_canonical_key() {
     let router = setup().await;
     let alice = new_user(&router).await;

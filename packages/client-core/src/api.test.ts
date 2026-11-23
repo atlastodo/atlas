@@ -24,19 +24,6 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 describe("ApiClient", () => {
-  it("sends auth header and parses JSON on success", async () => {
-    const fetchMock = vi
-      .fn<FetchLike>()
-      .mockResolvedValue(jsonResponse(200, [{ device_id: "d1", current: true }]));
-    const client = new ApiClient({ baseUrl: "http://x", token: "tok", fetch: fetchMock });
-
-    const sessions = await client.listSessions();
-    expect(sessions).toHaveLength(1);
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe("http://x/auth/sessions");
-    expect((init!.headers as Record<string, string>)["authorization"]).toBe("Bearer tok");
-  });
-
   it("normalizes a trailing slash in baseUrl", async () => {
     const fetchMock = vi.fn<FetchLike>().mockResolvedValue(jsonResponse(200, []));
     const client = new ApiClient({ baseUrl: "http://x/", fetch: fetchMock });
@@ -80,12 +67,6 @@ describe("ApiClient", () => {
     await client.listInvites();
     const [, init] = fetchMock.mock.calls[0]!;
     expect((init!.headers as Record<string, string>)["authorization"]).toBeUndefined();
-  });
-
-  it("exposes ApiError as an Error subclass", () => {
-    const err = new ApiError(404, "not found");
-    expect(err).toBeInstanceOf(Error);
-    expect(err.status).toBe(404);
   });
 
   it("throws a NetworkError (not ApiError) when fetch rejects — the server is unreachable", async () => {

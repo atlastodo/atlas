@@ -3,6 +3,6 @@
 # with it (rust-overlay). Dependabot's rust-toolchain updates move it. The MSRV is separate: Cargo.toml's
 # rust-version, checked by CI's MSRV job.
 [toolchain]
-channel = "1.99.1"
+channel = "1.100.0"
 components = ["rustfmt", "clippy"]
 profile = "minimal"

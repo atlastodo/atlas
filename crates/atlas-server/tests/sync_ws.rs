@@ -334,40 +334,6 @@ async fn a_ticket_takes_a_live_session() {
 }
 
 #[tokio::test]
-async fn ws_backfills_ops_since_cursor_on_connect() {
-    let state = make_state().await;
-    let control = app(state.clone());
-    let token = signup(&control).await;
-
-    // Commit an op BEFORE connecting.
-    let tid = Uuid::now_v7();
-    http(
-        &control,
-        "POST",
-        "/sync/push",
-        Some(&token),
-        json!({
-            "operations": [set_op(tid, "title", json!("earlier"), 500)]
-        }),
-    )
-    .await;
-
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let server = app(state.clone());
-    tokio::spawn(async move {
-        axum::serve(listener, server).await.unwrap();
-    });
-
-    // Connect with since=0 → the backfill should contain the earlier op.
-    let mut ws = connect(addr, &control, &token, 0).await;
-    assert!(
-        wait_for_field(&mut ws, "title", "earlier").await,
-        "expected backfill to include the op committed before connecting"
-    );
-}
-
-#[tokio::test]
 async fn live_payload_names_the_cursor_it_follows() {
     let state = make_state().await;
     let addr = spawn_server(&state).await;

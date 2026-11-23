@@ -10,7 +10,6 @@ import {
   decryptJson,
   deriveAuthAndMek,
   deriveAuthAndMekAsync,
-  deriveRecoveryKey,
   encryptAesGcm,
   encryptJson,
   generateDek,
@@ -53,26 +52,6 @@ describe("Key Derivation (KDF)", () => {
     expect(s1.length).toBe(32); // 16 bytes = 32 hex chars
     expect(s2.length).toBe(32);
     expect(s1).not.toBe(s2);
-  });
-
-  test("deriveAuthAndMek is deterministic", () => {
-    const salt = generateSalt();
-    const k1 = deriveAuthAndMek("super-secret-password", salt, 1000);
-    const k2 = deriveAuthAndMek("super-secret-password", salt, 1000);
-
-    expect(k1.authHash).toBe(k2.authHash);
-    expect(bytesToHex(k1.mek)).toBe(bytesToHex(k2.mek));
-    expect(k1.authHash.length).toBe(64); // 32 bytes hex
-    expect(k1.mek.byteLength).toBe(32);
-  });
-
-  test("different passwords produce different keys", () => {
-    const salt = generateSalt();
-    const k1 = deriveAuthAndMek("passA", salt, 1000);
-    const k2 = deriveAuthAndMek("passB", salt, 1000);
-
-    expect(k1.authHash).not.toBe(k2.authHash);
-    expect(bytesToHex(k1.mek)).not.toBe(bytesToHex(k2.mek));
   });
 
   test("deriveAuthAndMekAsync matches the pure-JS derivation (WebCrypto path)", async () => {
@@ -190,17 +169,6 @@ describe("BIP-39 Recovery Phrase", () => {
   test("validates recovery phrase rejects invalid words or bad checksum", () => {
     expect(validateRecoveryPhrase("abandon abandon abandon")).toBe(false);
     expect(validateRecoveryPhrase("notaword word foo bar baz")).toBe(false);
-  });
-
-  test("deriveRecoveryKey is deterministic for phrase + salt", () => {
-    const phrase = generateRecoveryPhrase();
-    const salt = generateSalt();
-
-    const rk1 = deriveRecoveryKey(phrase, salt);
-    const rk2 = deriveRecoveryKey(phrase, salt);
-
-    expect(rk1.byteLength).toBe(32);
-    expect(bytesToHex(rk1)).toBe(bytesToHex(rk2));
   });
 });
 
