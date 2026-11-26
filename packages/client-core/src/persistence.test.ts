@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { LocalStore, PersistError } from "./store";
 import { SqlitePersistence, type Persistence, type SqlDatabase } from "./persistence";
 import { FakeSqlDatabase } from "./persistence.testutil";

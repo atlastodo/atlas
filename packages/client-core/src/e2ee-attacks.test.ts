@@ -3,7 +3,7 @@
  * plays the server: it serves crafted sync payloads or key rows and checks what the client reads
  * and what it sends back.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { ApiClient, type FetchLike, type WireOp } from "./api";
 import { generateAek, unwrapAek, unwrapAekAny, wrapAek } from "./attachments";
 import {

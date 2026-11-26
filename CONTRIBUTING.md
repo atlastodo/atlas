@@ -101,15 +101,15 @@ The devenv scripts are short shell in `devenv.nix`. Without devenv, `test:all` a
 ```sh
 # test:all (PostgreSQL running, TEST_DATABASE_URL set)
 cargo nextest run --workspace
-(cd packages/client-core && bunx --bun vitest run)
-(cd packages/sdk && bunx --bun vitest run)
+(cd packages/client-core && bun run test)
+(cd packages/sdk && bun run test)
 
 # lint
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --no-deps -- -D warnings
 bun run --filter '*' typecheck
 bunx oxlint .
-bunx prettier --check .
+bun fmt --check
 node scripts/third-party-licenses.mjs --check
 ```
 
@@ -121,17 +121,17 @@ so in the pull request and the maintainer will regenerate it.
 All of these run inside `devenv shell` (without it, see [Without Nix](#without-nix)). The root
 `package.json` has no scripts.
 
-| Script                   | What it does                                                         |
-| ------------------------ | -------------------------------------------------------------------- |
-| `dev`                    | the server (cargo watch) on :8080, serving the pinned web app        |
-| `nix:bun-lock`           | regenerate `nix/bun.nix` after a `bun.lock` change                   |
-| `deps:update`            | refresh what Dependabot can't (locks, Bun pins, app web pins)        |
-| `db:migrate`, `db:reset` | apply or reset the migrations                                        |
-| `test:all`               | every test suite (see below)                                         |
-| `lint`                   | rustfmt check, clippy, TypeScript checks, oxlint, Prettier, licences |
-| `fmt`                    | rustfmt and prettier                                                 |
-| `packages:pack`          | pack the core packages' npm tarballs into `dist-packages/`           |
-| `version:bump`           | release helper, maintainers only                                     |
+| Script                   | What it does                                                          |
+| ------------------------ | --------------------------------------------------------------------- |
+| `dev`                    | the server (cargo watch) on :8080, serving the pinned web app         |
+| `nix:bun-lock`           | regenerate `nix/bun.nix` after a `bun.lock` change                    |
+| `deps:update`            | refresh what Dependabot can't (locks, Bun pins, app web pins)         |
+| `db:migrate`, `db:reset` | apply or reset the migrations                                         |
+| `test:all`               | every test suite (see below)                                          |
+| `lint`                   | rustfmt check, clippy, TypeScript checks, oxlint, `bun fmt`, licences |
+| `fmt`                    | rustfmt and `bun fmt`                                                 |
+| `packages:pack`          | pack the core packages' npm tarballs into `dist-packages/`            |
+| `version:bump`           | release helper, maintainers only                                      |
 
 The full-suite script is `test:all`, not `test`: a script named `test` collides with the shell
 builtin.
@@ -141,16 +141,16 @@ builtin.
 `test:all` runs, in order and stopping at the first failure:
 
 1. `cargo nextest run --workspace`
-2. vitest in `packages/client-core` and `packages/sdk`
+2. `bun test` in `packages/client-core` and `packages/sdk` (each package's `test` script)
 
 `lint` runs `cargo fmt --check`, `cargo clippy --workspace --all-targets --no-deps -D warnings`,
-`tsc --noEmit` for every core package, `oxlint .`, `prettier --check .` and the licence check.
+`bun check` for every core package, `oxlint .`, `bun fmt --check` and the licence check.
 `fmt` fixes the formatting.
 
 Each package has its own runner. To run one test:
 
 - Rust: `cargo nextest run -p atlas-server <name>`
-- `packages/*`: `cd packages/sdk && bunx --bun vitest run src/foo.test.ts`
+- `packages/*`: `cd packages/sdk && bun run test src/foo.test.ts`
 
 Where the tests live:
 
@@ -206,15 +206,15 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pu
 push to `dev` runs it for the changed paths before building the `dev` image, and a tag runs
 the full suite. Pull requests from forks need no secrets, so they get the same checks:
 
-| Check             | What it runs                                                                         |
-| ----------------- | ------------------------------------------------------------------------------------ |
-| Lint (Rust)       | `cargo fmt --check`, clippy with `-D warnings`                                       |
-| Lint (TypeScript) | typecheck of the core packages; licence check; oxlint; Prettier check                |
-| MSRV              | `cargo check` on the minimum Rust version (1.94)                                     |
-| Test (Rust)       | `cargo nextest run --workspace` against PostgreSQL 16                                |
-| Test (TypeScript) | vitest in client-core, shared and sdk; the packed packages installed as a consumer's |
-| Audit (Rust)      | `cargo deny check` (allowed to fail)                                                 |
-| Audit (JS)        | `bun audit` (allowed to fail)                                                        |
+| Check             | What it runs                                                                     |
+| ----------------- | -------------------------------------------------------------------------------- |
+| Lint (Rust)       | `cargo fmt --check`, clippy with `-D warnings`                                   |
+| Lint (TypeScript) | typecheck of the core packages; licence check; oxlint; `bun fmt --check`         |
+| MSRV              | `cargo check` on the minimum Rust version (1.94)                                 |
+| Test (Rust)       | `cargo nextest run --workspace` against PostgreSQL 16                            |
+| Test (TypeScript) | `bun test` in client-core and sdk; the packed packages installed as a consumer's |
+| Audit (Rust)      | `cargo deny check` (allowed to fail)                                             |
+| Audit (JS)        | `bun audit` (allowed to fail)                                                    |
 
 The audits are informational, so a red audit check on a pull request does not block it.
 Fixable advisories are fixed with `overrides` or a dependency bump, not ignored.

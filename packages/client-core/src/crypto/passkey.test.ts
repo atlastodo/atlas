@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import {
   decodeBase64Url,
   derivePasskeySlotKey,
@@ -40,7 +40,7 @@ describe("passkey vectors", () => {
     it(`derives the slot key and opens the slot: ${v.name}`, () => {
       const key = derivePasskeySlotKey(hexToBytes(v.prf_output), v.credential_id);
       expect(bytesToHex(key)).toBe(v.slot_key);
-      expect(passkeySlot(v.credential_id)).toBe(v.slot);
+      expect<unknown>(passkeySlot(v.credential_id)).toBe(v.slot);
       const slot = passkeySlot(v.credential_id);
       expect(bytesToHex(unwrapRootKey(v.passkey_slot, key, v.user_id, slot))).toBe(v.root_key);
     });

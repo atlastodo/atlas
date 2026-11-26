@@ -15,7 +15,7 @@
 //   LICENSE             the repository's licence
 //
 // Inside this repository nothing needs the build: the `@atlastodo/source` export condition sends
-// tsc, Metro and vitest to src/ (see each consumer's config). Only a tarball consumer reads dist/.
+// tsc, Metro and bun test to src/ (see each consumer's config). Only a tarball consumer reads dist/.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";

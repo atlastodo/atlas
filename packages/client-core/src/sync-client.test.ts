@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
+import { advanceTimersByTimeAsync, mocked, waitFor } from "./runner.testutil";
 import { ApiClient, ApiError, E2eeLockedError, UpgradeRequiredError } from "./api";
 import { LocalStore, PersistError } from "./store";
 import { MemoryPersistence } from "./persistence";
@@ -387,15 +388,15 @@ describe("SyncClient", () => {
       const client = new SyncClient(s, server.transport, { cursor: server.log.length });
       await client.sync();
 
-      const healsAfterFirst = vi
-        .mocked(server.transport.syncPull)
-        .mock.calls.filter(([since]) => since === 0).length;
+      const healsAfterFirst = mocked(server.transport.syncPull).mock.calls.filter(
+        ([since]) => since === 0,
+      ).length;
       expect(healsAfterFirst).toBeGreaterThanOrEqual(1); // healed once
 
       await client.sync();
-      const healsAfterSecond = vi
-        .mocked(server.transport.syncPull)
-        .mock.calls.filter(([since]) => since === 0).length;
+      const healsAfterSecond = mocked(server.transport.syncPull).mock.calls.filter(
+        ([since]) => since === 0,
+      ).length;
       expect(healsAfterSecond).toBe(healsAfterFirst); // never again
     });
   });
@@ -445,12 +446,12 @@ describe("SyncClient", () => {
       // Polls inside the window do not touch the server.
       const skipped = await client.sync();
       expect(skipped.skipped).toBe("throttled");
-      await vi.advanceTimersByTimeAsync(2_999);
+      await advanceTimersByTimeAsync(2_999);
       expect(server.transport.syncPull).toHaveBeenCalledTimes(1);
 
       // Once the window has passed, the client syncs again without waiting for a poll.
-      await vi.advanceTimersByTimeAsync(1);
-      await vi.waitFor(() => expect(client.currentStatus()).toBe("idle"));
+      await advanceTimersByTimeAsync(1);
+      await waitFor(() => expect(client.currentStatus()).toBe("idle"));
       expect(server.transport.syncPull).toHaveBeenCalledTimes(2);
       expect(statuses).not.toContain("offline");
     });
@@ -475,8 +476,8 @@ describe("SyncClient", () => {
       await client.sync(); // skipped inside the wait
       expect(synced).toEqual([]);
 
-      await vi.advanceTimersByTimeAsync(1000); // the client's own resume cycle
-      await vi.waitFor(() => expect(synced).toHaveLength(1));
+      await advanceTimersByTimeAsync(1000); // the client's own resume cycle
+      await waitFor(() => expect(synced).toHaveLength(1));
       expect(synced[0]!.skipped).toBeUndefined();
     });
 
@@ -638,7 +639,7 @@ describe("SyncClient", () => {
 
       expect(s.unsyncedOps()).toHaveLength(0);
       // No request was refused: each one was already small enough.
-      for (const result of vi.mocked(server.transport.syncPush).mock.results) {
+      for (const result of mocked(server.transport.syncPush).mock.results) {
         expect(result.type).toBe("return");
       }
     });
@@ -834,7 +835,7 @@ describe("SyncClient", () => {
         realtime: { url },
       });
       await client.sync();
-      await vi.advanceTimersByTimeAsync(120_000);
+      await advanceTimersByTimeAsync(120_000);
 
       expect(url).toHaveBeenCalledTimes(1); // no reconnect loop against a server that refuses us
       expect(sockets).toHaveLength(0);
@@ -885,7 +886,7 @@ describe("SyncClient", () => {
       // The hub lost the message carrying seq 1; this one covers only (1, 2].
       sockets[0]!.message(JSON.stringify({ operations: [delivered], from: 1, cursor: 2 }));
 
-      await vi.waitFor(() => expect(s.get("task", "t1")).toEqual({ title: "missed" }));
+      await waitFor(() => expect(s.get("task", "t1")).toEqual({ title: "missed" }));
       expect(s.get("task", "t2")).toEqual({ title: "delivered" });
       // The gap never moved the cursor: the pull it triggered started at 0, and 2 came from it.
       expect(pulls[pullsBefore]).toEqual({ since: 0, own: 0 });
@@ -919,13 +920,13 @@ describe("SyncClient", () => {
 
       sockets[0]!.closeEvent(4410);
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(s.get("task", "ghost")).toBeNull();
         expect(s.get("task", "t9")).toEqual({ title: "kept" });
       });
       expect(client.currentCursor()).toBe(1);
       // The rebuilt cycle brings the socket back from the new cursor.
-      await vi.waitFor(() => expect(sockets).toHaveLength(2));
+      await waitFor(() => expect(sockets).toHaveLength(2));
       expect(sockets[1]!.url).toContain("since=1");
     });
 
@@ -1063,7 +1064,7 @@ describe("SyncClient", () => {
       const op = other.set("task", "t1", "title", "durable");
       log.push(op);
       sockets[0]!.message(JSON.stringify({ operations: [op], from: 0, cursor: 1 }));
-      await vi.waitFor(() => expect(opsOnDiskAtCursorAdvance).toBe(1));
+      await waitFor(() => expect(opsOnDiskAtCursorAdvance).toBe(1));
 
       // Same durability guarantee as the pull path: when the cursor moved, the op was already
       // durable — a crash here resumes from a cursor that is never ahead of the ops on disk.

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { MemoryPersistence } from "./persistence";
 import {
   LOCAL_STORE_KEY_ID,

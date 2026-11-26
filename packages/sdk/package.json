@@ -43,15 +43,15 @@
   },
   "scripts": {
     "build": "bun ../../scripts/build-core-package.mjs",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "bun check",
+    "test": "bun test --parallel --conditions=@atlastodo/source"
   },
   "dependencies": {
     "@atlastodo/client-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "typescript": "^7.0.2",
-    "vitest": "^5.1.0"
+    "bun-types": "^1.4.4",
+    "typescript": "^7.0.2"
   }
 }

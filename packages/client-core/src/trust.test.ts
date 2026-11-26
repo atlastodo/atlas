@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { LocalStore } from "./store";
 import {
   EMPTY_KEY_TRUST,

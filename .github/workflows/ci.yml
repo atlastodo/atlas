@@ -150,14 +150,14 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
-      # Every workspace that defines `typecheck`: the core packages.
+      # Every workspace that defines `typecheck` (`bun check`): the core packages.
       - run: bun run --parallel --filter '*' typecheck
       # The licences of the JS packages the builds ship, against an allow-list.
       - run: node scripts/third-party-licenses.mjs --check
       # devenv.lock's copy of the flake's nixpkgs and rust-overlay must match flake.lock.
       - run: node scripts/check-devenv-lock.mjs
       - run: bunx oxlint .
-      - run: bunx prettier --check .
+      - run: bun fmt --check
 
   msrv:
     name: MSRV
@@ -270,13 +270,13 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
-      # `--bun` runs vitest itself under Bun's runtime; these suites are runtime-agnostic pure TS.
+      # Each package's `test` script: `bun test`, every file in a fresh global (`--parallel`).
       - name: client-core
         working-directory: packages/client-core
-        run: bunx --bun vitest run
+        run: bun run test
       - name: sdk
         working-directory: packages/sdk
-        run: bunx --bun vitest run
+        run: bun run test
       # The npm tarballs the release attaches, packed and installed as another repository would.
       - name: Pack the core packages
         run: |

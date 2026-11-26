@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { HlcClock, MAX_COUNTER, compareHlc, type Hlc } from "./hlc";
 
 const NODE_A = "00000000-0000-0000-0000-00000000000a";

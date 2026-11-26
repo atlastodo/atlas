@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 import { ApiClient, type FetchLike } from "./api";
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -23,7 +23,7 @@ describe("ApiClient: passkeys", () => {
       .mockImplementation(async () => jsonResponse(200, { options: { challenge: "c" } }));
     const client = new ApiClient({ baseUrl: "http://x", token: "tok", fetch: fetchMock });
 
-    expect(await client.passkeyLoginOptions("a@b.dev")).toEqual({ challenge: "c" });
+    expect<unknown>(await client.passkeyLoginOptions("a@b.dev")).toEqual({ challenge: "c" });
     await client.passkeySignupOptions({ userId: "u", email: "a@b.dev" });
     await client.removePasskey("p1", { reauth_token: "proof" });
     await client.deleteAccount({ reauth_token: "proof" });

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 import { ApiClient, ApiError, SYNC_APPS_HEADER, type AccountAppView } from "./api";
 import { RootKeyRequiredError, buildAppKey, enableApp, openAppKey, todoAppKeyRow } from "./rootKey";
 import {

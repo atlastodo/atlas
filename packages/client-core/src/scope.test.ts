@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 import { ApiClient, type FetchLike, type WireOp } from "./api";
 import {
   DEK_KEY_ID,
@@ -666,7 +666,7 @@ describe("rescopeEntity (a task)", () => {
       expect(isEncryptedEnvelope(valueOf(op))).toBe(true);
       expect(op.scope).toBe(P);
     }
-    expect(projectKeyId(pek)).toBe(keyring.canonicalKeyId(P));
+    expect<string | undefined>(projectKeyId(pek)).toBe(keyring.canonicalKeyId(P));
   });
 
   it("does not re-wrap a key the server copied in from another attachment", () => {

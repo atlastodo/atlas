@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { argon2id } from "@noble/hashes/argon2.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 import {
   CURRENT_KDF,
   LEGACY_KDF,
@@ -15,6 +15,10 @@ import {
   type PasswordKdf,
 } from "./kdf";
 import { bytesToHex, hexToBytes, utf8ToBytes } from "./utils";
+
+// The pure-JS Argon2id takes seconds per vector: on a loaded CI runner (all test jobs share it)
+// this crossed the 5s default timeout, so give the KDF room to breathe.
+setDefaultTimeout(30_000);
 
 /**
  * The password KDF must give every client the same master key for the same password, or an account
@@ -63,9 +67,7 @@ const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as {
   derivations: Derivation[];
 };
 
-// The pure-JS Argon2id takes seconds per vector: on a loaded CI runner (all test jobs share it)
-// this crossed vitest's 5s default and timed out, so give the KDF room to breathe.
-describe("Argon2id vectors", { timeout: 30_000 }, () => {
+describe("Argon2id vectors", () => {
   for (const v of fixture.argon2id) {
     it(`the portable implementation reproduces ${v.name}`, async () => {
       const out = await argon2idPortable(

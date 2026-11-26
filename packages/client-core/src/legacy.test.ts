@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 import { ApiError } from "./api";
 import type { Hlc } from "./hlc";
 import { migrateLegacy, type LegacyKey, type LegacyTransport } from "./legacy";

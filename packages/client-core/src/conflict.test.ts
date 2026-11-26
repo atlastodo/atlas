@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { fromEncryptedWire, type WireOp } from "./api";
 import { LocalStore } from "./store";
 

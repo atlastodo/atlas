@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  // Oxlint for the TypeScript packages. Formatting is Prettier's job (.prettierrc.json).
+  // Oxlint for the TypeScript packages. Formatting is `bun fmt`'s job (.prettierrc.json).
   // Only the rules below run: oxlint's default `correctness` category is off, so this stays the
   // rule set of typescript-eslint's `recommended` config that ESLint ran before the switch.
   "plugins": ["typescript"],

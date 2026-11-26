@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "bun:test";
 import { ApiClient, E2eeLockedError, toEncryptedWire, type FetchLike } from "./api";
 import { Keyring, generateDek, generatePek } from "./crypto";
 import type { Operation } from "./types";

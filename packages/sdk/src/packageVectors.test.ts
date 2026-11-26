@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 /**
  * The package tarball ships the `test-vectors/` fixtures its `atlas.testVectors` names (copied from

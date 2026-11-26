@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 import { ApiClient, NetworkError, type FetchLike } from "./api";
 import {
   LEGACY_DISCOVERY,

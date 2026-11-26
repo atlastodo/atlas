@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
+import { advanceTimersByTimeAsync } from "./runner.testutil";
 import {
   RealtimeClient,
   buildSyncWsUrl,
@@ -60,7 +61,7 @@ function harness(opts: Partial<RealtimeClientOptions> = {}) {
 }
 
 /** Let a pending ticket request settle (the URL is asked for before each socket is made). */
-const settle = () => vi.advanceTimersByTimeAsync(0);
+const settle = () => advanceTimersByTimeAsync(0);
 
 describe("RealtimeClient", () => {
   beforeEach(() => {
@@ -110,24 +111,24 @@ describe("RealtimeClient", () => {
     // Open, drop, reconnect: the first retry waits the base delay.
     sockets[0]!.open();
     sockets[0]!.closeEvent();
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS - 1);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS - 1);
     expect(sockets).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(1);
+    await advanceTimersByTimeAsync(1);
     expect(sockets).toHaveLength(2);
 
     // Fail again without opening: the delay doubles.
     sockets[1]!.closeEvent();
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS * 2 - 1);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS * 2 - 1);
     expect(sockets).toHaveLength(2);
-    await vi.advanceTimersByTimeAsync(1);
+    await advanceTimersByTimeAsync(1);
     expect(sockets).toHaveLength(3);
 
     // A successful open resets the backoff: the next drop retries from the base again.
     sockets[2]!.open();
     sockets[2]!.closeEvent();
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS - 1);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS - 1);
     expect(sockets).toHaveLength(3);
-    await vi.advanceTimersByTimeAsync(1);
+    await advanceTimersByTimeAsync(1);
     expect(sockets).toHaveLength(4);
   });
 
@@ -139,12 +140,12 @@ describe("RealtimeClient", () => {
     const steps = [1000, 2000, 4000, 8000, 16000];
     for (const ms of steps) {
       sockets.at(-1)!.closeEvent();
-      await vi.advanceTimersByTimeAsync(ms);
+      await advanceTimersByTimeAsync(ms);
     }
     sockets.at(-1)!.closeEvent();
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_MAX_MS - 1);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_MAX_MS - 1);
     expect(sockets).toHaveLength(6);
-    await vi.advanceTimersByTimeAsync(1);
+    await advanceTimersByTimeAsync(1);
     expect(sockets).toHaveLength(7);
   });
 
@@ -153,10 +154,10 @@ describe("RealtimeClient", () => {
     client.start();
     await settle();
     sockets[0]!.closeEvent(); // a refused handshake: the ticket is spent either way
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS);
     sockets[1]!.open();
     sockets[1]!.closeEvent();
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS);
 
     expect(url).toHaveBeenCalledTimes(3);
     expect(sockets.map((s) => s.url)).toEqual([
@@ -178,12 +179,12 @@ describe("RealtimeClient", () => {
     expect(sockets).toHaveLength(0);
     expect(states.at(-1)).toBe("connecting");
 
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS); // second attempt: still offline
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS); // second attempt: still offline
     expect(url).toHaveBeenCalledTimes(2);
     offline = false;
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS * 2 - 1);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS * 2 - 1);
     expect(sockets).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(1);
+    await advanceTimersByTimeAsync(1);
     expect(sockets).toHaveLength(1);
   });
 
@@ -197,10 +198,10 @@ describe("RealtimeClient", () => {
     client.start();
     await settle();
 
-    await vi.advanceTimersByTimeAsync(20_000 - 1);
+    await advanceTimersByTimeAsync(20_000 - 1);
     expect(url).toHaveBeenCalledTimes(1);
     expect(sockets).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(1);
+    await advanceTimersByTimeAsync(1);
     expect(sockets).toHaveLength(1);
   });
 
@@ -214,7 +215,7 @@ describe("RealtimeClient", () => {
     expect(sockets).toHaveLength(0); // signed out: nothing to connect with
 
     session = "t";
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS);
     expect(sockets).toHaveLength(1); // signed in; the next attempt picks it up
   });
 
@@ -232,7 +233,7 @@ describe("RealtimeClient", () => {
 
     // A real socket may still fire onclose after close() — it must not resurrect the client.
     socket.closeEvent();
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_MAX_MS * 2);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_MAX_MS * 2);
     expect(sockets).toHaveLength(1);
   });
 
@@ -243,7 +244,7 @@ describe("RealtimeClient", () => {
     client.start();
     client.dispose();
     issue("ws://x/sync/ws?ticket=late&since=0");
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_MAX_MS * 2);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_MAX_MS * 2);
     expect(sockets).toHaveLength(0);
     expect(url).toHaveBeenCalledTimes(1);
   });
@@ -254,14 +255,14 @@ describe("RealtimeClient", () => {
     await settle();
     const stale = sockets[0]!;
     stale.closeEvent(); // failed handshake → schedule the retry
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS);
     expect(sockets).toHaveLength(2);
 
     // A replaced socket's late close (a real one can still fire after close()) must be dropped:
     // no duplicate retry timer stacking another attempt.
     sockets[1]!.closeEvent(); // this one is fresh: handled, retried after 2s
     stale.closeEvent(); // stale: ignored
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS * 2);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS * 2);
     expect(sockets).toHaveLength(3);
   });
 });
@@ -280,7 +281,7 @@ describe("RealtimeClient close codes", () => {
     await settle();
     sockets[0]!.open();
     sockets[0]!.closeEvent(1013);
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS);
     expect(sockets).toHaveLength(2);
   });
 
@@ -290,15 +291,15 @@ describe("RealtimeClient close codes", () => {
     await settle();
     sockets[0]!.open();
     sockets[0]!.closeEvent(1011);
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS * 2);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS * 2);
     expect(sockets).toHaveLength(2);
 
     sockets[1]!.open();
     sockets[1]!.closeEvent(1011);
     // A second consecutive failure waits longer than the first did.
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS * 2);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS * 2);
     expect(sockets).toHaveLength(2);
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS * 2);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS * 2);
     expect(sockets).toHaveLength(3);
   });
 
@@ -310,9 +311,9 @@ describe("RealtimeClient close codes", () => {
     sockets[0]!.closeEvent(4401);
 
     // The ticket request that follows refreshes the expired token, as any 401 does.
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS - 1);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_BASE_MS - 1);
     expect(sockets).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(1);
+    await advanceTimersByTimeAsync(1);
     expect(url).toHaveBeenCalledTimes(2);
     expect(sockets).toHaveLength(2);
   });
@@ -324,7 +325,7 @@ describe("RealtimeClient close codes", () => {
     sockets[0]!.open();
     sockets[0]!.closeEvent(4403);
 
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_MAX_MS * 4);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_MAX_MS * 4);
     expect(sockets).toHaveLength(1);
     expect(url).toHaveBeenCalledTimes(1);
     expect(closes).toEqual([4403]);
@@ -338,7 +339,7 @@ describe("RealtimeClient close codes", () => {
     sockets[0]!.open();
     sockets[0]!.closeEvent(4410);
 
-    await vi.advanceTimersByTimeAsync(REALTIME_BACKOFF_MAX_MS * 4);
+    await advanceTimersByTimeAsync(REALTIME_BACKOFF_MAX_MS * 4);
     expect(sockets).toHaveLength(1);
     expect(closes).toEqual([4410]);
   });
