@@ -1,6 +1,6 @@
 import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 import {
   LEGACY_KDF,
   bytesToBase64Url,
@@ -310,7 +310,7 @@ describe("passkey proofs", () => {
       { clientExtensionResults: { prf: { results: { first: "x" } }, credProps: { rk: true } } },
       true,
     );
-    expect(stripped.clientExtensionResults).toEqual({
+    expect<unknown>(stripped.clientExtensionResults).toEqual({
       credProps: { rk: true },
       prf: { enabled: true },
     });

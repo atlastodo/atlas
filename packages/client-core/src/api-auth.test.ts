@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 import { ApiClient, type FetchLike } from "./api";
 
 /** Build a Response-like object without a real DOM/fetch. */

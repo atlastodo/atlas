@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, setDefaultTimeout } from "bun:test";
+import { waitFor } from "./runner.testutil";
 import {
   ApiClient,
   ApiError,
@@ -52,6 +53,11 @@ import { MemoryPersistence, type AttachmentCiphertext, type Persistence } from "
 import { sha256 } from "@noble/hashes/sha2.js";
 import { gcm } from "@noble/ciphers/aes.js";
 import type { Operation } from "./types";
+
+// Pure-JS AES-GCM over multi-chunk files (sealing, and the download path's decryption): on a
+// loaded CI runner (all test jobs share it) this crossed the 5s default timeout, so give the
+// ciphers room to breathe.
+setDefaultTimeout(30_000);
 
 /** `n` bytes of noise; `randomBytes` draws at most 64 KiB at once. */
 function noise(n: number): Uint8Array {
@@ -138,9 +144,7 @@ describe("attachment blob crypto", () => {
   });
 });
 
-// Pure-JS AES-GCM over multi-chunk files: on a loaded CI runner (all test jobs share it) this
-// crossed vitest's 5s default and timed out, so give the ciphers room to breathe.
-describe("sealing a file from a source", { timeout: 30_000 }, () => {
+describe("sealing a file from a source", () => {
   /** A multi-chunk file with a partial last chunk. */
   const BIG = noise(3 * BLOB_CHUNK_SIZE + 1234);
 
@@ -361,8 +365,7 @@ describe("AEK wrapping (scope keys)", () => {
   });
 });
 
-// Decrypts multi-chunk blobs in pure JS; see "sealing a file from a source" for the timeout.
-describe("fetchBlob (download path)", { timeout: 30_000 }, () => {
+describe("fetchBlob (download path)", () => {
   function transportReturning(body: Uint8Array | BlobDownload): BlobTransport {
     return { put: vi.fn(), get: vi.fn(async () => body) };
   }
@@ -761,7 +764,7 @@ describe("AttachmentQueue", () => {
     );
 
     const draining = h.queue.drain();
-    await vi.waitFor(() => expect(h.transport.put).toHaveBeenCalled());
+    await waitFor(() => expect(h.transport.put).toHaveBeenCalled());
     // The put is in flight and NOTHING has been published yet.
     expect(attachmentOps(h.store)).toHaveLength(0);
 
@@ -978,7 +981,7 @@ describe("AttachmentQueue", () => {
     const first = h.queue.drain();
     const second = h.queue.drain();
     expect(second).toBe(first); // the same in-flight loop, not a second uploader
-    await vi.waitFor(() => expect(h.transport.put).toHaveBeenCalled());
+    await waitFor(() => expect(h.transport.put).toHaveBeenCalled());
     resolvePut("stored");
     expect(await first).toEqual({ stored: 1, retried: 0, failed: 0, cancelled: 0, deferred: 0 });
   });
@@ -1213,7 +1216,7 @@ describe("AttachmentQueue memory and races", () => {
     await queue.drain();
     const [sha, body] = h.transport.put.mock.calls[0]! as unknown as [string, Blob];
     expect(sha).toBe(entry.blobSha);
-    expect(body).toBe(entry.ciphertext);
+    expect<unknown>(body).toBe(entry.ciphertext);
     const bytes = new Uint8Array(await body.arrayBuffer());
     expect(bytesToHex(sha256(bytes))).toBe(entry.blobSha);
   });
@@ -1248,7 +1251,7 @@ describe("AttachmentQueue memory and races", () => {
       () => new Promise<"stored">((resolve) => (finish = () => resolve("stored"))),
     );
     const drained = h.queue.drain();
-    await vi.waitFor(() => expect(h.transport.put).toHaveBeenCalled());
+    await waitFor(() => expect(h.transport.put).toHaveBeenCalled());
     await h.queue.remove(entry.id);
     finish();
     await drained;

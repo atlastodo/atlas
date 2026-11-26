@@ -1,0 +1,3 @@
+[test]
+# Core has no app's rules: its tests register a todo-shaped test app (scope_rule_vectors.json).
+preload = ["./src/testApp.testutil.ts"]

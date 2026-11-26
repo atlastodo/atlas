@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import {
   buildE2eePasswordChange,
   buildKdfUpgrade,
@@ -40,7 +40,7 @@ const TEST_ARGON2ID_WIRE = {
 
 describe("buildE2eePasswordChange", () => {
   // Full PBKDF2 derivations before the expects: on a loaded CI runner (all test jobs share it)
-  // this crossed vitest's 5s default and timed out, so give the KDF room to breathe.
+  // this crossed the 5s default timeout, so give the KDF room to breathe.
   it("re-wraps the key material under the new password and KDF, keeping the salt", async () => {
     const salt = generateSalt();
     const dek = generateDek();

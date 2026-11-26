@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import vectors from "../../../test-vectors/scope_rule_vectors.json";
 import {
   actorFieldOf,

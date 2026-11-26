@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { IDBFactory } from "fake-indexeddb";
 import { LocalStore } from "./store";
 import {
@@ -617,7 +617,7 @@ describe("IndexedDbPersistence schema upgrade (v1 → v2)", () => {
     expect(await p.getCursor()).toBe(7);
     const loaded = await p.load();
     expect(loaded).toHaveLength(1);
-    expect(loaded[0]!.op).toEqual({ id: "op-legacy" });
+    expect<unknown>(loaded[0]!.op).toEqual({ id: "op-legacy" });
 
     // And the new store is functional, not merely present.
     const row = uploadRow({ id: "up-after-upgrade" });

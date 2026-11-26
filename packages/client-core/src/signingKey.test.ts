@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 import { ApiError } from "./api";
 import {
   Keyring,
@@ -38,9 +38,9 @@ describe("ensureSigningKey", () => {
     expect(keyring.getSigningPublicKey()).toBe(result.publicKey);
     const stored = srv.stored()!;
     expect(stored.signing_public_key).toBe(result.publicKey);
-    expect(unwrapSigningKey(stored.encrypted_signing_key!, dek, result.publicKey)).toEqual(
-      keyring.getSigningKey(),
-    );
+    expect<Uint8Array | null>(
+      unwrapSigningKey(stored.encrypted_signing_key!, dek, result.publicKey),
+    ).toEqual(keyring.getSigningKey());
     // Held now: nothing more to do.
     expect((await ensureSigningKey(srv.api, keyring)).created).toBe(false);
     expect(srv.api.puts).toBe(1);

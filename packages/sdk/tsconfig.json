@@ -10,7 +10,7 @@
     "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["vitest/globals", "node"],
+    "types": ["node", "bun-types/test"],
     "noEmit": true,
     "resolveJsonModule": true
   },

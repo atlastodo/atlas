@@ -235,8 +235,7 @@ function metaKeyOf(query: string): string | undefined {
 
 /**
  * An in-memory stand-in for expo-sqlite's `SQLiteDatabase`, so `ExpoSqlDatabase` can be
- * driven through the conformance battery without a device: neither `bun:sqlite` nor `node:sqlite`
- * is resolvable under vitest, so a real engine is not an option here.
+ * driven through the conformance battery without a device or a native SQLite engine.
  *
  * It deliberately delegates to {@link FakeSqlDatabase} rather than re-stubbing the statements: the
  * storage behaviour is asserted once, and what this adds is the *inverse* of the adapter's

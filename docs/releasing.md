@@ -144,7 +144,7 @@ A consumer imports the built `dist/` (ESM, declarations for `moduleResolution` `
 and `nodenext`) and can assert the shipped fixtures, e.g.
 `require("@atlastodo/client-core/test-vectors/password_kdf_vectors.json")`. Inside this repository
 the packages are used unbuilt: their `exports` lead with an `@atlastodo/source` condition (their
-`src/`), which the packages' `vitest.config.ts` aliases follow. `scripts/smoke-core-packages.sh`
+`src/`), which the packages' typechecks and `bun test` (`--conditions`) follow. `scripts/smoke-core-packages.sh`
 (in CI's Test (TypeScript)) installs the packed tarballs into a scratch project as a consumer would
 and checks them; locally, `packages:pack` writes them to `dist-packages/`.
 

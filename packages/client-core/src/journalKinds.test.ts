@@ -4,7 +4,7 @@
  * the DEK's role. Every field is a personal-scope envelope under that key, bound to the kind, so
  * neither the todo key nor another kind's location opens it.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { ApiClient, fromEncryptedWire, toEncryptedWire, type FetchLike } from "./api";
 import { Keyring, generateDek } from "./crypto";
 import { resolveScope } from "./scope";

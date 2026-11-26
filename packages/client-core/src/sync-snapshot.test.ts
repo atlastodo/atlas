@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi } from "bun:test";
+import { advanceTimersByTimeAsync, mocked, waitFor } from "./runner.testutil";
 import {
   ApiClient,
   ApiError,
@@ -226,7 +227,7 @@ describe("snapshot bootstrap", () => {
     // The retry picks up at page 1 (page 0 is not fetched again) and converges with one cursor write.
     const r = await client.sync();
     expect(server.transport.syncSnapshot).toHaveBeenCalledTimes(4); // p0, p1 (fail), p1, p2
-    expect(vi.mocked(server.transport.syncSnapshot!).mock.calls.map(([n]) => n)).toEqual([
+    expect(mocked(server.transport.syncSnapshot!).mock.calls.map(([n]) => n)).toEqual([
       undefined,
       "task/t1",
       "task/t1",
@@ -355,10 +356,10 @@ describe("snapshot bootstrap", () => {
     // Relaunch: hydrate the pages already on disk and continue at page 2.
     const second = new LocalStore(NODE_A, { persistence, newId: () => `op-b-${Math.random()}` });
     await second.hydrate();
-    vi.mocked(server.transport.syncSnapshot!).mockClear();
+    mocked(server.transport.syncSnapshot!).mockClear();
     await wire(second, await persistence.getBootstrap()).sync();
 
-    expect(vi.mocked(server.transport.syncSnapshot!).mock.calls.map(([n]) => n)).toEqual([
+    expect(mocked(server.transport.syncSnapshot!).mock.calls.map(([n]) => n)).toEqual([
       "task/t1",
       "task/t2",
       "task/t3",
@@ -477,7 +478,7 @@ describe("cursor expired (410): rebuild from the snapshot", () => {
     await client.sync();
 
     // The walk started at the first page.
-    expect(vi.mocked(server.transport.syncSnapshot!).mock.calls[0]?.[0]).toBeUndefined();
+    expect(mocked(server.transport.syncSnapshot!).mock.calls[0]?.[0]).toBeUndefined();
     expect(s.get("task", "t2")).toEqual({ title: "v2" });
     expect(s.unsyncedOps().map((o) => o.id)).toEqual([queued.id]);
     expect(s.get("task", "offline")).toEqual({ title: "written offline" });
@@ -532,7 +533,7 @@ describe("resetAndBootstrap on request", () => {
     const client = new SyncClient(s, server.transport);
     await client.sync();
     s.applyRemote(seed.set("task", "ghost", "title", "gone from the server"));
-    const snapshotCalls = () => vi.mocked(server.transport.syncSnapshot!).mock.calls.length;
+    const snapshotCalls = () => mocked(server.transport.syncSnapshot!).mock.calls.length;
     return { server, s, client, snapshotCalls };
   }
 
@@ -586,7 +587,7 @@ describe("resetAndBootstrap on request", () => {
     const [first, result] = await Promise.all([running, rebuilt]);
     expect(first).not.toBe(result);
     expect(events.slice(0, 2)).toEqual(["pull", "snapshot"]);
-    expect(await joined).toBe(result);
+    expect<unknown>(await joined).toBe(result);
     expect(s.get("task", "ghost")).toBeNull();
   });
 
@@ -647,8 +648,8 @@ describe("resetAndBootstrap on request", () => {
       expect(postponed.skipped).toBe("throttled");
       expect(s.get("task", "ghost")).toEqual({ title: "gone from the server" });
       // The cycle that ends the wait performs the rebuild.
-      await vi.advanceTimersByTimeAsync(10_000);
-      await vi.waitFor(() => expect(s.get("task", "ghost")).toBeNull());
+      await advanceTimersByTimeAsync(10_000);
+      await waitFor(() => expect(s.get("task", "ghost")).toBeNull());
       client.dispose();
     } finally {
       vi.useRealTimers();

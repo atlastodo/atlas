@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 import { DEK_KEY_ID, Keyring, generateDek, generatePek, projectKeyId } from "./crypto";
 import type { Hlc } from "./hlc";
 import { reviveLockedValues, type ScopeKey } from "./scope";

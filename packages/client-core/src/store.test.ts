@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { LocalStore, MAX_CLOCK_DRIFT_MS } from "./store";
 import { MemoryPersistence } from "./persistence";
 import { compareHlc } from "./hlc";
@@ -154,7 +154,7 @@ describe("LocalStore convergence", () => {
 
 describe("reading one kind", () => {
   // 20 000 entities listed 20 times over: on a loaded CI runner (all test jobs share it) this
-  // crossed vitest's 5s default and timed out, so give it room to breathe.
+  // crossed the 5s default timeout, so give it room to breathe.
   it("does not walk the entities of other kinds", { timeout: 30_000 }, () => {
     let n = 0;
     const s = new LocalStore("00000000-0000-0000-0000-0000000000a1", { newId: () => `op-${n++}` });

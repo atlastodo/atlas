@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import {
   OP_LOG_FILE_FORMAT,
   OpLogFileError,
@@ -46,7 +46,7 @@ describe("op-log file", () => {
     try {
       decodeOpLogFile(text);
     } catch (err) {
-      expect((err as OpLogFileError).reason).toBe(reason);
+      expect<string>((err as OpLogFileError).reason).toBe(reason);
     }
   });
 

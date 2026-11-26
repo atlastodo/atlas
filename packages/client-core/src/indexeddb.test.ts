@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "bun:test";
+import { waitFor } from "./runner.testutil";
 import { IDBFactory } from "fake-indexeddb";
 import { IndexedDbPersistence } from "./indexeddb";
 import type { Operation } from "./types";
@@ -59,7 +60,7 @@ describe("IndexedDbPersistence across tabs", () => {
 
     const loading = p.load();
     // The blocked event arrives on a later task; wait for it rather than a fixed delay.
-    await vi.waitFor(() => expect(blocked).toBe(1));
+    await waitFor(() => expect(blocked).toBe(1));
 
     older.close();
     await expect(loading).resolves.toEqual([]);

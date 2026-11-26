@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, setDefaultTimeout } from "bun:test";
 import {
   BLOB_CHUNK_SIZE,
   BLOB_FORMAT_VERSION,
@@ -11,6 +11,10 @@ import {
   sealedBlobSize,
 } from "./blob";
 import { randomBytes, utf8ToBytes } from "./utils";
+
+// Pure-JS AES-GCM over multi-megabyte blobs: on a loaded CI runner (all test jobs share it) this
+// crossed the 5s default timeout, so give the ciphers room to breathe.
+setDefaultTimeout(30_000);
 
 /** `n` bytes of noise; `randomBytes` draws at most 64 KiB at once. */
 function noise(n: number): Uint8Array {
@@ -62,9 +66,7 @@ function chunksOf(blob: Uint8Array, chunkSize: number): Uint8Array[] {
   return out;
 }
 
-// Pure-JS AES-GCM over multi-megabyte blobs: on a loaded CI runner (all test jobs share it) this
-// crossed vitest's 5s default and timed out, so give the ciphers room to breathe.
-describe("chunked blob format", { timeout: 30_000 }, () => {
+describe("chunked blob format", () => {
   it("writes the documented header", () => {
     const prefix = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
     const sealer = new BlobSealer(KEY, { noncePrefix: prefix });

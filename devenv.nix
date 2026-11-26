@@ -135,12 +135,12 @@ in
   scripts."test:all".exec = ''
     set -euo pipefail
     cargo nextest run --workspace
-    # `--bun` runs vitest itself under Bun's runtime (supported since Bun 1.4), matching CI.
-    (cd packages/client-core && bunx --bun vitest run)
-    (cd packages/sdk && bunx --bun vitest run)
+    # Each package's `test` script (`bun test`), as in CI.
+    (cd packages/client-core && bun run test)
+    (cd packages/sdk && bun run test)
   '';
-  # Typecheck, oxlint (`.oxlintrc.json`) and `prettier --check` cover the TypeScript packages, as
-  # in CI's `Lint (TypeScript)`.
+  # Typecheck (`bun check`), oxlint (`.oxlintrc.json`) and `bun fmt --check` cover the TypeScript
+  # packages, as in CI's `Lint (TypeScript)`.
   # One command per line: under `set -e` a failure on the left of `&&` would not stop the script.
   scripts.lint.exec = ''
     set -euo pipefail
@@ -148,7 +148,7 @@ in
     cargo clippy --workspace --all-targets --no-deps -- -D warnings
     bun run --filter '*' typecheck
     bunx oxlint .
-    bunx prettier --check .
+    bun fmt --check
     node scripts/third-party-licenses.mjs --check
     # nix/bun.nix must match bun.lock (Dependabot's bun PRs regenerate it).
     if command -v nix >/dev/null; then
@@ -162,7 +162,7 @@ in
   '';
   scripts.fmt.exec = ''
     cargo fmt --all
-    bunx prettier --write .
+    bun fmt
   '';
   # Regenerate nix/bun.nix (the npm dependency set bun2nix reads) from bun.lock, with the bun2nix
   # version the flake locks. Run after every change to bun.lock; `lint` checks it.
